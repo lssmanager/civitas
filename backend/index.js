@@ -3,6 +3,7 @@ const cors = require("cors");
 require("dotenv").config();
 const { requireAuth, requireOrganizationAccess } = require("./middleware/auth");
 const { fetchLogtoManagementApiAccessToken } = require("./lib/utils");
+const { checkDatabaseConnection } = require("./db/connection");
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -10,7 +11,26 @@ const port = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// Organizations routes
+// Local base healthcheck. It intentionally does not depend on Logto or any external integration.
+app.get("/health", async (req, res) => {
+  const database = await checkDatabaseConnection();
+  const healthy = database.ok;
+
+  res.status(healthy ? 200 : 503).json({
+    status: healthy ? "ok" : "degraded",
+    service: "civitas-api",
+    timestamp: new Date().toISOString(),
+    database: {
+      status: healthy ? "connected" : "unavailable",
+      host: database.host,
+      port: database.port,
+      name: database.database,
+      ...(database.error ? { error: database.error } : {}),
+    },
+  });
+});
+
+// Organizations routes (legacy Logto sample; kept protected and out of the local base flow).
 app.post(
   "/organizations",
   requireAuth("https://api.documind.com"),
@@ -117,7 +137,7 @@ app.post(
 
 // Basic route
 app.get("/", (req, res) => {
-  res.json({ message: "Welcome to the API" });
+  res.json({ message: "Welcome to the Civitas API", health: "/health" });
 });
 
 // Start server

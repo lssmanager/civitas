@@ -1,101 +1,158 @@
-# Multi-tenant SaaS Sample Application
+# Civitas
 
-This is the companion code for the blog post [Build a multi-tenant SaaS application: A complete guide from design to implementation](https://blog.logto.io/build-multi-tenant-saas-application).
+Civitas es una aplicación en monorepo con frontend React y backend Node/Express. Este estado del repositorio establece el **Nivel 0**: una base técnica local pequeña y verificable antes de introducir autenticación, organizaciones o integraciones externas.
 
-This demo application showcases how to build a SaaS application with multi-tenant support using [Logto](https://logto.io).
+## Alcance actual
 
-The project consists of a frontend application and a backend service that demonstrate organization management, user authentication, document management, and Logto management API integration features.
+Incluido en esta base local:
 
-## About This Project
+- Frontend React con Vite (`frontend/`).
+- Backend Node/Express (`backend/`).
+- PostgreSQL local mediante Docker Compose.
+- Drizzle ORM configurado en el backend.
+- Primera migración SQL mínima para validar el flujo.
+- `GET /health` para verificar API y conectividad básica con PostgreSQL.
 
-This codebase implements the concepts and features discussed in the blog post, including:
-- Multi-tenant organization management
-- User authentication with Logto
-- Document management system
-- Organization level role-based access control
-- Logto management API integration
+Fuera de alcance en este nivel:
 
-## Project Structure
+- Login, Logto, organizaciones, roles, membresías.
+- Moodle, BuddyBoss, FluentCRM.
+- Redis, workers o colas.
 
-- `frontend/`: React-based frontend application
-- `backend/`: Node.js backend service
+El código heredado del sample de Logto se conserva en rutas protegidas para no bloquear trabajo futuro, pero el flujo local documentado abajo no depende de Logto.
 
-## Quick Start
+## Estructura
 
-To run the complete application locally, you'll need to:
+```text
+.
+├── backend/              # API Express, configuración PostgreSQL y Drizzle
+│   ├── db/               # Configuración de conexión y schema Drizzle
+│   └── drizzle/          # Migraciones iniciales
+├── frontend/             # Aplicación React/Vite
+└── docker-compose.yml    # PostgreSQL local
+```
 
-1. Start the backend service first
-2. Start the frontend application
-3. Configure the proper environment variables in both projects
-4. Ensure your Logto application is properly configured with the correct redirect URIs
+## Requisitos
 
-### Backend Setup
+- Node.js 20 o superior.
+- npm.
+- Docker con Docker Compose.
 
-1. Navigate to the backend directory:
+## Configuración inicial
+
+Instala dependencias en cada paquete:
+
 ```bash
 cd backend
-```
+npm install
 
-2. Copy the environment file and configure Logto settings:
-```bash
-cp .env.example .env
-```
-
-3. Install dependencies:
-```bash
+cd ../frontend
 npm install
 ```
 
-4. Start the development server:
+Crea los archivos de entorno locales desde los ejemplos:
+
 ```bash
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env
+```
+
+Los valores por defecto apuntan a:
+
+- Backend: `http://localhost:3000`
+- Frontend: `http://localhost:5173`
+- PostgreSQL: `postgres://civitas:civitas@localhost:5432/civitas`
+
+## Levantar PostgreSQL local
+
+Desde la raíz del repositorio:
+
+```bash
+docker compose up -d postgres
+```
+
+Este compose levanta solo PostgreSQL para mantener el entorno base simple. El frontend y backend se ejecutan fuera de Compose con los scripts npm de desarrollo, lo que evita reconstrucciones de contenedores durante esta etapa.
+
+## Ejecutar migraciones
+
+Con PostgreSQL levantado:
+
+```bash
+cd backend
+npm run db:migrate
+```
+
+Para generar nuevas migraciones desde el schema Drizzle cuando el modelo cambie:
+
+```bash
+cd backend
+npm run db:generate
+```
+
+## Levantar backend
+
+```bash
+cd backend
 npm run dev
 ```
 
-The backend server will be running at http://localhost:3000.
+El backend arranca en `http://localhost:3000`. No requiere variables de Logto para iniciar ni para responder `GET /health`.
 
-### Frontend Setup
+## Verificar healthcheck
 
-1. Navigate to the frontend directory:
+Con PostgreSQL y backend activos:
+
+```bash
+curl http://localhost:3000/health
+```
+
+Respuesta esperada cuando PostgreSQL está accesible:
+
+```json
+{
+  "status": "ok",
+  "service": "civitas-api",
+  "timestamp": "2026-06-12T00:00:00.000Z",
+  "database": {
+    "status": "connected",
+    "host": "localhost",
+    "port": 5432,
+    "name": "civitas"
+  }
+}
+```
+
+Si PostgreSQL no está disponible, el backend sigue arrancando, pero `/health` responde `503` con estado `degraded` y el detalle de error de conexión.
+
+## Levantar frontend
+
 ```bash
 cd frontend
-```
-
-2. Configure the environment variables in `src/env.ts`:
-```typescript
-export const APP_ENV = {
-  logto: {
-    endpoint: "<YOUR_LOGTO_ENDPOINT>",
-    appId: "<YOUR_LOGTO_APP_ID>",
-  },
-  api: {
-    baseUrl: "<YOUR_BACKEND_API_BASE_URL>",
-    resourceIndicator: "<YOUR_API_RESOURCE_INDICATOR>",
-  },
-  app: {
-    redirectUri: "<YOUR_REDIRECT_URI>", // Ensure this matches the redirect URI in your Logto app settings in the Console
-    signOutRedirectUri: "<YOUR_SIGN_OUT_REDIRECT_URI>", // Ensure this matches the sign out redirect URI in your Logto app settings in the Console
-  },
-};
-```
-
-3. Install dependencies:
-```bash
-npm install
-```
-
-4. Start the development server:
-```bash
 npm run dev
 ```
 
-The frontend application will be running at http://localhost:5173.
+El frontend carga en `http://localhost:5173` y, por defecto, usa `VITE_ENABLE_LOGTO=false`. En este modo muestra una pantalla local de Nivel 0 y consulta `GET /health` mediante `VITE_API_BASE_URL`.
 
-## Learn More
+## Variables de entorno
 
-For a detailed explanation of the concepts and implementation details, please read the accompanying blog post:
-[Build a multi-tenant SaaS application: A complete guide from design to implementation](https://blog.logto.io/build-multi-tenant-saas-application)
+### Backend
 
-## License
+Ver `backend/.env.example`:
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+- `PORT`: puerto HTTP del backend.
+- `DATABASE_URL`: URL de conexión PostgreSQL usada por Drizzle y por el healthcheck.
+- Variables `LOGTO_*`: opcionales y comentadas; no son requeridas para este issue.
 
+### Frontend
+
+Ver `frontend/.env.example`:
+
+- `VITE_API_BASE_URL`: URL base del backend.
+- `VITE_ENABLE_LOGTO=false`: mantiene desactivado el sample heredado de Logto para el flujo base.
+- Variables `VITE_LOGTO_*`: opcionales y comentadas; reservadas para una futura etapa de autenticación.
+
+## Deuda técnica anotada
+
+- Las rutas heredadas `/organizations` y `/documents` todavía representan el sample de Logto y deberán rediseñarse cuando se implemente autenticación y organizaciones reales de Civitas.
+- El frontend conserva componentes del sample autenticado detrás de `VITE_ENABLE_LOGTO`; no forman parte del flujo de Nivel 0.
+- La migración inicial solo crea una tabla mínima de verificación técnica. El modelo de dominio real debe definirse en issues posteriores.
