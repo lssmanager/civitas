@@ -1,21 +1,87 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: civitas-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: civitas
-      POSTGRES_USER: civitas
-      POSTGRES_PASSWORD: civitas
+      POSTGRES_DB: ${POSTGRES_DB:-civitas}
+      POSTGRES_USER: ${POSTGRES_USER:-civitas}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-civitas}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - civitas-postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U civitas -d civitas"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 10
+
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: ${BACKEND_PORT:-3000}
+      DATABASE_URL: ${DATABASE_URL:-postgres://civitas:civitas@postgres:5432/civitas}
+      LOGTO_ENDPOINT: ${LOGTO_ENDPOINT:-}
+      LOGTO_JWKS_URL: ${LOGTO_JWKS_URL:-}
+      LOGTO_ISSUER: ${LOGTO_ISSUER:-}
+      LOGTO_MANAGEMENT_API_TOKEN_ENDPOINT: ${LOGTO_MANAGEMENT_API_TOKEN_ENDPOINT:-}
+      LOGTO_MANAGEMENT_API_APPLICATION_ID: ${LOGTO_MANAGEMENT_API_APPLICATION_ID:-}
+      LOGTO_MANAGEMENT_API_APPLICATION_SECRET: ${LOGTO_MANAGEMENT_API_APPLICATION_SECRET:-}
+      LOGTO_MANAGEMENT_API_RESOURCE: ${LOGTO_MANAGEMENT_API_RESOURCE:-}
+    ports:
+      - "${BACKEND_PUBLIC_PORT:-3000}:${BACKEND_PORT:-3000}"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:' + (process.env.PORT || 3000) + '/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:3000}
+        VITE_ENABLE_LOGTO: ${VITE_ENABLE_LOGTO:-false}
+        VITE_LOGTO_ENDPOINT: ${VITE_LOGTO_ENDPOINT:-}
+        VITE_LOGTO_APP_ID: ${VITE_LOGTO_APP_ID:-}
+        VITE_API_RESOURCE_INDICATOR: ${VITE_API_RESOURCE_INDICATOR:-}
+        VITE_APP_REDIRECT_URI: ${VITE_APP_REDIRECT_URI:-http://localhost:5173/callback}
+        VITE_APP_SIGN_OUT_REDIRECT_URI: ${VITE_APP_SIGN_OUT_REDIRECT_URI:-http://localhost:5173/}
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:3000}
+      VITE_ENABLE_LOGTO: ${VITE_ENABLE_LOGTO:-false}
+      VITE_LOGTO_ENDPOINT: ${VITE_LOGTO_ENDPOINT:-}
+      VITE_LOGTO_APP_ID: ${VITE_LOGTO_APP_ID:-}
+      VITE_API_RESOURCE_INDICATOR: ${VITE_API_RESOURCE_INDICATOR:-}
+      VITE_APP_REDIRECT_URI: ${VITE_APP_REDIRECT_URI:-http://localhost:5173/callback}
+      VITE_APP_SIGN_OUT_REDIRECT_URI: ${VITE_APP_SIGN_OUT_REDIRECT_URI:-http://localhost:5173/}
+    ports:
+      - "${FRONTEND_PUBLIC_PORT:-5173}:5173"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:5173').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
 
 volumes:
   civitas-postgres-data:
