@@ -70,6 +70,7 @@ services:
       VITE_API_RESOURCE_INDICATOR: ${VITE_API_RESOURCE_INDICATOR:-}
       VITE_APP_REDIRECT_URI: ${VITE_APP_REDIRECT_URI:-http://localhost:5173/callback}
       VITE_APP_SIGN_OUT_REDIRECT_URI: ${VITE_APP_SIGN_OUT_REDIRECT_URI:-http://localhost:5173/}
+      PREVIEW_ALLOWED_HOSTS: ${PREVIEW_ALLOWED_HOSTS:-civitas.socialstudies.cloud}
     ports:
       - "${FRONTEND_PUBLIC_PORT:-5173}:5173"
     healthcheck:

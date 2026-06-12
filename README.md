@@ -95,11 +95,12 @@ Ver `frontend/.env.example`.
 | Variable | Valor local por defecto | Descripción |
 | --- | --- | --- |
 | `FRONTEND_PUBLIC_PORT` | `5173` | Puerto publicado para servir la SPA. |
+| `PREVIEW_ALLOWED_HOSTS` | `civitas.socialstudies.cloud` | Lista separada por comas de dominios públicos adicionales que `vite preview` acepta en el header `Host`. Añade aquí futuros dominios de Coolify. |
 | `VITE_API_BASE_URL` | `http://localhost:3000` | URL pública del backend para el navegador. En producción/Coolify debe ser la URL pública real de la API. |
 | `VITE_ENABLE_LOGTO` | `false` | Mantiene desactivado el sample heredado de Logto en Nivel 0. |
 | `VITE_LOGTO_*` | vacío | Variables heredadas opcionales para una futura etapa de autenticación. |
 
-> Importante: las variables `VITE_*` se incrustan en el bundle durante `npm run build`. En Docker/Coolify deben configurarse antes de construir/redeployar la imagen del frontend.
+> Importante: las variables `VITE_*` se incrustan en el bundle durante `npm run build`. En Docker/Coolify deben configurarse antes de construir/redeployar la imagen del frontend. `PREVIEW_ALLOWED_HOSTS` se lee en runtime por `vite preview`, por lo que sirve para parametrizar dominios públicos sin cambiar código.
 
 ## Ejecutar todo con Docker Compose
 
@@ -207,10 +208,13 @@ Variables recomendadas en Coolify:
 - `BACKEND_PORT=3000`
 - `BACKEND_PUBLIC_PORT=3000` o el puerto/ruta que Coolify asigne al servicio backend
 - `FRONTEND_PUBLIC_PORT=5173` o el puerto/ruta que Coolify asigne al servicio frontend
+- `PREVIEW_ALLOWED_HOSTS=civitas.socialstudies.cloud` para permitir el dominio público del frontend. Si hay más dominios, sepáralos por comas.
 - `VITE_API_BASE_URL=https://<dominio-publico-del-backend>`
 - `VITE_ENABLE_LOGTO=false`
 
 No uses `http://backend:3000` en `VITE_API_BASE_URL` para producción: esa dirección solo existe dentro de la red Docker. El frontend corre en el navegador del usuario y necesita llamar a una URL pública del backend, por ejemplo `https://api.example.com`.
+
+`vite preview` bloquea peticiones cuyo header `Host` no esté permitido para evitar responder a dominios inesperados detrás de proxies. Por eso Coolify mostraba `Blocked request` al entrar por `civitas.socialstudies.cloud`; el dominio público debe aparecer en `preview.allowedHosts` o en `PREVIEW_ALLOWED_HOSTS`.
 
 Si cambias `VITE_API_BASE_URL` u otra variable `VITE_*`, reconstruye/redeploya el frontend para que el nuevo valor quede dentro del bundle estático.
 
