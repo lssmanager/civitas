@@ -1,8 +1,9 @@
+const { bootstrapOwnerForInternalUser } = require("../services/ownerBootstrap");
 const { GLOBAL_ROLES, getOrCreateInternalUser, serializeUser } = require("../services/users");
 
 async function requireOwner(req, res, next) {
   try {
-    const internalUser = await getOrCreateInternalUser(req.user);
+    const internalUser = await bootstrapOwnerForInternalUser(await getOrCreateInternalUser(req.user));
 
     if (internalUser.globalRole !== GLOBAL_ROLES.OWNER) {
       return res.status(403).json({

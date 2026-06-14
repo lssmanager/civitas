@@ -5,6 +5,7 @@ const { requireAuth } = require("./middleware/auth");
 const { requireOwner } = require("./middleware/owner");
 const { checkDatabaseConnection } = require("./db/connection");
 const { getOrCreateInternalUser, serializeUser } = require("./services/users");
+const { bootstrapOwnerAtStartup, bootstrapOwnerForInternalUser } = require("./services/ownerBootstrap");
 const { createOrganization, listOrganizations } = require("./services/organizations");
 const app = express();
 const port = process.env.PORT || 3000;
@@ -87,7 +88,7 @@ app.post("/owner/organizations", requireAuth(), requireOwner, async (req, res) =
 
 app.get("/me", requireAuth(), async (req, res) => {
   try {
-    const internalUser = await getOrCreateInternalUser(req.user);
+    const internalUser = await bootstrapOwnerForInternalUser(await getOrCreateInternalUser(req.user));
 
     return res.json({
       user: serializeUser(internalUser),
@@ -116,6 +117,8 @@ app.get("/", (req, res) => {
 });
 
 // Start server
-app.listen(port, () => {
-  console.log(`Server is running on port ${port}`);
+bootstrapOwnerAtStartup().finally(() => {
+  app.listen(port, () => {
+    console.log(`Server is running on port ${port}`);
+  });
 });

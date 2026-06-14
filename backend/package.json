@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node scripts/migrate.js && node index.js",
     "dev": "node --watch index.js",
-    "test": "node --check index.js && node --check middleware/auth.js && node --check middleware/owner.js && node --check db/schema.js && node --check services/users.js && node --check services/organizations.js && node --check scripts/migrate.js && node --check scripts/grant-owner.js",
+    "test": "node --check index.js && node --check middleware/auth.js && node --check middleware/owner.js && node --check db/schema.js && node --check services/users.js && node --check services/organizations.js && node --check services/ownerBootstrap.js && node --check scripts/migrate.js && node --check scripts/grant-owner.js",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
