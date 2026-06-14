@@ -1,5 +1,5 @@
 import { useLogto } from "@logto/react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Outlet, Route, Routes } from "react-router-dom";
 import { isLogtoAuthEnabled } from "../../authConfig";
 import { APP_ENV } from "../../env";
 import { AppLayout } from "../../layouts/AppLayout";
@@ -10,7 +10,7 @@ import Callback from "../Callback";
 import { OwnerPage } from "../OwnerPage";
 import { SelectOrganizationPage } from "../SelectOrganizationPage";
 
-function LogtoPrivateLayout() {
+function LogtoPrivateOutlet() {
   const { isAuthenticated, isLoading, signIn } = useLogto();
 
   if (isLoading) {
@@ -29,34 +29,32 @@ function LogtoPrivateLayout() {
   return (
     <SessionProvider>
       <SessionGate>
-        <AppLayout />
+        <Outlet />
       </SessionGate>
     </SessionProvider>
   );
 }
 
-function DevLayout() {
-  return <AppLayout />;
-}
-
-function ProtectedLayout() {
+function ProtectedOutlet() {
   if (!isLogtoAuthEnabled) {
-    return <DevLayout />;
+    return <Outlet />;
   }
 
-  return <LogtoPrivateLayout />;
+  return <LogtoPrivateOutlet />;
 }
 
 function App() {
   return (
     <Routes>
       <Route path="callback" element={<Callback />} />
-      <Route element={<ProtectedLayout />}>
-        <Route index element={<Navigate to="/owner" replace />} />
-        <Route path="owner" element={<OwnerPage />} />
-        <Route path="select-organization" element={<SelectOrganizationPage />} />
-        <Route path="account" element={<AccountPage />} />
-        <Route path="*" element={<Navigate to="/owner" replace />} />
+      <Route element={<AppLayout />}>
+        <Route element={<ProtectedOutlet />}>
+          <Route index element={<Navigate to="/owner" replace />} />
+          <Route path="owner" element={<OwnerPage />} />
+          <Route path="select-organization" element={<SelectOrganizationPage />} />
+          <Route path="account" element={<AccountPage />} />
+          <Route path="*" element={<Navigate to="/owner" replace />} />
+        </Route>
       </Route>
     </Routes>
   );
