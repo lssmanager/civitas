@@ -4,12 +4,13 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
+    "start": "node scripts/migrate.js && node index.js",
     "dev": "node --watch index.js",
-    "test": "node --check index.js && node --check middleware/auth.js && node --check db/schema.js",
+    "test": "node --check index.js && node --check middleware/auth.js && node --check db/schema.js && node --check services/users.js && node --check scripts/migrate.js",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "migrate": "node scripts/migrate.js"
   },
   "keywords": [],
   "author": "",

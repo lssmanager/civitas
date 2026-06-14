@@ -183,7 +183,7 @@ Ejecuta migraciones si estás trabajando con el schema Drizzle:
 
 ```bash
 cd backend
-npm run db:migrate
+npm run migrate
 ```
 
 Levanta el backend en modo desarrollo:
@@ -233,13 +233,13 @@ Si cambias `VITE_API_BASE_URL` u otra variable `VITE_*`, reconstruye/redeploya e
 
 ## Migraciones Drizzle
 
-El contenedor de backend de producción arranca con `npm start` y no ejecuta migraciones automáticamente. Esto evita que cada reinicio de la aplicación modifique la base de datos sin una acción explícita.
+El contenedor de backend de producción arranca con `npm start`, que primero ejecuta `node scripts/migrate.js` y después `node index.js`. Esto aplica migraciones Drizzle pendientes contra el mismo `DATABASE_URL` del API antes de servir endpoints como `/me`.
 
-Para ejecutar migraciones en desarrollo híbrido:
+Para ejecutar migraciones manualmente en desarrollo híbrido:
 
 ```bash
 cd backend
-npm run db:migrate
+npm run migrate
 ```
 
 Para generar nuevas migraciones desde el schema Drizzle cuando el modelo cambie:
@@ -249,7 +249,7 @@ cd backend
 npm run db:generate
 ```
 
-Si se necesita automatizar migraciones en producción, se recomienda hacerlo como paso explícito de despliegue o con un job separado en una tarea futura.
+`npm run db:migrate` sigue disponible para flujos locales con `drizzle-kit`, pero el contenedor de producción instala solo dependencias runtime y usa `npm run migrate`.
 
 ## Verificación rápida
 
