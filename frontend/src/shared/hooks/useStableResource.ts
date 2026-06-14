@@ -91,7 +91,7 @@ export function useStableResource<TData, TParams>({
       return;
     }
 
-    if (nextParams) {
+    if (nextParams !== undefined) {
       setParams(nextParams);
       return;
     }

@@ -12,7 +12,7 @@ export type OwnerAuthorizationContext = {
 
 export const OWNER_REQUIRED_SCOPE = "owner:read";
 
-const devOwnerMe: OwnerAuthorizationContext = {
+export const devOwnerMe: OwnerAuthorizationContext = {
   owner: {
     logtoUserId: "dev-logto-owner",
     internalUserId: "dev-owner",
@@ -26,7 +26,15 @@ export function getOwnerAuthorizationFromSession(me: SessionContextValue["me"]):
   const scopes = Array.isArray(me?.auth?.scopes) ? me.auth.scopes : [];
 
   if (!me?.user) {
-    return devOwnerMe;
+    return {
+      owner: {
+        logtoUserId: "",
+        internalUserId: "",
+        authorizedBy: "logto_scope",
+        requiredScope: OWNER_REQUIRED_SCOPE,
+        scopes: [],
+      },
+    };
   }
 
   return {

@@ -69,8 +69,8 @@ export const useOwnerApi = () => {
       getOrganizations: async (): Promise<{ organizations: OwnerOrganization[] }> => fetchWithToken("/owner/organizations"),
       getAuditLogs: async (pagination: OwnerAuditPagination = {}): Promise<OwnerAuditResponse> => {
         const params = new URLSearchParams();
-        if (pagination.limit) params.set("limit", String(pagination.limit));
-        if (pagination.offset) params.set("offset", String(pagination.offset));
+        if (pagination.limit !== undefined) params.set("limit", String(pagination.limit));
+        if (pagination.offset !== undefined) params.set("offset", String(pagination.offset));
         const query = params.toString();
         return fetchWithToken(`/owner/audit${query ? `?${query}` : ""}`);
       },

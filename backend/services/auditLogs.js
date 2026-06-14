@@ -14,6 +14,9 @@ const AUDIT_ACTIONS = Object.freeze({
 
 const DEFAULT_LIMIT = 25;
 const MAX_LIMIT = 100;
+const MAX_OFFSET = 5000;
+const ALLOWED_AUDIT_ACTIONS = new Set(Object.values(AUDIT_ACTIONS));
+const ALLOWED_AUDIT_RESULTS = new Set(Object.values(AUDIT_RESULTS));
 const SENSITIVE_KEY_PATTERN = /(authorization|token|secret|password|credential|cookie|api[_-]?key)/i;
 
 const toIso = (value) => value?.toISOString?.() ?? value;
@@ -56,7 +59,7 @@ function normalizePagination({ limit, offset } = {}) {
 
   return {
     limit: Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(parsedLimit, MAX_LIMIT) : DEFAULT_LIMIT,
-    offset: Number.isFinite(parsedOffset) && parsedOffset >= 0 ? parsedOffset : 0,
+    offset: Number.isFinite(parsedOffset) && parsedOffset >= 0 ? Math.min(parsedOffset, MAX_OFFSET) : 0,
   };
 }
 
@@ -71,6 +74,14 @@ const serializeAuditLog = (log) => ({
 });
 
 async function recordAuditLog({ actorUserId = null, organizationId = null, action, result, metadata = null }) {
+  if (!ALLOWED_AUDIT_ACTIONS.has(action)) {
+    throw new Error(`Invalid audit action: ${action}`);
+  }
+
+  if (!ALLOWED_AUDIT_RESULTS.has(result)) {
+    throw new Error(`Invalid audit result: ${result}`);
+  }
+
   const [log] = await db
     .insert(auditLogs)
     .values({
@@ -100,7 +111,7 @@ async function listAuditLogs(paginationInput = {}) {
   const rows = await db
     .select()
     .from(auditLogs)
-    .orderBy(desc(auditLogs.createdAt))
+    .orderBy(desc(auditLogs.createdAt), desc(auditLogs.id))
     .limit(pagination.limit)
     .offset(pagination.offset);
 

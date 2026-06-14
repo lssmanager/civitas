@@ -152,11 +152,12 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
   let internalUser = null;
   let logtoOrganizationId = null;
   const { name, description, type, subdomain, seatTotal } = req.body || {};
+  const normalizedName = typeof name === "string" ? name.trim() : "";
 
   try {
     internalUser = await getOrCreateInternalUser(req.user);
 
-    if (!name || typeof name !== "string") {
+    if (!normalizedName) {
       await recordAuditLogBestEffort({
         actorUserId: internalUser.id,
         action: AUDIT_ACTIONS.OWNER_ORGANIZATION_CREATE,
@@ -166,7 +167,7 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
       return res.status(400).json({ error: "Bad Request", message: "Organization name is required" });
     }
 
-    const logtoOrganization = await createLogtoOrganization({ name, description });
+    const logtoOrganization = await createLogtoOrganization({ name: normalizedName, description });
     logtoOrganizationId = getLogtoOrganizationId(logtoOrganization);
 
     if (!logtoOrganizationId) {
@@ -190,7 +191,7 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
     try {
       profile = await upsertOrganizationProfile({
         logtoOrganizationId,
-        nameCache: getLogtoOrganizationName(logtoOrganization) || name,
+        nameCache: getLogtoOrganizationName(logtoOrganization) || normalizedName,
         type,
         subdomain,
         seatTotal,
@@ -207,7 +208,7 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
       organizationId: logtoOrganizationId,
       action: AUDIT_ACTIONS.OWNER_ORGANIZATION_CREATE,
       result: AUDIT_RESULTS.SUCCESS,
-      metadata: { name, profileId: profile?.id ?? null },
+      metadata: { name: normalizedName, profileId: profile?.id ?? null },
     });
 
     return res.status(201).json({
@@ -223,14 +224,20 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
       organizationId: logtoOrganizationId,
       action: AUDIT_ACTIONS.OWNER_ORGANIZATION_CREATE,
       result: AUDIT_RESULTS.ERROR,
-      metadata: { name, type, subdomain, seatTotal, error },
+      metadata: { name: normalizedName || name, type, subdomain, seatTotal, error },
     });
 
     console.error("Failed to create Logto organization", error);
-    return res.status(error.status === 401 || error.status === 403 ? error.status : 502).json({
-      error: error.status === 401 ? "Unauthorized" : error.status === 403 ? "Forbidden" : "Bad Gateway",
-      message: error.message,
-    });
+
+    if (error.status === 401) {
+      return res.status(401).json({ error: "Unauthorized", message: error.message });
+    }
+
+    if (error.status === 403) {
+      return res.status(403).json({ error: "Forbidden", message: error.message });
+    }
+
+    return res.status(502).json({ error: "Bad Gateway", message: "Failed to create organization" });
   }
 });
 
