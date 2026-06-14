@@ -15,6 +15,13 @@
       "when": 1791840900000,
       "tag": "0001_create_users",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791840960000,
+      "tag": "0002_add_users_global_role",
+      "breakpoints": true
     }
   ]
 }

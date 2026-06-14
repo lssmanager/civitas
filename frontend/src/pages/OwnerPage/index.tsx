@@ -1,70 +1,55 @@
-import { Badge, Button } from "react-bootstrap";
-import { ownerWorkspaces, type OwnerWorkspace } from "../../navigation/mockData";
-import { DataTable, EmptyState, ErrorState, LoadingState, PageCard, PageShell } from "../../shared/ui";
-import type { DataTableColumn } from "../../shared/ui";
+import { Badge, ListGroup } from "react-bootstrap";
+import type { OwnerMeResponse } from "../../api/owner";
+import { OwnerGuard } from "../../guards/OwnerGuard";
+import { EmptyState, PageCard, PageShell } from "../../shared/ui";
 
-const columns: DataTableColumn<OwnerWorkspace>[] = [
-  {
-    key: "name",
-    header: "Espacio",
-    render: (workspace) => <span className="fw-semibold">{workspace.name}</span>,
-  },
-  {
-    key: "status",
-    header: "Estado",
-    render: (workspace) => <Badge bg={workspace.status === "Activo" ? "success" : "secondary"}>{workspace.status}</Badge>,
-  },
-  {
-    key: "updatedAt",
-    header: "Actualizado",
-    render: (workspace) => workspace.updatedAt,
-    className: "text-nowrap",
-  },
-];
+const formatDate = (value?: string | null) => (value ? new Date(value).toLocaleString() : "No disponible");
 
-export function OwnerPage() {
+function OwnerDashboard({ ownerMe }: { ownerMe: OwnerMeResponse }) {
+  const { owner, scope } = ownerMe;
+
   return (
     <PageShell
       eyebrow="Owner"
-      title="Panel principal local"
-      description="Vista base para validar layout, navegación y componentes compartidos sin backend ni autenticación."
-      actions={<Button variant="primary">Acción mock</Button>}
+      title="Portal owner"
+      description="Entrada mínima protegida para el owner global de Civitas. Las funciones administrativas reales quedan fuera de esta fase."
+      actions={<Badge bg="success">owner_global</Badge>}
     >
       <div className="row g-4">
-        <div className="col-12 col-xl-8">
-          <PageCard
-            title="Espacios mock"
-            subtitle="Tabla reutilizable renderizando columnas y filas locales."
-          >
-            <DataTable
-              columns={columns}
-              rows={ownerWorkspaces}
-              getRowKey={(workspace) => workspace.id}
-            />
+        <div className="col-12 col-xl-7">
+          <PageCard title="Owner autenticado" subtitle="Datos mínimos del usuario interno persistido en PostgreSQL.">
+            <ListGroup variant="flush">
+              <ListGroup.Item className="d-flex justify-content-between align-items-start px-0"><span className="text-secondary">Internal user id</span><span className="fw-semibold text-break text-end">{owner.id}</span></ListGroup.Item>
+              <ListGroup.Item className="d-flex justify-content-between align-items-start px-0"><span className="text-secondary">Logto user id</span><span className="fw-semibold text-break text-end">{owner.logtoUserId}</span></ListGroup.Item>
+              <ListGroup.Item className="d-flex justify-content-between align-items-start px-0"><span className="text-secondary">Email</span><span className="fw-semibold text-break text-end">{owner.email ?? "No disponible"}</span></ListGroup.Item>
+              <ListGroup.Item className="d-flex justify-content-between align-items-start px-0"><span className="text-secondary">Status</span><Badge bg={owner.status === "active" ? "success" : "warning"}>{owner.status}</Badge></ListGroup.Item>
+              <ListGroup.Item className="d-flex justify-content-between align-items-start px-0"><span className="text-secondary">Rol global</span><Badge bg="primary">{owner.globalRole}</Badge></ListGroup.Item>
+              <ListGroup.Item className="d-flex justify-content-between align-items-start px-0"><span className="text-secondary">Last login</span><span className="fw-semibold text-end">{formatDate(owner.lastLoginAt)}</span></ListGroup.Item>
+            </ListGroup>
           </PageCard>
         </div>
-        <div className="col-12 col-xl-4">
-          <div className="d-flex flex-column gap-4">
-            <PageCard title="Estado de carga" subtitle="Componente genérico LoadingState.">
-              <LoadingState title="Preparando UI" description="Estado demo sin petición de red activa." />
-            </PageCard>
-            <PageCard title="Error visual" subtitle="Componente genérico ErrorState.">
-              <ErrorState
-                title="Error mock controlado"
-                message="Este mensaje valida la apariencia del estado de error sin disparar lógica real."
-              />
-            </PageCard>
-          </div>
+        <div className="col-12 col-xl-5">
+          <PageCard title="Alcance Fase 04" subtitle="Banderas explícitas para evitar prometer módulos no construidos.">
+            <ListGroup variant="flush">
+              <ListGroup.Item className="d-flex justify-content-between px-0"><span>Organizaciones</span><Badge bg={scope.organizations ? "success" : "secondary"}>Fuera de alcance</Badge></ListGroup.Item>
+              <ListGroup.Item className="d-flex justify-content-between px-0"><span>Membresías</span><Badge bg={scope.memberships ? "success" : "secondary"}>Fuera de alcance</Badge></ListGroup.Item>
+              <ListGroup.Item className="d-flex justify-content-between px-0"><span>RBAC fino</span><Badge bg={scope.rbac ? "success" : "secondary"}>Fuera de alcance</Badge></ListGroup.Item>
+            </ListGroup>
+          </PageCard>
         </div>
         <div className="col-12">
-          <PageCard title="Estado vacío" subtitle="Componente genérico EmptyState reutilizable.">
+          <PageCard title="Dashboard inicial" subtitle="Placeholder protegido sin métricas reales ni administración de usuarios.">
             <EmptyState
-              title="Sin acciones pendientes"
-              description="El estado vacío queda disponible para cualquier página futura de Civitas."
+              title="Sin funciones administrativas todavía"
+              description="Esta fase solo habilita la puerta segura del owner global. Organizaciones, invitaciones, auditoría, métricas y RBAC se implementarán en fases posteriores."
             />
           </PageCard>
         </div>
       </div>
     </PageShell>
   );
+}
+
+export function OwnerPage() {
+  return <OwnerGuard>{(ownerMe) => <OwnerDashboard ownerMe={ownerMe} />}</OwnerGuard>;
 }

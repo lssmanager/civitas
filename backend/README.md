@@ -61,3 +61,29 @@ To run migrations manually from the backend container or a local shell with `DAT
 ```bash
 npm run migrate
 ```
+
+## Bootstrap del primer owner global
+
+Fase 04 introduce un rol global mínimo, `owner_global`, guardado en PostgreSQL en `users.global_role`.
+Este rol pertenece al usuario interno de Civitas vinculado por `users.logto_user_id`; no se toma del token ni de roles de Logto.
+
+El bootstrap del primer owner debe ser explícito y manual. Primero el usuario debe existir en `users` (por ejemplo, iniciando sesión una vez para que `GET /me` lo cree). Después, desde producción o dentro del contenedor backend con `DATABASE_URL` apuntando a la base correcta, ejecuta:
+
+```bash
+npm --prefix backend run grant-owner -- --logto-user-id 0guhs45pelhm
+```
+
+Si ya estás dentro del directorio `backend`, el equivalente es:
+
+```bash
+npm run grant-owner -- --logto-user-id 0guhs45pelhm
+```
+
+También se puede usar una variable explícita para scripts de despliegue:
+
+```bash
+CIVITAS_OWNER_LOGTO_USER_ID=0guhs45pelhm npm --prefix backend run grant-owner
+```
+
+El script es idempotente: volver a ejecutarlo sobre el mismo usuario mantiene `global_role = 'owner_global'` y refresca `updated_at`.
+Si no encuentra un usuario existente con ese `logto_user_id` o email, termina con error claro y no crea ni promueve automáticamente a nadie.

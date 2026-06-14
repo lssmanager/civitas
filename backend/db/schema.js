@@ -1,4 +1,4 @@
-const { index, pgTable, timestamp, uuid, varchar } = require("drizzle-orm/pg-core");
+const { index, pgTable, text, timestamp, uuid, varchar } = require("drizzle-orm/pg-core");
 
 const healthChecks = pgTable("health_checks", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -13,12 +13,14 @@ const users = pgTable(
     logtoUserId: varchar("logto_user_id", { length: 255 }).notNull().unique(),
     email: varchar("email", { length: 320 }),
     status: varchar("status", { length: 32 }).notNull().default("active"),
+    globalRole: text("global_role"),
     lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
     emailIdx: index("users_email_idx").on(table.email),
+    globalRoleIdx: index("users_global_role_idx").on(table.globalRole),
   })
 );
 

@@ -2,6 +2,7 @@ const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
 const { requireAuth } = require("./middleware/auth");
+const { requireOwner } = require("./middleware/owner");
 const { checkDatabaseConnection } = require("./db/connection");
 const { getOrCreateInternalUser, serializeUser } = require("./services/users");
 const app = express();
@@ -43,6 +44,17 @@ app.get("/auth/test", requireAuth(), (req, res) => {
   });
 });
 
+
+app.get("/owner/me", requireAuth(), requireOwner, (req, res) => {
+  return res.json({
+    owner: req.owner,
+    scope: {
+      organizations: false,
+      memberships: false,
+      rbac: false,
+    },
+  });
+});
 
 app.get("/me", requireAuth(), async (req, res) => {
   try {
