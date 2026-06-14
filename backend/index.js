@@ -156,6 +156,16 @@ app.get("/owner/me", requireAuth(API_RESOURCE), requireOwner, async (req, res) =
   }
 });
 
+app.get("/organizations", requireAuth(API_RESOURCE), requireScope("organizations:read"), async (req, res) => {
+  try {
+    const profiles = await listOrganizationProfiles();
+    return res.json({ organizations: profiles.map(serializeOwnerOrganization) });
+  } catch (error) {
+    console.error("Failed to list selectable organizations", error);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to list organizations" });
+  }
+});
+
 app.get("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organizations:read"), async (req, res) => {
   try {
     const profiles = await listOrganizationProfiles();
