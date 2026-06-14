@@ -1,34 +1,11 @@
-const { bootstrapOwnerForInternalUser } = require("../services/ownerBootstrap");
-const { GLOBAL_ROLES, getOrCreateInternalUser, getUserGlobalRole, serializeUser } = require("../services/users");
+const { requireScope } = require("./auth");
+const { getOrCreateInternalUser, serializeUser } = require("../services/users");
 
-async function requireOwner(req, res, next) {
+const OWNER_READ_SCOPE = "owner:read";
+
+async function attachOwner(req, res, next) {
   try {
-    const internalUser = await bootstrapOwnerForInternalUser(await getOrCreateInternalUser(req.user));
-
-    const globalRole = getUserGlobalRole(internalUser);
-
-    console.log("[requireOwner] owner check", {
-      authSub: req.user?.sub,
-      internalUserId: internalUser.id,
-      status: internalUser.status,
-      globalRole,
-      hasCamelGlobalRole: Object.prototype.hasOwnProperty.call(internalUser, "globalRole"),
-      hasSnakeGlobalRole: Object.prototype.hasOwnProperty.call(internalUser, "global_role"),
-    });
-
-    if (globalRole !== GLOBAL_ROLES.OWNER) {
-      console.log("[requireOwner] forbidden", {
-        authSub: req.user?.sub,
-        internalUserId: internalUser.id,
-        reason: "missing owner_global",
-        globalRole,
-      });
-
-      return res.status(403).json({
-        error: "Forbidden",
-        message: "Authenticated user does not have owner_global permissions",
-      });
-    }
+    const internalUser = await getOrCreateInternalUser(req.user);
 
     req.internalUser = internalUser;
     req.owner = serializeUser(internalUser);
@@ -42,11 +19,15 @@ async function requireOwner(req, res, next) {
       return res.status(403).json({ error: "Forbidden", message: error.message });
     }
 
-    console.error("Failed to verify owner permissions", error);
-    return res.status(500).json({ error: "Internal Server Error", message: "Failed to verify owner permissions" });
+    console.error("Failed to resolve owner internal user", error);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to resolve owner internal user" });
   }
 }
 
+const requireOwner = [requireScope(OWNER_READ_SCOPE), attachOwner];
+
 module.exports = {
+  OWNER_READ_SCOPE,
+  attachOwner,
   requireOwner,
 };

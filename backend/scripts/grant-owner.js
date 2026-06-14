@@ -22,14 +22,12 @@ async function main() {
   console.log(`[database] grant-owner using ${databaseTarget.host}:${databaseTarget.port}/${databaseTarget.database}`);
   const logtoUserId =
     readOption("logto-user-id") ||
-    process.env.CIVITAS_BOOTSTRAP_OWNER_LOGTO_USER_ID ||
     process.env.CIVITAS_OWNER_LOGTO_USER_ID;
-  const email =
-    readOption("email") || process.env.CIVITAS_BOOTSTRAP_OWNER_EMAIL || process.env.CIVITAS_OWNER_EMAIL;
+  const email = readOption("email") || process.env.CIVITAS_OWNER_EMAIL;
 
   if (!logtoUserId && !email) {
     throw new Error(
-      "Provide --logto-user-id <sub> (preferred), --logto-user-id=<sub>, --email <email>, CIVITAS_BOOTSTRAP_OWNER_LOGTO_USER_ID, CIVITAS_OWNER_LOGTO_USER_ID, CIVITAS_BOOTSTRAP_OWNER_EMAIL, or CIVITAS_OWNER_EMAIL"
+      "Provide --logto-user-id <sub> (preferred), --logto-user-id=<sub>, --email <email>, CIVITAS_OWNER_LOGTO_USER_ID, or CIVITAS_OWNER_EMAIL"
     );
   }
 

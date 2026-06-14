@@ -20,8 +20,10 @@ const devOwnerMe: OwnerMeResponse = {
     createdAt: new Date(0).toISOString(),
     updatedAt: new Date(0).toISOString(),
   },
+  authScopes: ["owner:read", "organizations:read", "organizations:create"],
+  ownerAuthorizedBy: "logto_scope",
   scope: {
-    organizations: false,
+    organizations: true,
     memberships: false,
     rbac: false,
   },
@@ -39,7 +41,7 @@ function getOwnerError(error: unknown) {
     if (error.status === 403) {
       return {
         title: "Sin permisos owner",
-        message: "Tu usuario está autenticado, pero no tiene el rol global owner_global en Civitas.",
+        message: "Tu sesión está autenticada, pero el access token de Logto no contiene el scope owner:read.",
       };
     }
   }
@@ -95,9 +97,9 @@ export function OwnerGuard({ children }: OwnerGuardProps) {
 
   if (isLoading) {
     return (
-      <PageShell eyebrow="Owner" title="Validando permisos owner" description="Comprobando el rol global en PostgreSQL.">
+      <PageShell eyebrow="Owner" title="Validando permisos owner" description="Comprobando scopes globales de Logto.">
         <PageCard title="Guard owner">
-          <LoadingState title="Validando owner_global" description="Estamos consultando /owner/me antes de mostrar el portal." />
+          <LoadingState title="Validando owner_global" description="Estamos consultando /owner/me y validando el scope owner:read." />
         </PageCard>
       </PageShell>
     );
@@ -105,7 +107,7 @@ export function OwnerGuard({ children }: OwnerGuardProps) {
 
   if (error || !ownerMe) {
     return (
-      <PageShell eyebrow="Owner" title="Acceso denegado" description="El portal owner requiere el rol global owner_global." actions={<Badge bg="danger">403</Badge>}>
+      <PageShell eyebrow="Owner" title="Acceso denegado" description="El portal owner requiere scopes globales de Logto." actions={<Badge bg="danger">403</Badge>}>
         <PageCard title="Permisos insuficientes">
           <ErrorState
             title={error?.title ?? "Sin permisos owner"}

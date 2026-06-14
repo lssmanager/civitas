@@ -160,7 +160,31 @@ const requireAuth = ({ requiredScopes = [], audience = process.env.LOGTO_API_RES
   };
 };
 
+const requireScope = (requiredScope) => {
+  return (req, res, next) => {
+    const scopes = Array.isArray(req.user?.scopes) ? req.user.scopes : [];
+
+    if (scopes.includes(requiredScope)) {
+      return next();
+    }
+
+    logAuthEvent(req, "forbidden", {
+      sub: req.user?.sub,
+      aud: req.user?.claims?.aud,
+      iss: req.user?.claims?.iss,
+      expectedAudience: process.env.LOGTO_API_RESOURCE_INDICATOR,
+      expectedIssuer: process.env.LOGTO_ISSUER,
+      reason: "scope",
+      requiredScopes: [requiredScope],
+      tokenScopes: scopes,
+    });
+
+    return res.status(403).json({ error: "Forbidden", message: "Insufficient permissions" });
+  };
+};
+
 module.exports = {
   requireAuth,
+  requireScope,
   verifyAccessToken,
 };

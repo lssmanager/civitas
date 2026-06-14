@@ -85,6 +85,7 @@ function LogtoAccountDetails() {
       <ListGroup.Item className="d-flex justify-content-between align-items-start px-0"><span className="text-secondary">Email</span><span className="fw-semibold text-break text-end">{me?.user.email ?? "No disponible"}</span></ListGroup.Item>
       <ListGroup.Item className="d-flex justify-content-between align-items-start px-0"><span className="text-secondary">Status</span><Badge bg={me?.user.status === "active" ? "success" : "warning"}>{me?.user.status ?? "No disponible"}</Badge></ListGroup.Item>
       <ListGroup.Item className="d-flex justify-content-between align-items-start px-0"><span className="text-secondary">Last login</span><span className="fw-semibold text-end">{formatDate(me?.user.lastLoginAt)}</span></ListGroup.Item>
+      <ListGroup.Item className="px-0"><div className="text-secondary mb-2">Scopes Logto</div><div className="d-flex flex-wrap gap-2">{me?.auth?.scopes?.length ? me.auth.scopes.map((scope) => <Badge key={scope} bg="dark">{scope}</Badge>) : <span className="text-secondary">Sin scopes en el access token</span>}</div></ListGroup.Item>
     </ListGroup>
   );
 }
@@ -101,10 +102,10 @@ function DevAccountDetails() {
 
 export function AccountPage() {
   return (
-    <PageShell eyebrow="Cuenta" title="Perfil de sesión" description="Muestra la identidad interna de Civitas creada desde la sesión autenticada de Logto." actions={<Badge bg="primary">Fase 03</Badge>}>
+    <PageShell eyebrow="Cuenta" title="Perfil de sesión" description="Muestra la identidad interna de Civitas y los scopes del access token de Logto." actions={<Badge bg="primary">Fase 05</Badge>}>
       <div className="row g-4">
         <div className="col-12 col-lg-7"><PageCard title="Usuario interno" subtitle="Datos mínimos persistidos en PostgreSQL y vinculados al sub de Logto.">{isLogtoAuthEnabled ? <LogtoAccountDetails /> : <DevAccountDetails />}</PageCard></div>
-        <div className="col-12 col-lg-5"><PageCard title="Aviso de alcance"><ErrorState title="Sin roles ni organizaciones todavía" message="Esta fase solo crea el usuario interno básico. Roles owner/admin, organizaciones, membresías, permisos finos y perfil completo quedan fuera de alcance." /></PageCard></div>
+        <div className="col-12 col-lg-5"><PageCard title="Aviso de alcance"><ErrorState title="Autorización global por Logto" message="El portal owner se autoriza con scopes del API Resource global de Logto. PostgreSQL conserva usuario interno y datos de producto; users.global_role queda legacy." /></PageCard></div>
       </div>
     </PageShell>
   );

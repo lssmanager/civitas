@@ -62,51 +62,22 @@ To run migrations manually from the backend container or a local shell with `DAT
 npm run migrate
 ```
 
-## Bootstrap del primer owner global
+## Autorización owner global
 
-Fase 04 introduce un rol global mínimo, `owner_global`, guardado en PostgreSQL en `users.global_role`.
-Este rol pertenece al usuario interno de Civitas vinculado por `users.logto_user_id`; no se toma del token ni de roles de Logto.
+Desde Fase 05, el portal owner usa Logto RBAC sobre el API Resource global de Civitas (`LOGTO_API_RESOURCE_INDICATOR`) como fuente de verdad de autorización. PostgreSQL mantiene el usuario interno y los datos de producto, pero `users.global_role` queda como campo legacy/deprecated y ya no autoriza `/owner`.
 
-El bootstrap del primer owner debe ser explícito y manual. Primero el usuario debe existir en `users` (por ejemplo, iniciando sesión una vez para que `GET /me` lo cree). Después, desde producción o dentro del contenedor backend con `DATABASE_URL` apuntando a la base correcta, ejecuta:
+Configura en Logto el API Resource:
 
-```bash
-npm --prefix backend run grant-owner -- --logto-user-id 0guhs45pelhm
+```text
+https://civitas.socialstudies.cloud/api
 ```
 
-Si ya estás dentro del directorio `backend`, el equivalente es:
+Permisos/scopes esperados para esta fase:
 
-```bash
-npm run grant-owner -- --logto-user-id 0guhs45pelhm
-```
+- `owner:read` para `GET /owner/me`.
+- `organizations:read` para `GET /owner/organizations`.
+- `organizations:create` para `POST /owner/organizations`.
 
-También se puede usar una variable explícita para scripts de despliegue:
+Crea/asigna el rol global de usuario `owner_global` en Logto con esos permisos y asígnalo al usuario owner. Al recrear la DB de preview/dev, el owner conserva acceso porque los scopes vienen en el access token de Logto; no hace falta reescribir `users.global_role`.
 
-```bash
-CIVITAS_OWNER_LOGTO_USER_ID=0guhs45pelhm npm --prefix backend run grant-owner
-```
-
-El script es idempotente: volver a ejecutarlo sobre el mismo usuario mantiene `global_role = 'owner_global'` y refresca `updated_at`.
-Si no encuentra un usuario existente con ese `logto_user_id` o email, termina con error claro y no crea ni promueve automáticamente a nadie.
-
-
-### Bootstrap automático opcional para preview/dev
-
-En entornos de preview o desarrollo donde la base PostgreSQL se recrea con frecuencia, el rol `users.global_role = 'owner_global'` puede perderse aunque el usuario Logto siga siendo el mismo. Para esos entornos existe un bootstrap automático y explícito:
-
-```bash
-CIVITAS_BOOTSTRAP_OWNER_ENABLED=true
-CIVITAS_BOOTSTRAP_OWNER_LOGTO_USER_ID=0guhs45pelhm
-```
-
-Reglas de seguridad:
-
-- Solo corre cuando `CIVITAS_BOOTSTRAP_OWNER_ENABLED === "true"`.
-- Solo promueve el usuario interno cuyo `users.logto_user_id` coincide exactamente con `CIVITAS_BOOTSTRAP_OWNER_LOGTO_USER_ID`.
-- No crea usuarios automáticamente; si el usuario aún no existe, queda pendiente hasta que inicie sesión y se cree vía `GET /me` o un endpoint protegido.
-- No promueve usuarios `blocked` o `inactive`.
-- Es idempotente y usa el mismo helper `grantOwnerGlobalRole` que el script manual.
-- No imprime tokens ni datos sensibles.
-
-El backend intenta este bootstrap al iniciar. Además, después de resolver/crear el usuario interno en endpoints protegidos, si el `logto_user_id` coincide con la variable configurada, aplica el grant automáticamente. Así, en una DB limpia de preview, el primer login del owner vuelve a dejar `/owner` accesible sin depender de roles de Logto.
-
-En producción estable, mantén `CIVITAS_BOOTSTRAP_OWNER_ENABLED=false` y prefiere el script manual `grant-owner` o una herramienta administrativa posterior. Este mecanismo es temporal hasta Fase 29, donde los owners se administrarán desde UI con auditoría.
+El script `grant-owner` queda solo como herramienta legacy de diagnóstico/migración para instalaciones antiguas que todavía tengan datos en `users.global_role`; no es el mecanismo oficial de autorización owner para Fase 05.

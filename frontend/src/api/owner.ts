@@ -10,6 +10,8 @@ export type OwnerScope = {
 
 export type OwnerMeResponse = {
   owner: InternalUser;
+  authScopes: string[];
+  ownerAuthorizedBy: "logto_scope";
   scope: OwnerScope;
 };
 

@@ -159,7 +159,7 @@ function OrganizationsPanel() {
 }
 
 function OwnerDashboard({ ownerMe }: { ownerMe: OwnerMeResponse }) {
-  const { owner, scope } = ownerMe;
+  const { authScopes, owner, ownerAuthorizedBy, scope } = ownerMe;
 
   return (
     <PageShell eyebrow="Owner" title="Portal owner" description="Administración global protegida para el owner de Civitas." actions={<Badge bg="success">owner_global</Badge>}>
@@ -171,8 +171,9 @@ function OwnerDashboard({ ownerMe }: { ownerMe: OwnerMeResponse }) {
               <ListGroup.Item className="d-flex justify-content-between align-items-start px-0"><span className="text-secondary">Logto user id</span><span className="fw-semibold text-break text-end">{owner.logtoUserId}</span></ListGroup.Item>
               <ListGroup.Item className="d-flex justify-content-between align-items-start px-0"><span className="text-secondary">Email</span><span className="fw-semibold text-break text-end">{owner.email ?? "No disponible"}</span></ListGroup.Item>
               <ListGroup.Item className="d-flex justify-content-between align-items-start px-0"><span className="text-secondary">Status</span><Badge bg={owner.status === "active" ? "success" : "warning"}>{owner.status}</Badge></ListGroup.Item>
-              <ListGroup.Item className="d-flex justify-content-between align-items-start px-0"><span className="text-secondary">Rol global</span><Badge bg="primary">{owner.globalRole}</Badge></ListGroup.Item>
+              <ListGroup.Item className="d-flex justify-content-between align-items-start px-0"><span className="text-secondary">Autorizado por</span><Badge bg="primary">{ownerAuthorizedBy}</Badge></ListGroup.Item>
               <ListGroup.Item className="d-flex justify-content-between align-items-start px-0"><span className="text-secondary">Last login</span><span className="fw-semibold text-end">{formatDate(owner.lastLoginAt)}</span></ListGroup.Item>
+              <ListGroup.Item className="px-0"><div className="text-secondary mb-2">Scopes Logto</div><div className="d-flex flex-wrap gap-2">{authScopes.map((scope) => <Badge key={scope} bg="dark">{scope}</Badge>)}</div></ListGroup.Item>
             </ListGroup>
           </PageCard>
         </div>

@@ -1,11 +1,10 @@
 const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
-const { requireAuth } = require("./middleware/auth");
+const { requireAuth, requireScope } = require("./middleware/auth");
 const { requireOwner } = require("./middleware/owner");
 const { checkDatabaseConnection, getDatabaseConnectionTarget } = require("./db/connection");
 const { getOrCreateInternalUser, serializeUser } = require("./services/users");
-const { bootstrapOwnerAtStartup, bootstrapOwnerForInternalUser } = require("./services/ownerBootstrap");
 const { createOrganization, listOrganizations } = require("./services/organizations");
 const app = express();
 const port = process.env.PORT || 3000;
@@ -58,6 +57,8 @@ app.get("/auth/test", requireAuth(), (req, res) => {
 app.get("/owner/me", requireAuth(), requireOwner, (req, res) => {
   return res.json({
     owner: req.owner,
+    authScopes: req.user.scopes,
+    ownerAuthorizedBy: "logto_scope",
     scope: {
       organizations: true,
       memberships: false,
@@ -66,7 +67,7 @@ app.get("/owner/me", requireAuth(), requireOwner, (req, res) => {
   });
 });
 
-app.get("/owner/organizations", requireAuth(), requireOwner, async (req, res) => {
+app.get("/owner/organizations", requireAuth(), requireScope("organizations:read"), async (req, res) => {
   try {
     const organizations = await listOrganizations();
     return res.json({ organizations });
@@ -76,7 +77,7 @@ app.get("/owner/organizations", requireAuth(), requireOwner, async (req, res) =>
   }
 });
 
-app.post("/owner/organizations", requireAuth(), requireOwner, async (req, res) => {
+app.post("/owner/organizations", requireAuth(), requireScope("organizations:create"), async (req, res) => {
   try {
     const organization = await createOrganization(req.body);
     return res.status(201).json({ organization });
@@ -96,13 +97,15 @@ app.post("/owner/organizations", requireAuth(), requireOwner, async (req, res) =
 
 app.get("/me", requireAuth(), async (req, res) => {
   try {
-    const internalUser = await bootstrapOwnerForInternalUser(await getOrCreateInternalUser(req.user));
+    const internalUser = await getOrCreateInternalUser(req.user);
 
     return res.json({
       user: serializeUser(internalUser),
       auth: {
         sub: req.user.sub,
         issuer: req.user.claims?.iss,
+        audience: req.user.claims?.aud,
+        scopes: req.user.scopes,
       },
     });
   } catch (error) {
@@ -125,8 +128,6 @@ app.get("/", (req, res) => {
 });
 
 // Start server
-bootstrapOwnerAtStartup().finally(() => {
-  app.listen(port, () => {
-    console.log(`Server is running on port ${port}`);
-  });
+app.listen(port, () => {
+  console.log(`Server is running on port ${port}`);
 });

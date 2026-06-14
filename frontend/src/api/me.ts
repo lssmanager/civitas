@@ -17,6 +17,8 @@ export type MeResponse = {
   auth?: {
     sub?: string;
     issuer?: string;
+    audience?: string | string[];
+    scopes?: string[];
   };
 };
 
