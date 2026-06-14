@@ -107,7 +107,7 @@ export function AccountPage() {
     <PageShell eyebrow="Cuenta" title="Perfil de sesión" description="Muestra la identidad interna de Civitas creada desde la sesión autenticada de Logto." actions={<Badge bg="primary">Fase 03</Badge>}>
       <div className="row g-4">
         <div className="col-12 col-lg-7"><PageCard title="Usuario interno" subtitle="Datos mínimos persistidos en PostgreSQL y vinculados al sub de Logto.">{isLogtoAuthEnabled ? <LogtoAccountDetails /> : <DevAccountDetails />}</PageCard></div>
-        <div className="col-12 col-lg-5"><PageCard title="Fuente de autorización"><ErrorState title="Logto RBAC es la autoridad" message="PostgreSQL conserva el usuario interno y metadata de producto. El acceso owner y los permisos se validan por scopes del token de Logto, no por users.global_role." /></PageCard></div>
+        <div className="col-12 col-lg-5"><PageCard title="Fuente de autorización"><ErrorState title="Logto RBAC es la autoridad" message="PostgreSQL conserva el usuario interno y metadata de producto. El acceso owner, organizaciones y permisos tenant-scoped se validan con scopes/tokens de Logto, no con users.global_role." /></PageCard></div>
       </div>
     </PageShell>
   );

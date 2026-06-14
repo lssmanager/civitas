@@ -32,10 +32,10 @@ function OwnerDashboard({ ownerMe }: { ownerMe: OwnerMeResponse }) {
           </PageCard>
         </div>
         <div className="col-12">
-          <PageCard title="Arquitectura B2B" subtitle="Logto Organizations es la fuente canónica de tenants y membresías.">
+          <PageCard title="Logto Organizations" subtitle="La organización se crea en Logto y el backend agrega al creador como organization_admin.">
             <EmptyState
               title="PostgreSQL solo guarda metadata de producto"
-              description="Las organizaciones se crean primero en Logto; Civitas persiste perfiles internos vinculados por logto_organization_id cuando necesita enriquecer datos del producto."
+              description="Los endpoints tenant-scoped deben usar organization tokens obtenidos con getOrganizationToken(organizationId), no access tokens globales."
             />
           </PageCard>
         </div>

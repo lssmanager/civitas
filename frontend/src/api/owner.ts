@@ -27,6 +27,14 @@ export type OwnerOrganization = {
   } | null;
 };
 
+export type CreateOwnerOrganizationInput = {
+  name: string;
+  description?: string;
+  type?: string;
+  subdomain?: string;
+  seatTotal?: number;
+};
+
 export const useOwnerApi = () => {
   const { fetchWithToken } = useApi();
 
@@ -34,6 +42,8 @@ export const useOwnerApi = () => {
     () => ({
       getOwnerMe: async (): Promise<OwnerMeResponse> => fetchWithToken("/owner/me"),
       getOrganizations: async (): Promise<{ organizations: OwnerOrganization[] }> => fetchWithToken("/owner/organizations"),
+      createOrganization: async (data: CreateOwnerOrganizationInput): Promise<{ organization: OwnerOrganization }> =>
+        fetchWithToken("/owner/organizations", { method: "POST", body: JSON.stringify(data) }),
     }),
     [fetchWithToken]
   );

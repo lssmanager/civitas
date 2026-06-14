@@ -13,7 +13,7 @@ const users = pgTable(
     logtoUserId: varchar("logto_user_id", { length: 255 }).notNull().unique(),
     email: varchar("email", { length: 320 }),
     status: varchar("status", { length: 32 }).notNull().default("active"),
-    // Deprecated legacy metadata only. Logto RBAC scopes are the authorization source of truth.
+    // Legacy product metadata only. Logto RBAC scopes authorize owner access.
     globalRole: text("global_role"),
     lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
