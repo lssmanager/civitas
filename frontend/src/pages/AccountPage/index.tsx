@@ -1,5 +1,5 @@
 import { useLogto, type IdTokenClaims } from "@logto/react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Alert, Badge, ListGroup, Spinner } from "react-bootstrap";
 import { ApiRequestError } from "../../api/base";
 import { type MeResponse, useMeApi } from "../../api/me";
@@ -25,10 +25,15 @@ function getMeErrorMessage(error: unknown) {
 function LogtoAccountDetails() {
   const { getIdTokenClaims } = useLogto();
   const { getMe } = useMeApi();
+  const getMeRef = useRef(getMe);
   const [logtoUser, setLogtoUser] = useState<IdTokenClaims>();
   const [me, setMe] = useState<MeResponse>();
   const [isLoadingMe, setIsLoadingMe] = useState(true);
   const [meError, setMeError] = useState<string>();
+
+  useEffect(() => {
+    getMeRef.current = getMe;
+  }, [getMe]);
 
   useEffect(() => {
     void getIdTokenClaims().then((claims) => setLogtoUser(claims ?? undefined));
@@ -42,7 +47,7 @@ function LogtoAccountDetails() {
       setMeError(undefined);
 
       try {
-        const response = await getMe();
+        const response = await getMeRef.current();
         if (isMounted) {
           setMe(response);
         }
@@ -63,7 +68,7 @@ function LogtoAccountDetails() {
     return () => {
       isMounted = false;
     };
-  }, [getMe]);
+  }, []);
 
   if (isLoadingMe) {
     return (
