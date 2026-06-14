@@ -10,6 +10,7 @@ const {
   addUserToLogtoOrganization,
   assignOrganizationRoleToUser,
   createLogtoOrganization,
+  findLogtoOrganizationByName,
   findOrganizationRoleByName,
 } = require("./services/logtoManagement");
 const {
@@ -47,6 +48,28 @@ const getSafeErrorMessage = (error) => {
   const status = error.status ? ` (${error.status})` : "";
   return `${error.message || "Logto synchronization failed"}${status}`;
 };
+
+async function resolveLogtoOrganizationForSync({ name, description }) {
+  const existingOrganization = await findLogtoOrganizationByName(name);
+  if (existingOrganization) {
+    return { organization: existingOrganization, reconciled: true, source: "pre_create_name_lookup" };
+  }
+
+  const createdOrganization = await createLogtoOrganization({ name, description });
+  const createdOrganizationId = getLogtoOrganizationId(createdOrganization);
+  if (createdOrganizationId) {
+    return { organization: createdOrganization, reconciled: false, source: "create_response" };
+  }
+
+  const reconciledOrganization = await findLogtoOrganizationByName(name);
+  if (reconciledOrganization) {
+    return { organization: reconciledOrganization, reconciled: true, source: "post_create_name_lookup" };
+  }
+
+  const error = new Error("Logto organization creation succeeded but no organization id was returned or reconciled");
+  error.logtoResponse = createdOrganization;
+  throw error;
+}
 
 // Local base healthcheck. It intentionally does not depend on Logto or any external integration.
 app.get("/health", async (req, res) => {
@@ -184,11 +207,15 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
   }
 
   try {
-    const logtoOrganization = await createLogtoOrganization({ name: normalizedName, description });
+    const {
+      organization: logtoOrganization,
+      reconciled,
+      source: logtoOrganizationSource,
+    } = await resolveLogtoOrganizationForSync({ name: normalizedName, description });
     const logtoOrganizationId = getLogtoOrganizationId(logtoOrganization);
 
     if (!logtoOrganizationId) {
-      throw new Error("Logto organization creation response did not include an organization id");
+      throw new Error("Logto organization reconciliation did not include an organization id");
     }
 
     await addUserToLogtoOrganization({ organizationId: logtoOrganizationId, userId: req.user.sub });
@@ -215,7 +242,7 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
       organizationId: logtoOrganizationId,
       action: AUDIT_ACTIONS.OWNER_ORGANIZATION_LOGTO_SYNC,
       result: AUDIT_RESULTS.SUCCESS,
-      metadata: { profileId: profile.id, name: normalizedName, logtoOrganizationId },
+      metadata: { profileId: profile.id, name: normalizedName, logtoOrganizationId, reconciled, source: logtoOrganizationSource },
     });
 
     return res.status(201).json({ organization: serializeOwnerOrganization(profile) });

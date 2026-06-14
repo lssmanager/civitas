@@ -66,6 +66,39 @@ async function fetchLogtoManagementApiAccessToken() {
   return tokenCache.token;
 }
 
+async function parseLogtoManagementApiResponse(response) {
+  if (response.status === 204) {
+    return null;
+  }
+
+  const body = await response.text();
+  if (!body) {
+    return null;
+  }
+
+  const contentType = response.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    try {
+      return JSON.parse(body);
+    } catch (error) {
+      throw new LogtoManagementApiError("Logto Management API returned invalid JSON", {
+        status: response.status,
+        body,
+      });
+    }
+  }
+
+  try {
+    return JSON.parse(body);
+  } catch (error) {
+    return {
+      status: response.status,
+      contentType,
+      rawBody: body,
+    };
+  }
+}
+
 async function callLogtoManagementApi(path, options = {}) {
   const accessToken = await fetchLogtoManagementApiAccessToken();
   const { endpoint } = getLogtoManagementConfig();
@@ -78,16 +111,13 @@ async function callLogtoManagementApi(path, options = {}) {
     },
   });
 
+  const parsedBody = await parseLogtoManagementApiResponse(response);
+
   if (!response.ok) {
-    const body = await response.text();
-    throw new LogtoManagementApiError("Logto Management API request failed", { status: response.status, body });
+    throw new LogtoManagementApiError("Logto Management API request failed", { status: response.status, body: parsedBody });
   }
 
-  if (response.status === 204) {
-    return null;
-  }
-
-  return response.json();
+  return parsedBody;
 }
 
 async function createLogtoOrganization({ name, description }) {
@@ -114,6 +144,16 @@ async function findOrganizationRoleByName(name) {
   return roles.find((role) => role.name === name) || null;
 }
 
+async function findLogtoOrganizationByName(name) {
+  const normalizedName = typeof name === "string" ? name.trim() : "";
+  if (!normalizedName) {
+    return null;
+  }
+
+  const organizations = await listLogtoOrganizations();
+  return organizations.find((organization) => organization?.name === normalizedName || organization?.nameCache === normalizedName) || null;
+}
+
 async function assignOrganizationRoleToUser({ organizationId, userId, organizationRoleId }) {
   return callLogtoManagementApi(`/organizations/${organizationId}/users/${userId}/roles`, {
     method: "POST",
@@ -133,8 +173,10 @@ module.exports = {
   assignOrganizationRoleToUser,
   createLogtoOrganization,
   fetchLogtoManagementApiAccessToken,
+  findLogtoOrganizationByName,
   findOrganizationRoleByName,
   getLogtoManagementConfig,
   listLogtoOrganizationRoles,
+  parseLogtoManagementApiResponse,
   listLogtoOrganizations,
 };
