@@ -12,6 +12,7 @@ const {
   createLogtoOrganization,
   findLogtoOrganizationByName,
   findOrganizationRoleByName,
+  listLogtoOrganizations,
 } = require("./services/logtoManagement");
 const {
   createOrganizationProfile,
@@ -42,6 +43,81 @@ const serializeOwnerOrganization = (profile) => ({
   name: profile.nameCache,
   profile: serializeOrganizationProfile(profile),
 });
+
+const toMillis = (value) => {
+  const time = value instanceof Date ? value.getTime() : new Date(value || 0).getTime();
+  return Number.isFinite(time) ? time : 0;
+};
+
+const sortProfilesByNewest = (profiles) =>
+  [...profiles].sort((left, right) => toMillis(right.updatedAt) - toMillis(left.updatedAt) || toMillis(right.createdAt) - toMillis(left.createdAt));
+
+const getCanonicalLogtoOrganizationName = (organization) => getLogtoOrganizationName(organization);
+
+function buildLogtoOrganizationDirectory({ logtoOrganizations, profiles }) {
+  const profilesByLogtoId = new Map();
+  const orphanProfiles = [];
+
+  for (const profile of profiles) {
+    if (profile.logtoOrganizationId) {
+      const existingProfiles = profilesByLogtoId.get(profile.logtoOrganizationId) || [];
+      existingProfiles.push(profile);
+      profilesByLogtoId.set(profile.logtoOrganizationId, existingProfiles);
+    } else {
+      orphanProfiles.push(profile);
+    }
+  }
+
+  const matchedOrphanProfileIds = new Set();
+  const organizations = logtoOrganizations
+    .map((logtoOrganization) => {
+      const logtoOrganizationId = getLogtoOrganizationId(logtoOrganization);
+      if (!logtoOrganizationId) return null;
+
+      const canonicalName = getCanonicalLogtoOrganizationName(logtoOrganization);
+      const linkedProfiles = profilesByLogtoId.get(logtoOrganizationId) || [];
+      const nameMatchedOrphans = orphanProfiles.filter((profile) => profile.nameCache && canonicalName && profile.nameCache === canonicalName);
+
+      for (const profile of nameMatchedOrphans) {
+        matchedOrphanProfileIds.add(profile.id);
+      }
+
+      const associatedProfiles = sortProfilesByNewest([...linkedProfiles, ...nameMatchedOrphans]);
+      const profile = associatedProfiles[0] || null;
+      const hasConflict = associatedProfiles.length > 1;
+      const reconciliationStatus = hasConflict
+        ? "conflict"
+        : profile
+          ? profile.logtoOrganizationId === logtoOrganizationId
+            ? "linked"
+            : "name_matched_pending_link"
+          : "metadata_missing";
+
+      return {
+        logtoOrganizationId,
+        name: canonicalName,
+        logtoOrganization,
+        profile: profile ? serializeOrganizationProfile(profile) : null,
+        syncStatus: hasConflict ? "conflict" : profile?.logtoSyncStatus || "metadata_missing",
+        syncError: hasConflict
+          ? "Multiple internal profiles match this Logto organization and require reconciliation."
+          : profile?.logtoSyncError || null,
+        reconciliation: {
+          status: reconciliationStatus,
+          profileCount: associatedProfiles.length,
+          matchedBy: linkedProfiles.length > 0 ? "logto_organization_id" : nameMatchedOrphans.length > 0 ? "name" : null,
+          profileIds: associatedProfiles.map((associatedProfile) => associatedProfile.id),
+        },
+      };
+    })
+    .filter(Boolean);
+
+  const unreconciledProfiles = orphanProfiles
+    .filter((profile) => !matchedOrphanProfileIds.has(profile.id))
+    .map(serializeOrganizationProfile);
+
+  return { organizations, unreconciledProfiles };
+}
 
 const getSafeErrorMessage = (error) => {
   if (!error) return "Logto synchronization failed";
@@ -158,11 +234,11 @@ app.get("/owner/me", requireAuth(API_RESOURCE), requireOwner, async (req, res) =
 
 app.get("/organizations", requireAuth(API_RESOURCE), requireScope("organizations:read"), async (req, res) => {
   try {
-    const profiles = await listOrganizationProfiles();
-    return res.json({ organizations: profiles.map(serializeOwnerOrganization) });
+    const [logtoOrganizations, profiles] = await Promise.all([listLogtoOrganizations(), listOrganizationProfiles()]);
+    return res.json(buildLogtoOrganizationDirectory({ logtoOrganizations, profiles }));
   } catch (error) {
-    console.error("Failed to list selectable organizations", error);
-    return res.status(500).json({ error: "Internal Server Error", message: "Failed to list organizations" });
+    console.error("Failed to list canonical Logto organizations", error);
+    return res.status(502).json({ error: "Bad Gateway", message: "Failed to list organizations from Logto" });
   }
 });
 
