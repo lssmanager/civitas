@@ -30,18 +30,18 @@ export const useApi = () => {
 
   const fetchWithToken = useMemo(
     () =>
-      async (endpoint: string, options: RequestInit = {}, organizationId?: string) => {
+      async <T>(endpoint: string, options: RequestInit = {}, organizationId?: string): Promise<T> => {
         const method = normalizeMethod(options.method);
         const requestKey = getInflightRequestKey(method, endpoint, organizationId);
 
         if (method === "GET") {
           const inflightRequest = inflightGetRequests.get(requestKey);
           if (inflightRequest) {
-            return inflightRequest;
+            return inflightRequest as Promise<T>;
           }
         }
 
-        const requestPromise = (async () => {
+        const requestPromise: Promise<T> = (async () => {
           try {
             let token: string | undefined;
 
@@ -70,7 +70,7 @@ export const useApi = () => {
               throw new ApiRequestError(`API request failed: ${response.statusText}`, response.status);
             }
 
-            return await response.json();
+            return (await response.json()) as T;
           } catch (error) {
             if (error instanceof ApiRequestError) {
               throw error;
