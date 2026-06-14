@@ -30,6 +30,7 @@ export function useStableResource<TData, TParams>({
   const loadRef = useRef(load);
   const getErrorMessageRef = useRef(getErrorMessage);
   const [params, setParams] = useState(initialParams);
+  const paramsRef = useRef(params);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [data, setData] = useState<TData>();
   const [error, setError] = useState<string | null>(null);
@@ -43,6 +44,10 @@ export function useStableResource<TData, TParams>({
     getErrorMessageRef.current = getErrorMessage;
   }, [getErrorMessage]);
 
+  useEffect(() => {
+    paramsRef.current = params;
+  }, [params]);
+
   const paramsKey = useMemo(() => getKey(params), [getKey, params]);
 
   useEffect(() => {
@@ -53,7 +58,7 @@ export function useStableResource<TData, TParams>({
       setError(null);
 
       try {
-        const response = await loadRef.current(params);
+        const response = await loadRef.current(paramsRef.current);
 
         if (isMounted) {
           setData(response);
@@ -74,7 +79,7 @@ export function useStableResource<TData, TParams>({
     return () => {
       isMounted = false;
     };
-  }, [params, paramsKey, refreshNonce]);
+  }, [paramsKey, refreshNonce]);
 
   const retry = useCallback(() => {
     setRefreshNonce((current) => current + 1);
