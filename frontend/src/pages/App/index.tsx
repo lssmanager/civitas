@@ -10,7 +10,7 @@ import Callback from "../Callback";
 import { OwnerPage } from "../OwnerPage";
 import { SelectOrganizationPage } from "../SelectOrganizationPage";
 
-function LogtoPrivateOutlet() {
+function LogtoPrivateLayout() {
   const { isAuthenticated, isLoading, signIn } = useLogto();
 
   if (isLoading) {
@@ -28,27 +28,37 @@ function LogtoPrivateOutlet() {
 
   return (
     <SessionProvider>
-      <SessionGate>
-        <Outlet />
-      </SessionGate>
+      <AppLayout />
     </SessionProvider>
   );
 }
 
-function ProtectedOutlet() {
+function ProtectedLayout() {
+  if (!isLogtoAuthEnabled) {
+    return <AppLayout />;
+  }
+
+  return <LogtoPrivateLayout />;
+}
+
+function ProtectedContentOutlet() {
   if (!isLogtoAuthEnabled) {
     return <Outlet />;
   }
 
-  return <LogtoPrivateOutlet />;
+  return (
+    <SessionGate>
+      <Outlet />
+    </SessionGate>
+  );
 }
 
 function App() {
   return (
     <Routes>
       <Route path="callback" element={<Callback />} />
-      <Route element={<AppLayout />}>
-        <Route element={<ProtectedOutlet />}>
+      <Route element={<ProtectedLayout />}>
+        <Route element={<ProtectedContentOutlet />}>
           <Route index element={<Navigate to="/owner" replace />} />
           <Route path="owner" element={<OwnerPage />} />
           <Route path="select-organization" element={<SelectOrganizationPage />} />
