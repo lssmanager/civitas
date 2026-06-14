@@ -11,19 +11,11 @@ type OwnerGuardProps = {
 
 const devOwnerMe: OwnerMeResponse = {
   owner: {
-    id: "dev-owner",
     logtoUserId: "dev-logto-owner",
-    email: "owner@civitas.local",
-    status: "active",
-    globalRole: "owner_global",
-    lastLoginAt: null,
-    createdAt: new Date(0).toISOString(),
-    updatedAt: new Date(0).toISOString(),
-  },
-  scope: {
-    organizations: false,
-    memberships: false,
-    rbac: false,
+    internalUserId: "dev-owner",
+    authorizedBy: "logto_scope",
+    requiredScope: "owner:read",
+    scopes: ["owner:read", "organizations:read", "organizations:create"],
   },
 };
 
@@ -38,14 +30,14 @@ function getOwnerError(error: unknown) {
 
     if (error.status === 403) {
       return {
-        title: "Sin permisos owner",
-        message: "Tu usuario está autenticado, pero no tiene el rol global owner_global en Civitas.",
+        title: "Permisos insuficientes",
+        message: "Tu access token de Logto no contiene el scope global owner:read.",
       };
     }
   }
 
   return {
-    title: "No se pudo validar el rol owner",
+    title: "No se pudo validar el acceso owner",
     message: error instanceof Error ? error.message : "Intenta nuevamente o contacta al administrador.",
   };
 }
@@ -95,9 +87,9 @@ export function OwnerGuard({ children }: OwnerGuardProps) {
 
   if (isLoading) {
     return (
-      <PageShell eyebrow="Owner" title="Validando permisos owner" description="Comprobando el rol global en PostgreSQL.">
+      <PageShell eyebrow="Owner" title="Validando permisos owner" description="Comprobando scopes RBAC globales emitidos por Logto.">
         <PageCard title="Guard owner">
-          <LoadingState title="Validando owner_global" description="Estamos consultando /owner/me antes de mostrar el portal." />
+          <LoadingState title="Validando owner:read" description="Estamos consultando /owner/me antes de mostrar el portal." />
         </PageCard>
       </PageShell>
     );
@@ -105,7 +97,7 @@ export function OwnerGuard({ children }: OwnerGuardProps) {
 
   if (error || !ownerMe) {
     return (
-      <PageShell eyebrow="Owner" title="Acceso denegado" description="El portal owner requiere el rol global owner_global." actions={<Badge bg="danger">403</Badge>}>
+      <PageShell eyebrow="Owner" title="Acceso denegado" description="El portal owner requiere scopes globales de Logto." actions={<Badge bg="danger">403</Badge>}>
         <PageCard title="Permisos insuficientes">
           <ErrorState
             title={error?.title ?? "Sin permisos owner"}

@@ -6,18 +6,22 @@ export type InternalUser = {
   logtoUserId: string;
   email: string | null;
   status: "active" | "blocked" | "inactive" | string;
-  globalRole: "owner_global" | string | null;
   lastLoginAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
 
+export type AuthMetadata = {
+  sub?: string;
+  issuer?: string;
+  audience?: string | string[];
+  scopes?: string[];
+  organizationId?: string | null;
+};
+
 export type MeResponse = {
   user: InternalUser;
-  auth?: {
-    sub?: string;
-    issuer?: string;
-  };
+  auth?: AuthMetadata;
 };
 
 export const useMeApi = () => {

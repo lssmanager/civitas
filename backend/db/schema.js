@@ -1,4 +1,4 @@
-const { index, pgTable, text, timestamp, uuid, varchar } = require("drizzle-orm/pg-core");
+const { index, integer, pgTable, text, timestamp, uuid, varchar } = require("drizzle-orm/pg-core");
 
 const healthChecks = pgTable("health_checks", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -13,6 +13,7 @@ const users = pgTable(
     logtoUserId: varchar("logto_user_id", { length: 255 }).notNull().unique(),
     email: varchar("email", { length: 320 }),
     status: varchar("status", { length: 32 }).notNull().default("active"),
+    // Legacy product metadata only. Logto RBAC scopes authorize owner access.
     globalRole: text("global_role"),
     lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -24,7 +25,27 @@ const users = pgTable(
   })
 );
 
+const organizationProfiles = pgTable(
+  "organization_profiles",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    logtoOrganizationId: varchar("logto_organization_id", { length: 255 }).notNull().unique(),
+    nameCache: varchar("name_cache", { length: 255 }),
+    type: varchar("type", { length: 64 }),
+    status: varchar("status", { length: 32 }).notNull().default("active"),
+    subdomain: varchar("subdomain", { length: 255 }).unique(),
+    seatTotal: integer("seat_total").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    logtoOrganizationIdx: index("organization_profiles_logto_org_idx").on(table.logtoOrganizationId),
+    statusIdx: index("organization_profiles_status_idx").on(table.status),
+  })
+);
+
 module.exports = {
   healthChecks,
+  organizationProfiles,
   users,
 };

@@ -2,10 +2,6 @@ const { and, eq, ne } = require("drizzle-orm");
 const { db } = require("../db/client");
 const { users } = require("../db/schema");
 
-const GLOBAL_ROLES = {
-  OWNER: "owner_global",
-};
-
 const INACTIVE_STATUSES = new Set(["blocked", "inactive"]);
 
 class AuthUserMissingSubError extends Error {
@@ -43,7 +39,6 @@ const serializeUser = (user) => ({
   logtoUserId: user.logtoUserId,
   email: user.email,
   status: user.status,
-  globalRole: user.globalRole ?? null,
   lastLoginAt: user.lastLoginAt?.toISOString?.() ?? user.lastLoginAt,
   createdAt: user.createdAt?.toISOString?.() ?? user.createdAt,
   updatedAt: user.updatedAt?.toISOString?.() ?? user.updatedAt,
@@ -131,44 +126,12 @@ async function getOrCreateInternalUser(authUser) {
   return user;
 }
 
-async function grantOwnerGlobalRole({ logtoUserId, email }) {
-  const normalizedEmail = normalizeEmail(email);
-
-  if (!logtoUserId && !normalizedEmail) {
-    throw new Error("logtoUserId or email is required to grant owner_global");
-  }
-
-  const whereClause = logtoUserId ? eq(users.logtoUserId, logtoUserId) : eq(users.email, normalizedEmail);
-  const [existingUser] = await db.select().from(users).where(whereClause).limit(1);
-
-  if (!existingUser) {
-    return null;
-  }
-
-  if (INACTIVE_STATUSES.has(existingUser.status)) {
-    throw new InternalUserInactiveError(existingUser.status);
-  }
-
-  const [user] = await db
-    .update(users)
-    .set({
-      globalRole: GLOBAL_ROLES.OWNER,
-      updatedAt: new Date(),
-    })
-    .where(eq(users.id, existingUser.id))
-    .returning();
-
-  return user;
-}
-
 module.exports = {
-  GLOBAL_ROLES,
   AuthUserMissingSubError,
   InternalUserInactiveError,
   createUserFromLogtoClaims,
   findUserByLogtoUserId,
   getOrCreateInternalUser,
-  grantOwnerGlobalRole,
   serializeUser,
   updateLastLogin,
 };

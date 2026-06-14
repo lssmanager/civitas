@@ -1,7 +1,7 @@
-import { useApi } from './base';
-import { useMemo } from 'react';
-import { useLogto } from '@logto/react';
-import { Document } from '../pages/OrganizationPage/types';
+import { useLogto } from "@logto/react";
+import { useMemo } from "react";
+import { useApi } from "./base";
+import { Document } from "../pages/OrganizationPage/types";
 
 export const useOrganizationApi = () => {
   const { fetchWithToken } = useApi();
@@ -9,19 +9,21 @@ export const useOrganizationApi = () => {
 
   return useMemo(() => ({
     getDocuments: async (organizationId: string): Promise<Document[]> => {
-      return await fetchWithToken('/documents', {
-        method: 'GET',
+      const response = await fetchWithToken(`/organizations/${organizationId}/documents`, {
+        method: "GET",
       }, organizationId);
+      return response.documents ?? response;
     },
 
     createDocument: async (organizationId: string, data: {
       title: string;
       content: string;
     }): Promise<Document> => {
-      return await fetchWithToken('/documents', {
-        method: 'POST',
+      const response = await fetchWithToken(`/organizations/${organizationId}/documents`, {
+        method: "POST",
         body: JSON.stringify(data),
       }, organizationId);
+      return response.document ?? response;
     },
 
     getUserOrganizationScopes: async (organizationId: string): Promise<string[]> => {
@@ -34,4 +36,4 @@ export const useOrganizationApi = () => {
       return tokenClaims?.scope?.split(" ") || [];
     },
   }), [fetchWithToken, getOrganizationToken, getOrganizationTokenClaims]);
-}; 
+};

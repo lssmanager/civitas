@@ -3,7 +3,7 @@ import { useMemo } from "react";
 import { APP_ENV } from "../env";
 
 const API_BASE_URL = APP_ENV.api.baseUrl;
-const DOCUMIND_API_RESOURCE_INDICATOR = APP_ENV.api.resourceIndicator;
+const CIVITAS_API_RESOURCE_INDICATOR = APP_ENV.api.resourceIndicator;
 
 export type ApiError = {
   message: string;
@@ -34,7 +34,7 @@ export const useApi = () => {
       if (organizationId) {
         token = await getOrganizationToken(organizationId);
       } else {
-        token = await getAccessToken(DOCUMIND_API_RESOURCE_INDICATOR);
+        token = await getAccessToken(CIVITAS_API_RESOURCE_INDICATOR);
       }
 
       if (!token) {

@@ -85,6 +85,9 @@ function LogtoAccountDetails() {
       <ListGroup.Item className="d-flex justify-content-between align-items-start px-0"><span className="text-secondary">Email</span><span className="fw-semibold text-break text-end">{me?.user.email ?? "No disponible"}</span></ListGroup.Item>
       <ListGroup.Item className="d-flex justify-content-between align-items-start px-0"><span className="text-secondary">Status</span><Badge bg={me?.user.status === "active" ? "success" : "warning"}>{me?.user.status ?? "No disponible"}</Badge></ListGroup.Item>
       <ListGroup.Item className="d-flex justify-content-between align-items-start px-0"><span className="text-secondary">Last login</span><span className="fw-semibold text-end">{formatDate(me?.user.lastLoginAt)}</span></ListGroup.Item>
+      <ListGroup.Item className="d-flex justify-content-between align-items-start px-0"><span className="text-secondary">Token scopes</span><span className="fw-semibold text-break text-end">{me?.auth?.scopes?.join(", ") || "No disponibles"}</span></ListGroup.Item>
+      <ListGroup.Item className="d-flex justify-content-between align-items-start px-0"><span className="text-secondary">Audience/resource</span><span className="fw-semibold text-break text-end">{Array.isArray(me?.auth?.audience) ? me?.auth?.audience.join(", ") : me?.auth?.audience ?? "No disponible"}</span></ListGroup.Item>
+      <ListGroup.Item className="d-flex justify-content-between align-items-start px-0"><span className="text-secondary">Organization id</span><span className="fw-semibold text-break text-end">{me?.auth?.organizationId ?? "Token global"}</span></ListGroup.Item>
     </ListGroup>
   );
 }
@@ -104,7 +107,7 @@ export function AccountPage() {
     <PageShell eyebrow="Cuenta" title="Perfil de sesión" description="Muestra la identidad interna de Civitas creada desde la sesión autenticada de Logto." actions={<Badge bg="primary">Fase 03</Badge>}>
       <div className="row g-4">
         <div className="col-12 col-lg-7"><PageCard title="Usuario interno" subtitle="Datos mínimos persistidos en PostgreSQL y vinculados al sub de Logto.">{isLogtoAuthEnabled ? <LogtoAccountDetails /> : <DevAccountDetails />}</PageCard></div>
-        <div className="col-12 col-lg-5"><PageCard title="Aviso de alcance"><ErrorState title="Sin roles ni organizaciones todavía" message="Esta fase solo crea el usuario interno básico. Roles owner/admin, organizaciones, membresías, permisos finos y perfil completo quedan fuera de alcance." /></PageCard></div>
+        <div className="col-12 col-lg-5"><PageCard title="Fuente de autorización"><ErrorState title="Logto RBAC es la autoridad" message="PostgreSQL conserva el usuario interno y metadata de producto. El acceso owner, organizaciones y permisos tenant-scoped se validan con scopes/tokens de Logto, no con users.global_role." /></PageCard></div>
       </div>
     </PageShell>
   );
