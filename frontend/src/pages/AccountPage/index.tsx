@@ -1,5 +1,3 @@
-import { useLogto, type IdTokenClaims } from "@logto/react";
-import { useEffect, useState } from "react";
 import { Alert, Badge, ListGroup } from "react-bootstrap";
 import { isLogtoAuthEnabled } from "../../authConfig";
 import { useSession } from "../../session/SessionContext";
@@ -8,13 +6,7 @@ import { ErrorState, PageCard, PageShell } from "../../shared/ui";
 const formatDate = (value?: string | null) => (value ? new Date(value).toLocaleString() : "No disponible");
 
 function LogtoAccountDetails() {
-  const { getIdTokenClaims } = useLogto();
-  const { error, me } = useSession();
-  const [logtoUser, setLogtoUser] = useState<IdTokenClaims>();
-
-  useEffect(() => {
-    void getIdTokenClaims().then((claims) => setLogtoUser(claims ?? undefined));
-  }, [getIdTokenClaims]);
+  const { error, idTokenClaims, me } = useSession();
 
   if (error) {
     return <Alert variant="danger">{error}</Alert>;
@@ -23,7 +15,7 @@ function LogtoAccountDetails() {
   return (
     <ListGroup variant="flush">
       <ListGroup.Item className="d-flex justify-content-between align-items-start px-0"><span className="text-secondary">Internal user id</span><span className="fw-semibold text-break text-end">{me?.user.id ?? "No disponible"}</span></ListGroup.Item>
-      <ListGroup.Item className="d-flex justify-content-between align-items-start px-0"><span className="text-secondary">Logto user id</span><span className="fw-semibold text-break text-end">{me?.user.logtoUserId ?? logtoUser?.sub ?? "No disponible"}</span></ListGroup.Item>
+      <ListGroup.Item className="d-flex justify-content-between align-items-start px-0"><span className="text-secondary">Logto user id</span><span className="fw-semibold text-break text-end">{me?.user.logtoUserId ?? idTokenClaims?.sub ?? "No disponible"}</span></ListGroup.Item>
       <ListGroup.Item className="d-flex justify-content-between align-items-start px-0"><span className="text-secondary">Email</span><span className="fw-semibold text-break text-end">{me?.user.email ?? "No disponible"}</span></ListGroup.Item>
       <ListGroup.Item className="d-flex justify-content-between align-items-start px-0"><span className="text-secondary">Status</span><Badge bg={me?.user.status === "active" ? "success" : "warning"}>{me?.user.status ?? "No disponible"}</Badge></ListGroup.Item>
       <ListGroup.Item className="d-flex justify-content-between align-items-start px-0"><span className="text-secondary">Last login</span><span className="fw-semibold text-end">{formatDate(me?.user.lastLoginAt)}</span></ListGroup.Item>
