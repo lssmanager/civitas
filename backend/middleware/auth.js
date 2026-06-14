@@ -36,14 +36,9 @@ const getTokenFromHeader = (headers) => {
   return token;
 };
 
-const hasRequiredScopes = (tokenScopes, requiredScopes) => {
-  if (!requiredScopes || requiredScopes.length === 0) {
-    return true;
-  }
+const parseScopes = (scope) => (typeof scope === "string" ? scope.split(" ").filter(Boolean) : []);
 
-  const scopeSet = new Set(tokenScopes);
-  return requiredScopes.every((scope) => scopeSet.has(scope));
-};
+const getOrganizationIdFromPayload = (payload) => payload.organization_id || payload.organizationId || null;
 
 const verifyAccessToken = async (token, audience = process.env.LOGTO_API_RESOURCE_INDICATOR) => {
   const { payload } = await jwtVerify(token, getJwks(), {
@@ -54,21 +49,19 @@ const verifyAccessToken = async (token, audience = process.env.LOGTO_API_RESOURC
   return payload;
 };
 
-const requireAuth = ({ requiredScopes = [], audience = process.env.LOGTO_API_RESOURCE_INDICATOR } = {}) => {
+const requireAuth = ({ audience = process.env.LOGTO_API_RESOURCE_INDICATOR } = {}) => {
   return async (req, res, next) => {
     try {
       const token = getTokenFromHeader(req.headers);
       const payload = await verifyAccessToken(token, audience);
-      const scopes = typeof payload.scope === "string" ? payload.scope.split(" ").filter(Boolean) : [];
-
-      if (!hasRequiredScopes(scopes, requiredScopes)) {
-        return res.status(403).json({ error: "Forbidden", message: "Insufficient permissions" });
-      }
+      const scopes = parseScopes(payload.scope);
+      const organizationId = getOrganizationIdFromPayload(payload);
 
       req.user = {
         id: payload.sub,
         sub: payload.sub,
         scopes,
+        organizationId,
         claims: payload,
       };
 
@@ -80,7 +73,24 @@ const requireAuth = ({ requiredScopes = [], audience = process.env.LOGTO_API_RES
   };
 };
 
+const requireScope = (requiredScope) => {
+  return (req, res, next) => {
+    const scopes = Array.isArray(req.user?.scopes) ? req.user.scopes : [];
+
+    if (!scopes.includes(requiredScope)) {
+      return res.status(403).json({
+        error: "Forbidden",
+        message: `Missing required Logto scope: ${requiredScope}`,
+        requiredScope,
+      });
+    }
+
+    return next();
+  };
+};
+
 module.exports = {
   requireAuth,
+  requireScope,
   verifyAccessToken,
 };

@@ -1,10 +1,11 @@
 const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
-const { requireAuth } = require("./middleware/auth");
+const { requireAuth, requireScope } = require("./middleware/auth");
 const { requireOwner } = require("./middleware/owner");
 const { checkDatabaseConnection } = require("./db/connection");
 const { getOrCreateInternalUser, serializeUser } = require("./services/users");
+const { createOwnerOrganization, listOwnerOrganizations } = require("./services/organizations");
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -45,15 +46,31 @@ app.get("/auth/test", requireAuth(), (req, res) => {
 });
 
 
-app.get("/owner/me", requireAuth(), requireOwner, (req, res) => {
-  return res.json({
-    owner: req.owner,
-    scope: {
-      organizations: false,
-      memberships: false,
-      rbac: false,
-    },
-  });
+app.get("/owner/me", requireAuth(), requireOwner, async (req, res) => {
+  try {
+    const internalUser = await getOrCreateInternalUser(req.user);
+
+    return res.json({
+      owner: {
+        logtoUserId: req.user.sub,
+        internalUserId: internalUser.id,
+        authorizedBy: "logto_scope",
+        requiredScope: "owner:read",
+        scopes: req.user.scopes,
+      },
+    });
+  } catch (error) {
+    if (error.status === 401) {
+      return res.status(401).json({ error: "Unauthorized", message: error.message });
+    }
+
+    if (error.status === 403) {
+      return res.status(403).json({ error: "Forbidden", message: error.message });
+    }
+
+    console.error("Failed to resolve owner metadata", error);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to resolve owner metadata" });
+  }
 });
 
 app.get("/me", requireAuth(), async (req, res) => {
@@ -65,6 +82,9 @@ app.get("/me", requireAuth(), async (req, res) => {
       auth: {
         sub: req.user.sub,
         issuer: req.user.claims?.iss,
+        audience: req.user.claims?.aud,
+        scopes: req.user.scopes,
+        organizationId: req.user.organizationId,
       },
     });
   } catch (error) {
@@ -78,6 +98,32 @@ app.get("/me", requireAuth(), async (req, res) => {
 
     console.error("Failed to resolve internal user", error);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to resolve internal user" });
+  }
+});
+
+app.get("/owner/organizations", requireAuth(), requireScope("organizations:read"), async (req, res) => {
+  try {
+    const organizations = await listOwnerOrganizations();
+    return res.json({ organizations });
+  } catch (error) {
+    console.error("Failed to list Logto organizations", error);
+    return res.status(502).json({ error: "Bad Gateway", message: "Failed to list organizations from Logto" });
+  }
+});
+
+app.post("/owner/organizations", requireAuth(), requireScope("organizations:create"), async (req, res) => {
+  try {
+    const { name, description, type, subdomain, seatTotal } = req.body || {};
+
+    if (!name || typeof name !== "string") {
+      return res.status(400).json({ error: "Bad Request", message: "Organization name is required" });
+    }
+
+    const organization = await createOwnerOrganization({ name, description, type, subdomain, seatTotal });
+    return res.status(201).json({ organization });
+  } catch (error) {
+    console.error("Failed to create Logto organization", error);
+    return res.status(502).json({ error: "Bad Gateway", message: error.message });
   }
 });
 

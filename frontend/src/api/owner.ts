@@ -1,16 +1,30 @@
 import { useMemo } from "react";
-import { type InternalUser } from "./me";
 import { useApi } from "./base";
 
-export type OwnerScope = {
-  organizations: false;
-  memberships: false;
-  rbac: false;
+export type OwnerAuthorization = {
+  logtoUserId: string;
+  internalUserId: string;
+  authorizedBy: "logto_scope";
+  requiredScope: "owner:read";
+  scopes: string[];
 };
 
 export type OwnerMeResponse = {
-  owner: InternalUser;
-  scope: OwnerScope;
+  owner: OwnerAuthorization;
+};
+
+export type OwnerOrganization = {
+  logtoOrganizationId: string;
+  name: string | null;
+  profile: {
+    id: string;
+    logtoOrganizationId: string;
+    nameCache: string | null;
+    type: string | null;
+    status: string;
+    subdomain: string | null;
+    seatTotal: number;
+  } | null;
 };
 
 export const useOwnerApi = () => {
@@ -19,6 +33,7 @@ export const useOwnerApi = () => {
   return useMemo(
     () => ({
       getOwnerMe: async (): Promise<OwnerMeResponse> => fetchWithToken("/owner/me"),
+      getOrganizations: async (): Promise<{ organizations: OwnerOrganization[] }> => fetchWithToken("/owner/organizations"),
     }),
     [fetchWithToken]
   );
