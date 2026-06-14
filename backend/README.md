@@ -1,24 +1,51 @@
-# Multi-tenant SaaS Sample Application - Backend
+# Civitas Backend
 
-This is the backend service code that accompanies the article on the [multi-tenant SaaS demo](https://blog.logto.io/build-multi-tenant-saas-application).
+Backend Node/Express de Civitas para **Fase 02**.
 
-## Quick Start
+## Alcance activo
 
-This is a demo project with pre-configured settings. To run it locally:
+Incluido en esta fase:
 
-1. Copy the environment file and fill in the Logto configuration:
+- `GET /health`: healthcheck de API y conectividad PostgreSQL.
+- `GET /auth/test`: smoke test protegido para validar un access token JWT emitido por Logto para el API de Civitas.
+- `requireAuth`: middleware compartido que valida JWT con JWKS remoto de Logto, issuer y audience/API resource indicator.
+- Drizzle/PostgreSQL como infraestructura base mínima para fases posteriores.
+
+Fuera del flujo actual:
+
+- Organizaciones y membresías.
+- Documentos.
+- Organization tokens.
+- Roles/permisos de dominio.
+- Multi-tenancy de Civitas.
+
+La infraestructura base de Express, Drizzle, PostgreSQL, Docker y variables `LOGTO_*` necesarias para validar JWT se conserva porque será necesaria para fases posteriores. El código heredado del sample multi-tenant de Logto que gestionaba tokens de Management API fue removido como limpieza de código fuera de alcance; no representa una decisión de producto sobre organizaciones o multi-tenancy.
+
+## Variables principales
+
+Copia `.env.example` y configura:
+
 ```bash
 cp .env.example .env
 ```
 
-2. Install dependencies:
+Variables requeridas para `/auth/test`:
+
+- `LOGTO_ISSUER`
+- `LOGTO_JWKS_URL`
+- `LOGTO_API_RESOURCE_INDICATOR`
+
+`/health` solo requiere `DATABASE_URL`.
+
+## Desarrollo
+
 ```bash
 npm install
-```
-
-3. Start the development server:
-```bash
 npm run dev
 ```
 
-The server will be running at http://localhost:3000.
+## Checks
+
+```bash
+npm test
+```
