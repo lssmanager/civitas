@@ -8,6 +8,10 @@ type DocumentsResponse = {
   document?: Document;
 };
 
+const hasDocumentPayload = (response: Document | DocumentsResponse): response is DocumentsResponse => {
+  return typeof response === "object" && response !== null && "document" in response;
+};
+
 export const useOrganizationApi = () => {
   const { fetchWithToken } = useApi();
   const { getOrganizationToken, getOrganizationTokenClaims } = useLogto();
@@ -28,7 +32,12 @@ export const useOrganizationApi = () => {
         method: "POST",
         body: JSON.stringify(data),
       }, organizationId);
-      return Array.isArray(response) ? response[0] : (response.document ?? response);
+
+      if (hasDocumentPayload(response)) {
+        return response.document as Document;
+      }
+
+      return response;
     },
 
     getUserOrganizationScopes: async (organizationId: string): Promise<string[]> => {
