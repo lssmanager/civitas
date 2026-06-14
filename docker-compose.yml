@@ -48,25 +48,25 @@ services:
     build:
       context: ./frontend
       args:
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:3000}
-        VITE_ENABLE_LOGTO: ${VITE_ENABLE_LOGTO:-false}
-        VITE_LOGTO_ENDPOINT: ${VITE_LOGTO_ENDPOINT:-}
-        VITE_LOGTO_APP_ID: ${VITE_LOGTO_APP_ID:-}
-        VITE_API_RESOURCE_INDICATOR: ${VITE_API_RESOURCE_INDICATOR:-}
-        VITE_APP_REDIRECT_URI: ${VITE_APP_REDIRECT_URI:-http://localhost:5173/callback}
-        VITE_APP_SIGN_OUT_REDIRECT_URI: ${VITE_APP_SIGN_OUT_REDIRECT_URI:-http://localhost:5173/}
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-https://civitas.socialstudies.cloud/api}
+        VITE_ENABLE_LOGTO: ${VITE_ENABLE_LOGTO:-true}
+        VITE_LOGTO_ENDPOINT: ${VITE_LOGTO_ENDPOINT:-https://auth.learnsocialstudies.com/}
+        VITE_LOGTO_APP_ID: ${VITE_LOGTO_APP_ID:-avc4zf5kjm5rgc5xgsegh}
+        VITE_API_RESOURCE_INDICATOR: ${VITE_API_RESOURCE_INDICATOR:-https://civitas.socialstudies.cloud/api}
+        VITE_APP_REDIRECT_URI: ${VITE_APP_REDIRECT_URI:-https://civitas.socialstudies.cloud/callback}
+        VITE_APP_SIGN_OUT_REDIRECT_URI: ${VITE_APP_SIGN_OUT_REDIRECT_URI:-https://civitas.socialstudies.cloud}
     restart: unless-stopped
     depends_on:
       backend:
         condition: service_healthy
     environment:
-      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:3000}
-      VITE_ENABLE_LOGTO: ${VITE_ENABLE_LOGTO:-false}
-      VITE_LOGTO_ENDPOINT: ${VITE_LOGTO_ENDPOINT:-}
-      VITE_LOGTO_APP_ID: ${VITE_LOGTO_APP_ID:-}
-      VITE_API_RESOURCE_INDICATOR: ${VITE_API_RESOURCE_INDICATOR:-}
-      VITE_APP_REDIRECT_URI: ${VITE_APP_REDIRECT_URI:-http://localhost:5173/callback}
-      VITE_APP_SIGN_OUT_REDIRECT_URI: ${VITE_APP_SIGN_OUT_REDIRECT_URI:-http://localhost:5173/}
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-https://civitas.socialstudies.cloud/api}
+      VITE_ENABLE_LOGTO: ${VITE_ENABLE_LOGTO:-true}
+      VITE_LOGTO_ENDPOINT: ${VITE_LOGTO_ENDPOINT:-https://auth.learnsocialstudies.com/}
+      VITE_LOGTO_APP_ID: ${VITE_LOGTO_APP_ID:-avc4zf5kjm5rgc5xgsegh}
+      VITE_API_RESOURCE_INDICATOR: ${VITE_API_RESOURCE_INDICATOR:-https://civitas.socialstudies.cloud/api}
+      VITE_APP_REDIRECT_URI: ${VITE_APP_REDIRECT_URI:-https://civitas.socialstudies.cloud/callback}
+      VITE_APP_SIGN_OUT_REDIRECT_URI: ${VITE_APP_SIGN_OUT_REDIRECT_URI:-https://civitas.socialstudies.cloud}
       PREVIEW_ALLOWED_HOSTS: ${PREVIEW_ALLOWED_HOSTS:-civitas.socialstudies.cloud}
     ports:
       - "${FRONTEND_PUBLIC_PORT:-5173}:5173"

@@ -1,5 +1,25 @@
+const PRODUCTION_API_BASE_URL = "https://civitas.socialstudies.cloud/api";
+const PRODUCTION_LOGTO_ENDPOINT = "https://auth.learnsocialstudies.com/";
+const PRODUCTION_LOGTO_APP_ID = "avc4zf5kjm5rgc5xgsegh";
+const PRODUCTION_APP_REDIRECT_URI = "https://civitas.socialstudies.cloud/callback";
+const PRODUCTION_APP_SIGN_OUT_REDIRECT_URI = "https://civitas.socialstudies.cloud";
+
+const LOCAL_API_BASE_URL = "http://localhost:3000";
+const LOCAL_APP_REDIRECT_URI = "http://localhost:5173/callback";
+const LOCAL_APP_SIGN_OUT_REDIRECT_URI = "http://localhost:5173/";
+
+const getViteEnv = (value: string | undefined, fallback: string) => value?.trim() || fallback;
+
+const getApiBaseUrlFallback = () => (import.meta.env.PROD ? PRODUCTION_API_BASE_URL : LOCAL_API_BASE_URL);
+const getResourceIndicatorFallback = () => (import.meta.env.PROD ? PRODUCTION_API_BASE_URL : "");
+const getLogtoEndpointFallback = () => (import.meta.env.PROD ? PRODUCTION_LOGTO_ENDPOINT : "");
+const getLogtoAppIdFallback = () => (import.meta.env.PROD ? PRODUCTION_LOGTO_APP_ID : "");
+const getRedirectUriFallback = () => (import.meta.env.PROD ? PRODUCTION_APP_REDIRECT_URI : LOCAL_APP_REDIRECT_URI);
+const getSignOutRedirectUriFallback = () =>
+  import.meta.env.PROD ? PRODUCTION_APP_SIGN_OUT_REDIRECT_URI : LOCAL_APP_SIGN_OUT_REDIRECT_URI;
+
 const getBooleanEnv = (value: string | undefined, fallback = false) => {
-  if (value === undefined) {
+  if (value === undefined || value.trim() === "") {
     return fallback;
   }
 
@@ -8,18 +28,18 @@ const getBooleanEnv = (value: string | undefined, fallback = false) => {
 
 export const APP_ENV = {
   auth: {
-    logtoEnabled: getBooleanEnv(import.meta.env.VITE_ENABLE_LOGTO),
+    logtoEnabled: getBooleanEnv(import.meta.env.VITE_ENABLE_LOGTO, import.meta.env.PROD),
   },
   logto: {
-    endpoint: import.meta.env.VITE_LOGTO_ENDPOINT ?? "",
-    appId: import.meta.env.VITE_LOGTO_APP_ID ?? "",
+    endpoint: getViteEnv(import.meta.env.VITE_LOGTO_ENDPOINT, getLogtoEndpointFallback()),
+    appId: getViteEnv(import.meta.env.VITE_LOGTO_APP_ID, getLogtoAppIdFallback()),
   },
   api: {
-    baseUrl: import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000",
-    resourceIndicator: import.meta.env.VITE_API_RESOURCE_INDICATOR ?? "",
+    baseUrl: getViteEnv(import.meta.env.VITE_API_BASE_URL, getApiBaseUrlFallback()),
+    resourceIndicator: getViteEnv(import.meta.env.VITE_API_RESOURCE_INDICATOR, getResourceIndicatorFallback()),
   },
   app: {
-    redirectUri: import.meta.env.VITE_APP_REDIRECT_URI ?? "http://localhost:5173/callback",
-    signOutRedirectUri: import.meta.env.VITE_APP_SIGN_OUT_REDIRECT_URI ?? "http://localhost:5173/",
+    redirectUri: getViteEnv(import.meta.env.VITE_APP_REDIRECT_URI, getRedirectUriFallback()),
+    signOutRedirectUri: getViteEnv(import.meta.env.VITE_APP_SIGN_OUT_REDIRECT_URI, getSignOutRedirectUriFallback()),
   },
 } as const;

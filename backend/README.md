@@ -49,3 +49,15 @@ npm run dev
 ```bash
 npm test
 ```
+
+
+## Production migrations
+
+The production `npm start` command runs `node scripts/migrate.js` before `node index.js`.
+This applies pending Drizzle SQL migrations from `backend/drizzle` using the same `DATABASE_URL` that the API uses, so deploys create tables such as `users` before protected endpoints like `GET /me` query them.
+
+To run migrations manually from the backend container or a local shell with `DATABASE_URL` set:
+
+```bash
+npm run migrate
+```
