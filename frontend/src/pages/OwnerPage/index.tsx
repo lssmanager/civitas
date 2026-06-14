@@ -1,17 +1,10 @@
 import { Badge, ListGroup } from "react-bootstrap";
-import { OwnerGuard } from "../../guards/OwnerGuard";
+import { useOutletContext } from "react-router-dom";
+import { devOwnerMe, type OwnerAuthorizationContext } from "../../guards/ownerAuthorization";
 import { EmptyState, PageCard, PageShell } from "../../shared/ui";
 
 type OwnerDashboardProps = {
-  ownerMe: {
-    owner: {
-      logtoUserId: string;
-      internalUserId: string;
-      authorizedBy: "logto_scope";
-      requiredScope: "owner:read";
-      scopes: string[];
-    };
-  };
+  ownerMe: OwnerAuthorizationContext;
 };
 
 function OwnerDashboard({ ownerMe }: OwnerDashboardProps) {
@@ -56,5 +49,7 @@ function OwnerDashboard({ ownerMe }: OwnerDashboardProps) {
 }
 
 export function OwnerPage() {
-  return <OwnerGuard>{(ownerMe) => <OwnerDashboard ownerMe={ownerMe} />}</OwnerGuard>;
+  const ownerMe = useOutletContext<OwnerAuthorizationContext | undefined>();
+
+  return <OwnerDashboard ownerMe={ownerMe ?? devOwnerMe} />;
 }

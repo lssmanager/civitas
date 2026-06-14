@@ -29,6 +29,13 @@
       "when": 1791841020000,
       "tag": "0003_create_organization_profiles",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791841080000,
+      "tag": "0004_create_audit_logs",
+      "breakpoints": true
     }
   ]
 }

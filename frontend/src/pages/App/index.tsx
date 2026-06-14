@@ -1,23 +1,34 @@
 import { useLogto } from "@logto/react";
+import { useEffect, useRef } from "react";
 import { Navigate, Outlet, Route, Routes } from "react-router-dom";
 import { isLogtoAuthEnabled } from "../../authConfig";
 import { APP_ENV } from "../../env";
 import { AppLayout } from "../../layouts/AppLayout";
+import { OwnerGuard } from "../../guards/OwnerGuard";
+import { devOwnerMe } from "../../guards/ownerAuthorization";
 import { SessionGate, SessionProvider } from "../../session/SessionContext";
 import { AuthRequiredState } from "../../shared/ui/AuthRequiredState";
 import { AccountPage } from "../AccountPage";
 import Callback from "../Callback";
 import { OwnerPage } from "../OwnerPage";
+import { OwnerAuditPage } from "../OwnerAuditPage";
 import { SelectOrganizationPage } from "../SelectOrganizationPage";
 
 function LogtoPrivateLayout() {
   const { isAuthenticated, isLoading, signIn } = useLogto();
+  const hasAuthenticatedOnceRef = useRef(false);
 
-  if (isLoading) {
+  useEffect(() => {
+    if (isAuthenticated) {
+      hasAuthenticatedOnceRef.current = true;
+    }
+  }, [isAuthenticated]);
+
+  if (isLoading && !isAuthenticated && !hasAuthenticatedOnceRef.current) {
     return <AuthRequiredState title="Validando sesion" message="Estamos comprobando tu sesion de Logto." isLoading />;
   }
 
-  if (!isAuthenticated) {
+  if (!isAuthenticated && !isLoading) {
     return (
       <AuthRequiredState
         message="Esta ruta es privada. Inicia sesion con Logto para continuar."
@@ -53,6 +64,14 @@ function ProtectedContentOutlet() {
   );
 }
 
+function OwnerLayout() {
+  if (!isLogtoAuthEnabled) {
+    return <Outlet context={devOwnerMe} />;
+  }
+
+  return <OwnerGuard>{(ownerMe) => <Outlet context={ownerMe} />}</OwnerGuard>;
+}
+
 function App() {
   return (
     <Routes>
@@ -60,7 +79,10 @@ function App() {
       <Route element={<ProtectedLayout />}>
         <Route element={<ProtectedContentOutlet />}>
           <Route index element={<Navigate to="/owner" replace />} />
-          <Route path="owner" element={<OwnerPage />} />
+          <Route path="owner" element={<OwnerLayout />}>
+            <Route index element={<OwnerPage />} />
+            <Route path="audit" element={<OwnerAuditPage />} />
+          </Route>
           <Route path="select-organization" element={<SelectOrganizationPage />} />
           <Route path="account" element={<AccountPage />} />
           <Route path="*" element={<Navigate to="/owner" replace />} />

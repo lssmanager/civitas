@@ -1,9 +1,10 @@
 import { useLogto, type IdTokenClaims } from "@logto/react";
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Button } from "react-bootstrap";
 import { ApiRequestError } from "../api/base";
 import { type MeResponse, useMeApi } from "../api/me";
 import { ErrorState, LoadingState, PageCard, PageShell } from "../shared/ui";
+import { SessionContext, useSession } from "./sessionContext";
 
 const SESSION_BOOTSTRAP_RETRY_DELAY_MS = 400;
 const SESSION_BOOTSTRAP_MAX_ATTEMPTS = 2;
@@ -31,16 +32,6 @@ function getBootstrapErrorMessage(error: unknown) {
 
   return error instanceof Error ? error.message : "No se pudo preparar la sesion de Civitas.";
 }
-
-type SessionContextValue = {
-  me?: MeResponse;
-  idTokenClaims?: IdTokenClaims;
-  isLoading: boolean;
-  error?: string;
-  refresh: () => void;
-};
-
-const SessionContext = createContext<SessionContextValue | undefined>(undefined);
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const { getMe } = useMeApi();
@@ -118,16 +109,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
-}
-
-export function useSession() {
-  const context = useContext(SessionContext);
-
-  if (!context) {
-    throw new Error("useSession must be used within SessionProvider");
-  }
-
-  return context;
 }
 
 export function SessionGate({ children }: { children: ReactNode }) {

@@ -18,6 +18,12 @@ const {
   serializeOrganizationProfile,
   upsertOrganizationProfile,
 } = require("./services/organizationProfiles");
+const {
+  AUDIT_ACTIONS,
+  AUDIT_RESULTS,
+  listAuditLogs,
+  recordAuditLogBestEffort,
+} = require("./services/auditLogs");
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -143,15 +149,26 @@ app.get("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organiz
 });
 
 app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organizations:create"), async (req, res) => {
-  try {
-    const { name, description, type, subdomain, seatTotal } = req.body || {};
+  let internalUser = null;
+  let logtoOrganizationId = null;
+  const { name, description, type, subdomain, seatTotal } = req.body || {};
+  const normalizedName = typeof name === "string" ? name.trim() : "";
 
-    if (!name || typeof name !== "string") {
+  try {
+    internalUser = await getOrCreateInternalUser(req.user);
+
+    if (!normalizedName) {
+      await recordAuditLogBestEffort({
+        actorUserId: internalUser.id,
+        action: AUDIT_ACTIONS.OWNER_ORGANIZATION_CREATE,
+        result: AUDIT_RESULTS.ERROR,
+        metadata: { reason: "validation_error", field: "name" },
+      });
       return res.status(400).json({ error: "Bad Request", message: "Organization name is required" });
     }
 
-    const logtoOrganization = await createLogtoOrganization({ name, description });
-    const logtoOrganizationId = getLogtoOrganizationId(logtoOrganization);
+    const logtoOrganization = await createLogtoOrganization({ name: normalizedName, description });
+    logtoOrganizationId = getLogtoOrganizationId(logtoOrganization);
 
     if (!logtoOrganizationId) {
       throw new Error("Logto organization creation response did not include an organization id");
@@ -174,7 +191,7 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
     try {
       profile = await upsertOrganizationProfile({
         logtoOrganizationId,
-        nameCache: getLogtoOrganizationName(logtoOrganization) || name,
+        nameCache: getLogtoOrganizationName(logtoOrganization) || normalizedName,
         type,
         subdomain,
         seatTotal,
@@ -186,6 +203,14 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
       );
     }
 
+    await recordAuditLogBestEffort({
+      actorUserId: internalUser.id,
+      organizationId: logtoOrganizationId,
+      action: AUDIT_ACTIONS.OWNER_ORGANIZATION_CREATE,
+      result: AUDIT_RESULTS.SUCCESS,
+      metadata: { name: normalizedName, profileId: profile?.id ?? null },
+    });
+
     return res.status(201).json({
       organization: {
         logtoOrganizationId,
@@ -194,8 +219,45 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
       },
     });
   } catch (error) {
+    await recordAuditLogBestEffort({
+      actorUserId: internalUser?.id ?? null,
+      organizationId: logtoOrganizationId,
+      action: AUDIT_ACTIONS.OWNER_ORGANIZATION_CREATE,
+      result: AUDIT_RESULTS.ERROR,
+      metadata: { name: normalizedName || name, type, subdomain, seatTotal, error },
+    });
+
     console.error("Failed to create Logto organization", error);
-    return res.status(502).json({ error: "Bad Gateway", message: error.message });
+
+    if (error.status === 401) {
+      return res.status(401).json({ error: "Unauthorized", message: error.message });
+    }
+
+    if (error.status === 403) {
+      return res.status(403).json({ error: "Forbidden", message: error.message });
+    }
+
+    return res.status(502).json({ error: "Bad Gateway", message: "Failed to create organization" });
+  }
+});
+
+app.get("/owner/audit", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  try {
+    await getOrCreateInternalUser(req.user);
+
+    const result = await listAuditLogs({ limit: req.query.limit, offset: req.query.offset });
+    return res.json(result);
+  } catch (error) {
+    if (error.status === 401) {
+      return res.status(401).json({ error: "Unauthorized", message: error.message });
+    }
+
+    if (error.status === 403) {
+      return res.status(403).json({ error: "Forbidden", message: error.message });
+    }
+
+    console.error("Failed to list audit logs", error);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to list audit logs" });
   }
 });
 

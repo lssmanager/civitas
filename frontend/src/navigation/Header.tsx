@@ -2,7 +2,7 @@ import { useLogto } from "@logto/react";
 import { Button, Container, Navbar } from "react-bootstrap";
 import { APP_ENV } from "../env";
 import { isLogtoAuthEnabled } from "../authConfig";
-import { useSession } from "../session/SessionContext";
+import { useSession } from "../session/sessionContext";
 import { AppBreadcrumbs } from "./AppBreadcrumbs";
 
 type HeaderProps = {
