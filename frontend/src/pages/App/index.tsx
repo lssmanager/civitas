@@ -1,4 +1,5 @@
 import { useLogto } from "@logto/react";
+import { useEffect, useRef } from "react";
 import { Navigate, Outlet, Route, Routes } from "react-router-dom";
 import { isLogtoAuthEnabled } from "../../authConfig";
 import { APP_ENV } from "../../env";
@@ -15,12 +16,19 @@ import { SelectOrganizationPage } from "../SelectOrganizationPage";
 
 function LogtoPrivateLayout() {
   const { isAuthenticated, isLoading, signIn } = useLogto();
+  const hasAuthenticatedOnceRef = useRef(false);
 
-  if (isLoading) {
+  useEffect(() => {
+    if (isAuthenticated) {
+      hasAuthenticatedOnceRef.current = true;
+    }
+  }, [isAuthenticated]);
+
+  if (isLoading && !isAuthenticated && !hasAuthenticatedOnceRef.current) {
     return <AuthRequiredState title="Validando sesion" message="Estamos comprobando tu sesion de Logto." isLoading />;
   }
 
-  if (!isAuthenticated) {
+  if (!isAuthenticated && !isLoading) {
     return (
       <AuthRequiredState
         message="Esta ruta es privada. Inicia sesion con Logto para continuar."
