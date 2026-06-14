@@ -1,18 +1,10 @@
 import { Badge, ListGroup } from "react-bootstrap";
-import { isLogtoAuthEnabled } from "../../authConfig";
-import { devOwnerMe, useOwnerAuthorization } from "../../guards/ownerAuthorization";
+import { useOutletContext } from "react-router-dom";
+import { devOwnerMe, type OwnerAuthorizationContext } from "../../guards/ownerAuthorization";
 import { EmptyState, PageCard, PageShell } from "../../shared/ui";
 
 type OwnerDashboardProps = {
-  ownerMe: {
-    owner: {
-      logtoUserId: string;
-      internalUserId: string;
-      authorizedBy: "logto_scope";
-      requiredScope: "owner:read";
-      scopes: string[];
-    };
-  };
+  ownerMe: OwnerAuthorizationContext;
 };
 
 function OwnerDashboard({ ownerMe }: OwnerDashboardProps) {
@@ -56,16 +48,8 @@ function OwnerDashboard({ ownerMe }: OwnerDashboardProps) {
   );
 }
 
-function OwnerPageWithSession() {
-  const ownerMe = useOwnerAuthorization();
-
-  return <OwnerDashboard ownerMe={ownerMe} />;
-}
-
 export function OwnerPage() {
-  if (!isLogtoAuthEnabled) {
-    return <OwnerDashboard ownerMe={devOwnerMe} />;
-  }
+  const ownerMe = useOutletContext<OwnerAuthorizationContext | undefined>();
 
-  return <OwnerPageWithSession />;
+  return <OwnerDashboard ownerMe={ownerMe ?? devOwnerMe} />;
 }

@@ -4,6 +4,7 @@ import { isLogtoAuthEnabled } from "../../authConfig";
 import { APP_ENV } from "../../env";
 import { AppLayout } from "../../layouts/AppLayout";
 import { OwnerGuard } from "../../guards/OwnerGuard";
+import { devOwnerMe } from "../../guards/ownerAuthorization";
 import { SessionGate, SessionProvider } from "../../session/SessionContext";
 import { AuthRequiredState } from "../../shared/ui/AuthRequiredState";
 import { AccountPage } from "../AccountPage";
@@ -55,12 +56,12 @@ function ProtectedContentOutlet() {
   );
 }
 
-function OwnerContentOutlet() {
+function OwnerLayout() {
   if (!isLogtoAuthEnabled) {
-    return <Outlet />;
+    return <Outlet context={devOwnerMe} />;
   }
 
-  return <OwnerGuard>{() => <Outlet />}</OwnerGuard>;
+  return <OwnerGuard>{(ownerMe) => <Outlet context={ownerMe} />}</OwnerGuard>;
 }
 
 function App() {
@@ -70,9 +71,9 @@ function App() {
       <Route element={<ProtectedLayout />}>
         <Route element={<ProtectedContentOutlet />}>
           <Route index element={<Navigate to="/owner" replace />} />
-          <Route element={<OwnerContentOutlet />}>
-            <Route path="owner" element={<OwnerPage />} />
-            <Route path="owner/audit" element={<OwnerAuditPage />} />
+          <Route path="owner" element={<OwnerLayout />}>
+            <Route index element={<OwnerPage />} />
+            <Route path="audit" element={<OwnerAuditPage />} />
           </Route>
           <Route path="select-organization" element={<SelectOrganizationPage />} />
           <Route path="account" element={<AccountPage />} />
