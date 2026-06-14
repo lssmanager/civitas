@@ -3,6 +3,7 @@ import { Navigate, Outlet, Route, Routes } from "react-router-dom";
 import { isLogtoAuthEnabled } from "../../authConfig";
 import { APP_ENV } from "../../env";
 import { AppLayout } from "../../layouts/AppLayout";
+import { OwnerGuard } from "../../guards/OwnerGuard";
 import { SessionGate, SessionProvider } from "../../session/SessionContext";
 import { AuthRequiredState } from "../../shared/ui/AuthRequiredState";
 import { AccountPage } from "../AccountPage";
@@ -54,6 +55,14 @@ function ProtectedContentOutlet() {
   );
 }
 
+function OwnerContentOutlet() {
+  if (!isLogtoAuthEnabled) {
+    return <Outlet />;
+  }
+
+  return <OwnerGuard>{() => <Outlet />}</OwnerGuard>;
+}
+
 function App() {
   return (
     <Routes>
@@ -61,8 +70,10 @@ function App() {
       <Route element={<ProtectedLayout />}>
         <Route element={<ProtectedContentOutlet />}>
           <Route index element={<Navigate to="/owner" replace />} />
-          <Route path="owner" element={<OwnerPage />} />
-          <Route path="owner/audit" element={<OwnerAuditPage />} />
+          <Route element={<OwnerContentOutlet />}>
+            <Route path="owner" element={<OwnerPage />} />
+            <Route path="owner/audit" element={<OwnerAuditPage />} />
+          </Route>
           <Route path="select-organization" element={<SelectOrganizationPage />} />
           <Route path="account" element={<AccountPage />} />
           <Route path="*" element={<Navigate to="/owner" replace />} />

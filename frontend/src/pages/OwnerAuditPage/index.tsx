@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Badge, Button, ButtonGroup } from "react-bootstrap";
-import { useOwnerApi, type OwnerAuditLog } from "../../api/owner";
-import { OwnerGuard } from "../../guards/OwnerGuard";
+import { useOwnerApi, type OwnerAuditLog, type OwnerAuditResponse } from "../../api/owner";
 import { DataTable, ErrorState, LoadingState, PageCard, PageShell } from "../../shared/ui";
 
 const PAGE_SIZE = 25;
@@ -18,35 +17,53 @@ const resultVariant = (result: string) => {
   return "danger";
 };
 
-function OwnerAuditDashboard() {
-  const ownerApi = useOwnerApi();
+export function OwnerAuditPage() {
+  const { getAuditLogs } = useOwnerApi();
+  const getAuditLogsRef = useRef(getAuditLogs);
   const [events, setEvents] = useState<OwnerAuditLog[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
+  const [refreshNonce, setRefreshNonce] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const loadAuditLogs = useCallback(
-    async (nextOffset: number) => {
-      setIsLoading(true);
-      setError(null);
-      try {
-        const response = await ownerApi.getAuditLogs({ limit: PAGE_SIZE, offset: nextOffset });
-        setEvents(response.auditLogs);
-        setTotal(response.pagination.total);
-        setOffset(response.pagination.offset);
-      } catch (loadError) {
-        setError(loadError instanceof Error ? loadError.message : "No se pudo cargar la auditoría owner.");
-      } finally {
-        setIsLoading(false);
-      }
-    },
-    [ownerApi]
-  );
+  useEffect(() => {
+    getAuditLogsRef.current = getAuditLogs;
+  }, [getAuditLogs]);
 
   useEffect(() => {
-    void loadAuditLogs(0);
-  }, [loadAuditLogs]);
+    let isMounted = true;
+
+    async function loadAuditLogs() {
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        const response: OwnerAuditResponse = await getAuditLogsRef.current({ limit: PAGE_SIZE, offset });
+
+        if (!isMounted) {
+          return;
+        }
+
+        setEvents(response.auditLogs);
+        setTotal(response.pagination.total);
+      } catch (loadError) {
+        if (isMounted) {
+          setError(loadError instanceof Error ? loadError.message : "No se pudo cargar la auditoría owner.");
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    void loadAuditLogs();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [offset, refreshNonce]);
 
   const columns = useMemo(
     () => [
@@ -87,13 +104,13 @@ function OwnerAuditDashboard() {
         subtitle="Listado paginado con eventos recientes primero. No incluye filtros avanzados ni exportación en esta fase."
         actions={
           <ButtonGroup size="sm" aria-label="Paginación de auditoría">
-            <Button variant="outline-secondary" disabled={isLoading || !hasPrevious} onClick={() => void loadAuditLogs(Math.max(0, offset - PAGE_SIZE))}>
+            <Button variant="outline-secondary" disabled={isLoading || !hasPrevious} onClick={() => setOffset((current) => Math.max(0, current - PAGE_SIZE))}>
               Anterior
             </Button>
             <Button variant="outline-secondary" disabled>
               Página {currentPage}
             </Button>
-            <Button variant="outline-secondary" disabled={isLoading || !hasNext} onClick={() => void loadAuditLogs(offset + PAGE_SIZE)}>
+            <Button variant="outline-secondary" disabled={isLoading || !hasNext} onClick={() => setOffset((current) => current + PAGE_SIZE)}>
               Siguiente
             </Button>
           </ButtonGroup>
@@ -105,7 +122,7 @@ function OwnerAuditDashboard() {
           <ErrorState
             title="No se pudo cargar la auditoría"
             message={error}
-            action={<Button onClick={() => void loadAuditLogs(offset)}>Reintentar</Button>}
+            action={<Button onClick={() => setRefreshNonce((current) => current + 1)}>Reintentar</Button>}
           />
         ) : (
           <DataTable
@@ -119,8 +136,4 @@ function OwnerAuditDashboard() {
       </PageCard>
     </PageShell>
   );
-}
-
-export function OwnerAuditPage() {
-  return <OwnerGuard>{() => <OwnerAuditDashboard />}</OwnerGuard>;
 }

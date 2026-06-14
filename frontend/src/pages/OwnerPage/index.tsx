@@ -1,5 +1,6 @@
 import { Badge, ListGroup } from "react-bootstrap";
-import { OwnerGuard } from "../../guards/OwnerGuard";
+import { isLogtoAuthEnabled } from "../../authConfig";
+import { getOwnerAuthorizationFromSession, useOwnerAuthorization } from "../../guards/ownerAuthorization";
 import { EmptyState, PageCard, PageShell } from "../../shared/ui";
 
 type OwnerDashboardProps = {
@@ -55,6 +56,16 @@ function OwnerDashboard({ ownerMe }: OwnerDashboardProps) {
   );
 }
 
+function OwnerPageWithSession() {
+  const ownerMe = useOwnerAuthorization();
+
+  return <OwnerDashboard ownerMe={ownerMe} />;
+}
+
 export function OwnerPage() {
-  return <OwnerGuard>{(ownerMe) => <OwnerDashboard ownerMe={ownerMe} />}</OwnerGuard>;
+  if (!isLogtoAuthEnabled) {
+    return <OwnerDashboard ownerMe={getOwnerAuthorizationFromSession(undefined)} />;
+  }
+
+  return <OwnerPageWithSession />;
 }

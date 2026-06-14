@@ -32,7 +32,7 @@ function getBootstrapErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "No se pudo preparar la sesion de Civitas.";
 }
 
-type SessionContextValue = {
+export type SessionContextValue = {
   me?: MeResponse;
   idTokenClaims?: IdTokenClaims;
   isLoading: boolean;

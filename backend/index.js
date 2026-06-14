@@ -236,9 +236,19 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
 
 app.get("/owner/audit", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
   try {
+    await getOrCreateInternalUser(req.user);
+
     const result = await listAuditLogs({ limit: req.query.limit, offset: req.query.offset });
     return res.json(result);
   } catch (error) {
+    if (error.status === 401) {
+      return res.status(401).json({ error: "Unauthorized", message: error.message });
+    }
+
+    if (error.status === 403) {
+      return res.status(403).json({ error: "Forbidden", message: error.message });
+    }
+
     console.error("Failed to list audit logs", error);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to list audit logs" });
   }
