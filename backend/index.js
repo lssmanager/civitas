@@ -3,6 +3,7 @@ const cors = require("cors");
 require("dotenv").config();
 const { requireAuth } = require("./middleware/auth");
 const { checkDatabaseConnection } = require("./db/connection");
+const { getOrCreateInternalUser, serializeUser } = require("./services/users");
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -40,6 +41,32 @@ app.get("/auth/test", requireAuth(), (req, res) => {
       scopes: req.user.scopes,
     },
   });
+});
+
+
+app.get("/me", requireAuth(), async (req, res) => {
+  try {
+    const internalUser = await getOrCreateInternalUser(req.user);
+
+    return res.json({
+      user: serializeUser(internalUser),
+      auth: {
+        sub: req.user.sub,
+        issuer: req.user.claims?.iss,
+      },
+    });
+  } catch (error) {
+    if (error.status === 401) {
+      return res.status(401).json({ error: "Unauthorized", message: error.message });
+    }
+
+    if (error.status === 403) {
+      return res.status(403).json({ error: "Forbidden", message: error.message });
+    }
+
+    console.error("Failed to resolve internal user", error);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to resolve internal user" });
+  }
 });
 
 // Basic route
