@@ -22,7 +22,7 @@ COPY package*.json ./
 RUN npm ci
 
 COPY . .
-RUN npm run build
+RUN npm run build > /tmp/frontend-build.log 2>&1 || (cat /tmp/frontend-build.log && exit 1)
 
 EXPOSE 5173
 CMD ["npm", "run", "preview", "--", "--host", "0.0.0.0", "--port", "5173"]

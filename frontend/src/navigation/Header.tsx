@@ -1,8 +1,8 @@
-import { useLogto, type IdTokenClaims } from "@logto/react";
-import { useEffect, useState } from "react";
+import { useLogto } from "@logto/react";
 import { Button, Container, Navbar } from "react-bootstrap";
 import { APP_ENV } from "../env";
 import { isLogtoAuthEnabled } from "../authConfig";
+import { useSession } from "../session/SessionContext";
 import { AppBreadcrumbs } from "./AppBreadcrumbs";
 
 type HeaderProps = {
@@ -10,25 +10,16 @@ type HeaderProps = {
 };
 
 function LogtoSessionControls() {
-  const { isAuthenticated, isLoading, signIn, signOut, getIdTokenClaims } = useLogto();
-  const [user, setUser] = useState<IdTokenClaims>();
+  const { isAuthenticated, isLoading, signIn, signOut } = useLogto();
+  const { idTokenClaims } = useSession();
 
-  useEffect(() => {
-    if (!isAuthenticated) {
-      setUser(undefined);
-      return;
-    }
-
-    void getIdTokenClaims().then((claims) => setUser(claims ?? undefined));
-  }, [getIdTokenClaims, isAuthenticated]);
-
-  const displayName = user?.name ?? user?.username ?? user?.sub ?? "Usuario Logto";
+  const displayName = idTokenClaims?.name ?? idTokenClaims?.username ?? idTokenClaims?.sub ?? "Usuario Logto";
 
   if (isAuthenticated) {
     return (
       <div className="d-flex align-items-center gap-2 text-secondary small">
         <span className="badge text-bg-success-subtle text-success-emphasis border border-success-subtle">Logto activo</span>
-        <span className="text-truncate" style={{ maxWidth: 220 }} title={user?.sub}> {displayName}</span>
+        <span className="text-truncate" style={{ maxWidth: 220 }} title={idTokenClaims?.sub}> {displayName}</span>
         <Button size="sm" variant="outline-secondary" onClick={() => void signOut(APP_ENV.app.signOutRedirectUri)}>
           Salir
         </Button>

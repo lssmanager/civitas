@@ -1,9 +1,20 @@
 import { Badge, ListGroup } from "react-bootstrap";
-import type { OwnerMeResponse } from "../../api/owner";
 import { OwnerGuard } from "../../guards/OwnerGuard";
 import { EmptyState, PageCard, PageShell } from "../../shared/ui";
 
-function OwnerDashboard({ ownerMe }: { ownerMe: OwnerMeResponse }) {
+type OwnerDashboardProps = {
+  ownerMe: {
+    owner: {
+      logtoUserId: string;
+      internalUserId: string;
+      authorizedBy: "logto_scope";
+      requiredScope: "owner:read";
+      scopes: string[];
+    };
+  };
+};
+
+function OwnerDashboard({ ownerMe }: OwnerDashboardProps) {
   const { owner } = ownerMe;
 
   return (
