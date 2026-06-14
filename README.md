@@ -103,7 +103,7 @@ Ver `frontend/.env.example`.
 | --- | --- | --- |
 | `FRONTEND_PUBLIC_PORT` | `5173` | Puerto publicado para servir la SPA. |
 | `PREVIEW_ALLOWED_HOSTS` | `civitas.socialstudies.cloud` | Lista separada por comas de dominios públicos adicionales que `vite preview` acepta en el header `Host`. Añade aquí futuros dominios de Coolify. |
-| `VITE_API_BASE_URL` | `http://localhost:3000` | URL pública del backend para el navegador. En producción/Coolify debe ser la URL pública real de la API. |
+| `VITE_API_BASE_URL` | desarrollo: `http://localhost:3000`; producción: `https://civitas.socialstudies.cloud/api` | URL pública del backend para el navegador. En producción/Coolify debe ser la URL pública real de la API y debe existir durante el build de Vite. |
 | `VITE_ENABLE_LOGTO` | `false` | Mantiene desactivado el flujo UI autenticado si no se está probando Logto localmente. |
 | `VITE_LOGTO_*` | vacío | Variables heredadas opcionales para una futura etapa de autenticación. |
 
@@ -216,15 +216,20 @@ Variables recomendadas en Coolify:
 - `BACKEND_PUBLIC_PORT=3000` o el puerto/ruta que Coolify asigne al servicio backend
 - `FRONTEND_PUBLIC_PORT=5173` o el puerto/ruta que Coolify asigne al servicio frontend
 - `PREVIEW_ALLOWED_HOSTS=civitas.socialstudies.cloud` para permitir el dominio público del frontend. Si hay más dominios, sepáralos por comas.
-- `VITE_API_BASE_URL=https://<dominio-publico-del-backend>`
-- `LOGTO_ISSUER`, `LOGTO_JWKS_URL` y `LOGTO_API_RESOURCE_INDICATOR` si se va a probar `/auth/test` en ese entorno
-- `VITE_ENABLE_LOGTO=false`
+- `VITE_API_BASE_URL=https://civitas.socialstudies.cloud/api`
+- `VITE_API_RESOURCE_INDICATOR=https://civitas.socialstudies.cloud/api`
+- `VITE_ENABLE_LOGTO=true`
+- `VITE_LOGTO_ENDPOINT=https://auth.learnsocialstudies.com/`
+- `VITE_LOGTO_APP_ID=avc4zf5kjm5rgc5xgsegh`
+- `VITE_APP_REDIRECT_URI=https://civitas.socialstudies.cloud/callback`
+- `VITE_APP_SIGN_OUT_REDIRECT_URI=https://civitas.socialstudies.cloud`
+- `LOGTO_ISSUER=https://auth.learnsocialstudies.com/oidc`, `LOGTO_JWKS_URL=https://auth.learnsocialstudies.com/oidc/jwks` y `LOGTO_API_RESOURCE_INDICATOR=https://civitas.socialstudies.cloud/api` si se va a probar `/auth/test` o `/me` en ese entorno
 
 No uses `http://backend:3000` en `VITE_API_BASE_URL` para producción: esa dirección solo existe dentro de la red Docker. El frontend corre en el navegador del usuario y necesita llamar a una URL pública del backend, por ejemplo `https://api.example.com`.
 
 `vite preview` bloquea peticiones cuyo header `Host` no esté permitido para evitar responder a dominios inesperados detrás de proxies. Por eso Coolify mostraba `Blocked request` al entrar por `civitas.socialstudies.cloud`; el dominio público debe aparecer en `preview.allowedHosts` o en `PREVIEW_ALLOWED_HOSTS`.
 
-Si cambias `VITE_API_BASE_URL` u otra variable `VITE_*`, reconstruye/redeploya el frontend para que el nuevo valor quede dentro del bundle estático.
+Si cambias `VITE_API_BASE_URL` u otra variable `VITE_*`, reconstruye/redeploya el frontend para que el nuevo valor quede dentro del bundle estático. En Vite, estas variables se inyectan en build time; configurarlas solo como variables runtime del contenedor no cambia el JavaScript ya compilado.
 
 ## Migraciones Drizzle
 
