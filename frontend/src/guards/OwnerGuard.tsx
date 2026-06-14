@@ -2,26 +2,28 @@ import { Badge, Button } from "react-bootstrap";
 import { useSession } from "../session/SessionContext";
 import { ErrorState, PageCard, PageShell } from "../shared/ui";
 
+type OwnerGuardChildrenProps = {
+  owner: {
+    logtoUserId: string;
+    internalUserId: string;
+    authorizedBy: "logto_scope";
+    requiredScope: "owner:read";
+    scopes: string[];
+  };
+};
+
 type OwnerGuardProps = {
-  children: (ownerMe: {
-    owner: {
-      logtoUserId: string;
-      internalUserId: string;
-      authorizedBy: "logto_scope";
-      requiredScope: "owner:read";
-      scopes: string[];
-    };
-  }) => React.ReactNode;
+  children: (ownerMe: OwnerGuardChildrenProps) => React.ReactNode;
 };
 
 const OWNER_REQUIRED_SCOPE = "owner:read";
 
-const devOwnerMe = {
+const devOwnerMe: OwnerGuardChildrenProps = {
   owner: {
     logtoUserId: "dev-logto-owner",
     internalUserId: "dev-owner",
-    authorizedBy: "logto_scope" as const,
-    requiredScope: OWNER_REQUIRED_SCOPE as const,
+    authorizedBy: "logto_scope",
+    requiredScope: "owner:read",
     scopes: ["owner:read", "organizations:read", "organizations:create"],
   },
 };
@@ -85,7 +87,7 @@ export function OwnerGuard({ children }: OwnerGuardProps) {
           logtoUserId: me.user.logtoUserId,
           internalUserId: me.user.id,
           authorizedBy: "logto_scope",
-          requiredScope: OWNER_REQUIRED_SCOPE,
+          requiredScope: "owner:read",
           scopes,
         },
       })}
