@@ -5,6 +5,7 @@ const { requireAuth } = require("./middleware/auth");
 const { requireOwner } = require("./middleware/owner");
 const { checkDatabaseConnection } = require("./db/connection");
 const { getOrCreateInternalUser, serializeUser } = require("./services/users");
+const { createOrganization, listOrganizations } = require("./services/organizations");
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -49,11 +50,39 @@ app.get("/owner/me", requireAuth(), requireOwner, (req, res) => {
   return res.json({
     owner: req.owner,
     scope: {
-      organizations: false,
+      organizations: true,
       memberships: false,
       rbac: false,
     },
   });
+});
+
+app.get("/owner/organizations", requireAuth(), requireOwner, async (req, res) => {
+  try {
+    const organizations = await listOrganizations();
+    return res.json({ organizations });
+  } catch (error) {
+    console.error("Failed to list organizations", error);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to list organizations" });
+  }
+});
+
+app.post("/owner/organizations", requireAuth(), requireOwner, async (req, res) => {
+  try {
+    const organization = await createOrganization(req.body);
+    return res.status(201).json({ organization });
+  } catch (error) {
+    if (error.status === 400) {
+      return res.status(400).json({ error: "Bad Request", message: error.message, details: error.details });
+    }
+
+    if (error.status === 409) {
+      return res.status(409).json({ error: "Conflict", message: error.message, field: error.field });
+    }
+
+    console.error("Failed to create organization", error);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to create organization" });
+  }
 });
 
 app.get("/me", requireAuth(), async (req, res) => {
