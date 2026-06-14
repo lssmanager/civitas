@@ -139,13 +139,23 @@ async function grantOwnerGlobalRole({ logtoUserId, email }) {
   }
 
   const whereClause = logtoUserId ? eq(users.logtoUserId, logtoUserId) : eq(users.email, normalizedEmail);
+  const [existingUser] = await db.select().from(users).where(whereClause).limit(1);
+
+  if (!existingUser) {
+    return null;
+  }
+
+  if (INACTIVE_STATUSES.has(existingUser.status)) {
+    throw new InternalUserInactiveError(existingUser.status);
+  }
+
   const [user] = await db
     .update(users)
     .set({
       globalRole: GLOBAL_ROLES.OWNER,
       updatedAt: new Date(),
     })
-    .where(whereClause)
+    .where(eq(users.id, existingUser.id))
     .returning();
 
   return user;
