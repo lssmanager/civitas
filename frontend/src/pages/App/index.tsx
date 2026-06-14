@@ -7,6 +7,7 @@ import { AuthRequiredState } from "../../shared/ui/AuthRequiredState";
 import { AccountPage } from "../AccountPage";
 import Callback from "../Callback";
 import { OwnerPage } from "../OwnerPage";
+import { OwnerAuditPage } from "../OwnerAuditPage";
 import { SelectOrganizationPage } from "../SelectOrganizationPage";
 
 function LogtoPrivateRoute({ children }: { children: React.ReactNode }) {
@@ -42,6 +43,7 @@ function App() {
       <Route element={<AppLayout />}>
         <Route index element={<Navigate to="/owner" replace />} />
         <Route path="owner" element={<PrivateRoute><OwnerPage /></PrivateRoute>} />
+        <Route path="owner/audit" element={<PrivateRoute><OwnerAuditPage /></PrivateRoute>} />
         <Route path="select-organization" element={<PrivateRoute><SelectOrganizationPage /></PrivateRoute>} />
         <Route path="account" element={<PrivateRoute><AccountPage /></PrivateRoute>} />
         <Route path="*" element={<Navigate to="/owner" replace />} />

@@ -1,4 +1,4 @@
-const { index, integer, pgTable, text, timestamp, uuid, varchar } = require("drizzle-orm/pg-core");
+const { index, integer, jsonb, pgTable, text, timestamp, uuid, varchar } = require("drizzle-orm/pg-core");
 
 const healthChecks = pgTable("health_checks", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -44,7 +44,29 @@ const organizationProfiles = pgTable(
   })
 );
 
+const auditLogs = pgTable(
+  "audit_logs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    // Logto is the canonical organization source; this stores the affected Logto organization id.
+    organizationId: varchar("organization_id", { length: 255 }),
+    action: text("action").notNull(),
+    result: text("result").notNull(),
+    metadata: jsonb("metadata").notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    createdAtIdx: index("audit_logs_created_at_idx").on(table.createdAt),
+    actorUserIdx: index("audit_logs_actor_user_id_idx").on(table.actorUserId),
+    organizationIdx: index("audit_logs_organization_id_idx").on(table.organizationId),
+    actionIdx: index("audit_logs_action_idx").on(table.action),
+    resultIdx: index("audit_logs_result_idx").on(table.result),
+  })
+);
+
 module.exports = {
+  auditLogs,
   healthChecks,
   organizationProfiles,
   users,

@@ -10,6 +10,11 @@ export const appRoutes = {
     label: "Owner",
     description: "Vista mock del espacio principal de administración.",
   },
+  ownerAudit: {
+    path: "/owner/audit",
+    label: "Auditoría",
+    description: "Audit logs mínimos del portal owner.",
+  },
   selectOrganization: {
     path: "/select-organization",
     label: "Seleccionar organización",
@@ -24,12 +29,14 @@ export const appRoutes = {
 
 export const primaryNavigation: AppRoute[] = [
   appRoutes.owner,
+  appRoutes.ownerAudit,
   appRoutes.selectOrganization,
   appRoutes.account,
 ];
 
 export const routeMetadata: Record<string, { label: string; parentPath?: string }> = {
   "/owner": { label: appRoutes.owner.label },
+  "/owner/audit": { label: appRoutes.ownerAudit.label, parentPath: appRoutes.owner.path },
   "/select-organization": { label: appRoutes.selectOrganization.label },
   "/account": { label: appRoutes.account.label },
 };

@@ -1,4 +1,4 @@
-import { Badge, ListGroup } from "react-bootstrap";
+import { Badge, Button, ListGroup } from "react-bootstrap";
 import type { OwnerMeResponse } from "../../api/owner";
 import { OwnerGuard } from "../../guards/OwnerGuard";
 import { EmptyState, PageCard, PageShell } from "../../shared/ui";
@@ -29,6 +29,18 @@ function OwnerDashboard({ ownerMe }: { ownerMe: OwnerMeResponse }) {
             <div className="d-flex flex-wrap gap-2">
               {owner.scopes.map((scope) => <Badge bg="secondary" key={scope}>{scope}</Badge>)}
             </div>
+          </PageCard>
+        </div>
+        <div className="col-12">
+          <PageCard
+            title="Auditoría owner"
+            subtitle="Consulta eventos críticos mínimos protegidos por el scope owner:read."
+            actions={<Button href="/owner/audit" variant="outline-primary">Ver auditoría</Button>}
+          >
+            <EmptyState
+              title="Auditoría mínima disponible"
+              description="La creación de organizaciones registra eventos organization.create con resultado success o failure."
+            />
           </PageCard>
         </div>
         <div className="col-12">
