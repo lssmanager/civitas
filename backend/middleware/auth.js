@@ -79,7 +79,13 @@ const extractOrganizationId = (payloadOrAudience) => {
   return null;
 };
 
-const parseScopes = (scope) => (typeof scope === "string" ? scope.split(" ").filter(Boolean) : []);
+const parseScopes = (scope) => {
+  if (Array.isArray(scope)) {
+    return scope.filter((value) => typeof value === "string" && value.trim()).map((value) => value.trim());
+  }
+
+  return String(scope || "").split(" ").filter(Boolean);
+};
 
 const hasRequiredScopes = (tokenScopes, requiredScopes = []) => {
   if (!requiredScopes || requiredScopes.length === 0) {
@@ -126,15 +132,37 @@ const requireAuth = (resource = process.env.LOGTO_API_RESOURCE_INDICATOR) => {
   };
 };
 
+const logScopeAuthorization = ({ req, requiredScope, scopes, allowed, reason }) => {
+  console.info("Logto scope authorization", {
+    route: req.originalUrl || req.url,
+    method: req.method,
+    sub: req.user?.sub,
+    detectedScopes: scopes,
+    requiredScope,
+    allowed,
+    reason,
+  });
+};
+
 const requireScope = (requiredScope) => {
   return (req, res, next) => {
-    const scopes = Array.isArray(req.user?.scopes) ? req.user.scopes : [];
+    const scopes = Array.isArray(req.user?.scopes) ? req.user.scopes : parseScopes(req.user?.scope || req.user?.claims?.scope);
+    const allowed = hasRequiredScopes(scopes, [requiredScope]);
 
-    if (!hasRequiredScopes(scopes, [requiredScope])) {
+    logScopeAuthorization({
+      req,
+      requiredScope,
+      scopes,
+      allowed,
+      reason: allowed ? "required_scope_present" : "required_scope_missing",
+    });
+
+    if (!allowed) {
       return res.status(403).json({
         error: "Forbidden",
         message: `Missing required Logto scope: ${requiredScope}`,
         requiredScope,
+        detectedScopes: scopes,
       });
     }
 
@@ -202,6 +230,7 @@ module.exports = {
   extractOrganizationId,
   getTokenFromHeader,
   hasRequiredScopes,
+  parseScopes,
   requireAuth,
   requireOrganizationAccess,
   requireScope,

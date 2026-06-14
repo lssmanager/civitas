@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Badge, Button } from "react-bootstrap";
 import { ApiRequestError } from "../api/base";
 import { type OwnerMeResponse, useOwnerApi } from "../api/owner";
@@ -24,14 +24,21 @@ function getOwnerError(error: unknown) {
     if (error.status === 401) {
       return {
         title: "Sesión requerida",
-        message: "No pudimos validar tu sesión. Inicia sesión de nuevo para entrar al portal owner.",
+        message: error.message || "No pudimos validar tu sesión. Inicia sesión de nuevo para entrar al portal owner.",
       };
     }
 
     if (error.status === 403) {
       return {
         title: "Permisos insuficientes",
-        message: "Tu access token de Logto no contiene el scope global owner:read.",
+        message: error.message || "Tu access token de Logto no contiene el scope global owner:read.",
+      };
+    }
+
+    if (error.isNetworkError) {
+      return {
+        title: "Error de conexión",
+        message: `No se pudo conectar con el API de Civitas: ${error.message}`,
       };
     }
   }
@@ -44,14 +51,26 @@ function getOwnerError(error: unknown) {
 
 export function OwnerGuard({ children }: OwnerGuardProps) {
   const { getOwnerMe } = useOwnerApi();
+  const getOwnerMeRef = useRef(getOwnerMe);
+  const hasLoadedRef = useRef(false);
   const [ownerMe, setOwnerMe] = useState<OwnerMeResponse>();
   const [error, setError] = useState<{ title: string; message: string }>();
   const [isLoading, setIsLoading] = useState(isLogtoAuthEnabled);
 
   useEffect(() => {
+    getOwnerMeRef.current = getOwnerMe;
+  }, [getOwnerMe]);
+
+  useEffect(() => {
     let isMounted = true;
 
     async function loadOwner() {
+      if (hasLoadedRef.current) {
+        return;
+      }
+
+      hasLoadedRef.current = true;
+
       if (!isLogtoAuthEnabled) {
         setOwnerMe(devOwnerMe);
         setIsLoading(false);
@@ -62,7 +81,7 @@ export function OwnerGuard({ children }: OwnerGuardProps) {
       setError(undefined);
 
       try {
-        const response = await getOwnerMe();
+        const response = await getOwnerMeRef.current();
         if (isMounted) {
           setOwnerMe(response);
         }
@@ -83,13 +102,13 @@ export function OwnerGuard({ children }: OwnerGuardProps) {
     return () => {
       isMounted = false;
     };
-  }, [getOwnerMe]);
+  }, []);
 
   if (isLoading) {
     return (
       <PageShell eyebrow="Owner" title="Validando permisos owner" description="Comprobando scopes RBAC globales emitidos por Logto.">
         <PageCard title="Guard owner">
-          <LoadingState title="Validando owner:read" description="Estamos consultando /owner/me antes de mostrar el portal." />
+          <LoadingState title="Validando owner:read" description="Estamos consultando /owner/me una sola vez para esta vista." />
         </PageCard>
       </PageShell>
     );
@@ -98,7 +117,7 @@ export function OwnerGuard({ children }: OwnerGuardProps) {
   if (error || !ownerMe) {
     return (
       <PageShell eyebrow="Owner" title="Acceso denegado" description="El portal owner requiere scopes globales de Logto." actions={<Badge bg="danger">403</Badge>}>
-        <PageCard title="Permisos insuficientes">
+        <PageCard title={error?.title ?? "Permisos insuficientes"}>
           <ErrorState
             title={error?.title ?? "Sin permisos owner"}
             message={error?.message ?? "Tu usuario no tiene acceso al portal owner."}

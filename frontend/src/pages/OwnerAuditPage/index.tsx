@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Badge, Button } from "react-bootstrap";
 import { ApiRequestError } from "../../api/base";
 import { type AuditLog, useAuditApi } from "../../api/audit";
@@ -64,11 +64,16 @@ function resultBadge(result: AuditLog["result"]) {
 
 function OwnerAuditContent() {
   const { listOwnerAuditLogs } = useAuditApi();
+  const listOwnerAuditLogsRef = useRef(listOwnerAuditLogs);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [offset, setOffset] = useState(0);
   const [count, setCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string>();
+
+  useEffect(() => {
+    listOwnerAuditLogsRef.current = listOwnerAuditLogs;
+  }, [listOwnerAuditLogs]);
 
   useEffect(() => {
     let isMounted = true;
@@ -78,7 +83,7 @@ function OwnerAuditContent() {
       setError(undefined);
 
       try {
-        const response = await listOwnerAuditLogs({ limit: PAGE_SIZE, offset });
+        const response = await listOwnerAuditLogsRef.current({ limit: PAGE_SIZE, offset });
         if (isMounted) {
           setAuditLogs(response.auditLogs);
           setCount(response.pagination.count);
@@ -101,7 +106,7 @@ function OwnerAuditContent() {
     return () => {
       isMounted = false;
     };
-  }, [listOwnerAuditLogs, offset]);
+  }, [offset]);
 
   const columns = useMemo(
     () => [
