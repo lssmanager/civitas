@@ -11,12 +11,13 @@ const {
   assignOrganizationRoleToUser,
   createLogtoOrganization,
   findOrganizationRoleByName,
-  listLogtoOrganizations,
 } = require("./services/logtoManagement");
 const {
-  getOrganizationProfilesByLogtoIds,
+  createOrganizationProfile,
+  listOrganizationProfiles,
+  markOrganizationProfileLogtoSyncError,
+  markOrganizationProfileLogtoSynced,
   serializeOrganizationProfile,
-  upsertOrganizationProfile,
 } = require("./services/organizationProfiles");
 const {
   AUDIT_ACTIONS,
@@ -35,22 +36,17 @@ app.use(express.json());
 const getLogtoOrganizationId = (organization) => organization.id || organization.organizationId || organization.logtoOrganizationId;
 const getLogtoOrganizationName = (organization) => organization.name || organization.nameCache || null;
 
-async function combineLogtoOrganizationsWithProfiles(logtoOrganizations) {
-  const organizationIds = logtoOrganizations.map(getLogtoOrganizationId).filter(Boolean);
-  const profilesByLogtoId = await getOrganizationProfilesByLogtoIds(organizationIds);
+const serializeOwnerOrganization = (profile) => ({
+  logtoOrganizationId: profile.logtoOrganizationId,
+  name: profile.nameCache,
+  profile: serializeOrganizationProfile(profile),
+});
 
-  return logtoOrganizations.map((organization) => {
-    const logtoOrganizationId = getLogtoOrganizationId(organization);
-    const profile = profilesByLogtoId.get(logtoOrganizationId);
-
-    return {
-      logtoOrganizationId,
-      name: getLogtoOrganizationName(organization),
-      logtoOrganization: organization,
-      profile: profile ? serializeOrganizationProfile(profile) : null,
-    };
-  });
-}
+const getSafeErrorMessage = (error) => {
+  if (!error) return "Logto synchronization failed";
+  const status = error.status ? ` (${error.status})` : "";
+  return `${error.message || "Logto synchronization failed"}${status}`;
+};
 
 // Local base healthcheck. It intentionally does not depend on Logto or any external integration.
 app.get("/health", async (req, res) => {
@@ -139,18 +135,17 @@ app.get("/owner/me", requireAuth(API_RESOURCE), requireOwner, async (req, res) =
 
 app.get("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organizations:read"), async (req, res) => {
   try {
-    const logtoOrganizations = await listLogtoOrganizations();
-    const organizations = await combineLogtoOrganizationsWithProfiles(logtoOrganizations);
-    return res.json({ organizations });
+    const profiles = await listOrganizationProfiles();
+    return res.json({ organizations: profiles.map(serializeOwnerOrganization) });
   } catch (error) {
-    console.error("Failed to list Logto organizations", error);
-    return res.status(502).json({ error: "Bad Gateway", message: "Failed to list organizations from Logto" });
+    console.error("Failed to list internal organizations", error);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to list organizations" });
   }
 });
 
 app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organizations:create"), async (req, res) => {
   let internalUser = null;
-  let logtoOrganizationId = null;
+  let profile = null;
   const { name, description, type, subdomain, seatTotal } = req.body || {};
   const normalizedName = typeof name === "string" ? name.trim() : "";
 
@@ -167,8 +162,30 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
       return res.status(400).json({ error: "Bad Request", message: "Organization name is required" });
     }
 
+    profile = await createOrganizationProfile({ nameCache: normalizedName, type, subdomain, seatTotal });
+
+    await recordAuditLogBestEffort({
+      actorUserId: internalUser.id,
+      organizationId: profile.id,
+      action: AUDIT_ACTIONS.OWNER_ORGANIZATION_CREATE,
+      result: AUDIT_RESULTS.SUCCESS,
+      metadata: { name: normalizedName, profileId: profile.id, logtoSyncStatus: profile.logtoSyncStatus },
+    });
+  } catch (error) {
+    await recordAuditLogBestEffort({
+      actorUserId: internalUser?.id ?? null,
+      action: AUDIT_ACTIONS.OWNER_ORGANIZATION_CREATE,
+      result: AUDIT_RESULTS.ERROR,
+      metadata: { name: normalizedName || name, type, subdomain, seatTotal, error },
+    });
+
+    console.error("Failed to persist internal organization", error);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to create internal organization" });
+  }
+
+  try {
     const logtoOrganization = await createLogtoOrganization({ name: normalizedName, description });
-    logtoOrganizationId = getLogtoOrganizationId(logtoOrganization);
+    const logtoOrganizationId = getLogtoOrganizationId(logtoOrganization);
 
     if (!logtoOrganizationId) {
       throw new Error("Logto organization creation response did not include an organization id");
@@ -187,57 +204,38 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
       organizationRoleId: adminRole.id,
     });
 
-    let profile = null;
-    try {
-      profile = await upsertOrganizationProfile({
-        logtoOrganizationId,
-        nameCache: getLogtoOrganizationName(logtoOrganization) || normalizedName,
-        type,
-        subdomain,
-        seatTotal,
-      });
-    } catch (metadataError) {
-      console.error(`Logto organization ${logtoOrganizationId} was created, but metadata persistence failed`, metadataError);
-      throw new Error(
-        `Logto organization ${logtoOrganizationId} was created, but Civitas metadata persistence failed. Retry metadata sync safely.`
-      );
-    }
+    profile = await markOrganizationProfileLogtoSynced({
+      id: profile.id,
+      logtoOrganizationId,
+      nameCache: getLogtoOrganizationName(logtoOrganization) || normalizedName,
+    });
 
     await recordAuditLogBestEffort({
       actorUserId: internalUser.id,
       organizationId: logtoOrganizationId,
-      action: AUDIT_ACTIONS.OWNER_ORGANIZATION_CREATE,
+      action: AUDIT_ACTIONS.OWNER_ORGANIZATION_LOGTO_SYNC,
       result: AUDIT_RESULTS.SUCCESS,
-      metadata: { name: normalizedName, profileId: profile?.id ?? null },
+      metadata: { profileId: profile.id, name: normalizedName, logtoOrganizationId },
     });
 
-    return res.status(201).json({
-      organization: {
-        logtoOrganizationId,
-        logtoOrganization,
-        profile: serializeOrganizationProfile(profile),
-      },
-    });
+    return res.status(201).json({ organization: serializeOwnerOrganization(profile) });
   } catch (error) {
-    await recordAuditLogBestEffort({
-      actorUserId: internalUser?.id ?? null,
-      organizationId: logtoOrganizationId,
-      action: AUDIT_ACTIONS.OWNER_ORGANIZATION_CREATE,
-      result: AUDIT_RESULTS.ERROR,
-      metadata: { name: normalizedName || name, type, subdomain, seatTotal, error },
+    const errorMessage = getSafeErrorMessage(error);
+    profile = await markOrganizationProfileLogtoSyncError({ id: profile.id, errorMessage }).catch((persistenceError) => {
+      console.error(`Failed to mark Logto sync error for organization profile ${profile?.id}`, persistenceError);
+      return profile;
     });
 
-    console.error("Failed to create Logto organization", error);
+    await recordAuditLogBestEffort({
+      actorUserId: internalUser.id,
+      organizationId: profile?.logtoOrganizationId || profile?.id,
+      action: AUDIT_ACTIONS.OWNER_ORGANIZATION_LOGTO_SYNC,
+      result: AUDIT_RESULTS.ERROR,
+      metadata: { profileId: profile?.id, name: normalizedName, error: errorMessage },
+    });
 
-    if (error.status === 401) {
-      return res.status(401).json({ error: "Unauthorized", message: error.message });
-    }
-
-    if (error.status === 403) {
-      return res.status(403).json({ error: "Forbidden", message: error.message });
-    }
-
-    return res.status(502).json({ error: "Bad Gateway", message: "Failed to create organization" });
+    console.error("Failed to synchronize organization with Logto", error);
+    return res.status(201).json({ organization: serializeOwnerOrganization(profile), warning: "Logto synchronization failed" });
   }
 });
 

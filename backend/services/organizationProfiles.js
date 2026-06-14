@@ -1,6 +1,14 @@
-const { inArray } = require("drizzle-orm");
+const { eq, inArray } = require("drizzle-orm");
 const { db } = require("../db/client");
 const { organizationProfiles } = require("../db/schema");
+
+const LOGTO_SYNC_STATUSES = Object.freeze({
+  PENDING: "pending",
+  SYNCED: "synced",
+  ERROR: "error",
+});
+
+const toIso = (value) => value?.toISOString?.() ?? value;
 
 const serializeOrganizationProfile = (profile) => ({
   id: profile.id,
@@ -10,9 +18,70 @@ const serializeOrganizationProfile = (profile) => ({
   status: profile.status,
   subdomain: profile.subdomain,
   seatTotal: profile.seatTotal,
-  createdAt: profile.createdAt?.toISOString?.() ?? profile.createdAt,
-  updatedAt: profile.updatedAt?.toISOString?.() ?? profile.updatedAt,
+  logtoSyncStatus: profile.logtoSyncStatus,
+  logtoSyncError: profile.logtoSyncError,
+  logtoSyncedAt: toIso(profile.logtoSyncedAt),
+  createdAt: toIso(profile.createdAt),
+  updatedAt: toIso(profile.updatedAt),
 });
+
+const normalizeSeatTotal = (seatTotal) => {
+  const value = Number(seatTotal);
+  return Number.isInteger(value) && value >= 0 ? value : 0;
+};
+
+async function createOrganizationProfile({ nameCache, type, subdomain, seatTotal }) {
+  const now = new Date();
+  const [profile] = await db
+    .insert(organizationProfiles)
+    .values({
+      logtoOrganizationId: null,
+      nameCache: nameCache || null,
+      type: type || null,
+      subdomain: subdomain || null,
+      seatTotal: normalizeSeatTotal(seatTotal),
+      logtoSyncStatus: LOGTO_SYNC_STATUSES.PENDING,
+      logtoSyncError: null,
+      logtoSyncedAt: null,
+      updatedAt: now,
+    })
+    .returning();
+
+  return profile;
+}
+
+async function markOrganizationProfileLogtoSynced({ id, logtoOrganizationId, nameCache }) {
+  const now = new Date();
+  const [profile] = await db
+    .update(organizationProfiles)
+    .set({
+      logtoOrganizationId,
+      nameCache: nameCache || null,
+      logtoSyncStatus: LOGTO_SYNC_STATUSES.SYNCED,
+      logtoSyncError: null,
+      logtoSyncedAt: now,
+      updatedAt: now,
+    })
+    .where(eq(organizationProfiles.id, id))
+    .returning();
+
+  return profile;
+}
+
+async function markOrganizationProfileLogtoSyncError({ id, errorMessage }) {
+  const now = new Date();
+  const [profile] = await db
+    .update(organizationProfiles)
+    .set({
+      logtoSyncStatus: LOGTO_SYNC_STATUSES.ERROR,
+      logtoSyncError: errorMessage || "Logto synchronization failed",
+      updatedAt: now,
+    })
+    .where(eq(organizationProfiles.id, id))
+    .returning();
+
+  return profile;
+}
 
 async function upsertOrganizationProfile({ logtoOrganizationId, nameCache, type, subdomain, seatTotal }) {
   const now = new Date();
@@ -21,7 +90,10 @@ async function upsertOrganizationProfile({ logtoOrganizationId, nameCache, type,
     nameCache: nameCache || null,
     type: type || null,
     subdomain: subdomain || null,
-    seatTotal: Number.isInteger(seatTotal) ? seatTotal : 0,
+    seatTotal: normalizeSeatTotal(seatTotal),
+    logtoSyncStatus: LOGTO_SYNC_STATUSES.SYNCED,
+    logtoSyncError: null,
+    logtoSyncedAt: now,
     updatedAt: now,
   };
 
@@ -35,6 +107,10 @@ async function upsertOrganizationProfile({ logtoOrganizationId, nameCache, type,
     .returning();
 
   return profile;
+}
+
+async function listOrganizationProfiles() {
+  return db.select().from(organizationProfiles);
 }
 
 async function getOrganizationProfilesByLogtoIds(logtoOrganizationIds) {
@@ -51,7 +127,12 @@ async function getOrganizationProfilesByLogtoIds(logtoOrganizationIds) {
 }
 
 module.exports = {
+  LOGTO_SYNC_STATUSES,
+  createOrganizationProfile,
   getOrganizationProfilesByLogtoIds,
+  listOrganizationProfiles,
+  markOrganizationProfileLogtoSyncError,
+  markOrganizationProfileLogtoSynced,
   serializeOrganizationProfile,
   upsertOrganizationProfile,
 };

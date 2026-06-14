@@ -14,16 +14,21 @@ export type OwnerMeResponse = {
 };
 
 export type OwnerOrganization = {
-  logtoOrganizationId: string;
+  logtoOrganizationId: string | null;
   name: string | null;
   profile: {
     id: string;
-    logtoOrganizationId: string;
+    logtoOrganizationId: string | null;
     nameCache: string | null;
     type: string | null;
     status: string;
     subdomain: string | null;
     seatTotal: number;
+    logtoSyncStatus: "pending" | "synced" | "error" | string;
+    logtoSyncError: string | null;
+    logtoSyncedAt: string | null;
+    createdAt?: string;
+    updatedAt?: string;
   } | null;
 };
 

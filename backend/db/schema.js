@@ -29,18 +29,22 @@ const organizationProfiles = pgTable(
   "organization_profiles",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    logtoOrganizationId: varchar("logto_organization_id", { length: 255 }).notNull().unique(),
+    logtoOrganizationId: varchar("logto_organization_id", { length: 255 }).unique(),
     nameCache: varchar("name_cache", { length: 255 }),
     type: varchar("type", { length: 64 }),
     status: varchar("status", { length: 32 }).notNull().default("active"),
     subdomain: varchar("subdomain", { length: 255 }).unique(),
     seatTotal: integer("seat_total").notNull().default(0),
+    logtoSyncStatus: varchar("logto_sync_status", { length: 32 }).notNull().default("pending"),
+    logtoSyncError: text("logto_sync_error"),
+    logtoSyncedAt: timestamp("logto_synced_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
     logtoOrganizationIdx: index("organization_profiles_logto_org_idx").on(table.logtoOrganizationId),
     statusIdx: index("organization_profiles_status_idx").on(table.status),
+    logtoSyncStatusIdx: index("organization_profiles_logto_sync_status_idx").on(table.logtoSyncStatus),
   })
 );
 
