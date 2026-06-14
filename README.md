@@ -1,6 +1,6 @@
 # Civitas
 
-Civitas es una aplicación en monorepo con frontend React y backend Node/Express. Este estado del repositorio mantiene el **Nivel 0**: una base técnica pequeña y verificable antes de introducir autenticación, organizaciones o integraciones externas.
+Civitas es una aplicación en monorepo con frontend React y backend Node/Express. Este estado del repositorio mantiene la **Fase 02** del backend: una base técnica verificable con healthcheck y autenticación JWT de Logto para el API, sin activar todavía organizaciones ni multi-tenancy de Civitas.
 
 ## Alcance actual
 
@@ -12,15 +12,20 @@ Incluido en esta base:
 - Drizzle ORM configurado en el backend.
 - Primera migración SQL mínima para validar el flujo.
 - `GET /health` para verificar API y conectividad básica con PostgreSQL.
+- `GET /auth/test` protegido por JWT de Logto para validar la integración de autenticación del backend.
+- Middleware `requireAuth` que valida access tokens contra JWKS remoto de Logto, issuer y audience/API resource indicator.
 - Dockerfiles explícitos para desplegar frontend y backend sin depender de inferencias de Nixpacks.
 
-Fuera de alcance en este nivel:
+Fuera del flujo de Fase 02:
 
-- Login, Logto, organizaciones, roles, membresías.
+- Organizaciones, membresías y multi-tenancy de Civitas.
+- Documentos.
+- Organization tokens.
+- Roles/permisos de dominio.
 - Moodle, BuddyBoss, FluentCRM.
 - Redis, workers o colas.
 
-El código heredado del sample de Logto se conserva en rutas protegidas para no bloquear trabajo futuro, pero el flujo documentado abajo no depende de Logto.
+La infraestructura base de Express, PostgreSQL, Drizzle, Docker y validación JWT de Logto se conserva para fases posteriores. El código heredado del sample de Logto relacionado con Management API/organizaciones se elimina solo como limpieza de código fuera de alcance; no es una decisión de producto sobre organizaciones, documentos, roles ni multi-tenancy.
 
 ## Estructura
 
@@ -86,7 +91,9 @@ Ver `backend/.env.example`.
 | `BACKEND_PUBLIC_PORT` | `3000` | Puerto publicado en el host/Coolify para la API. |
 | `PORT` | `3000` | Puerto usado cuando se ejecuta el backend fuera de Compose. |
 | `DATABASE_URL` | `postgres://civitas:civitas@postgres:5432/civitas` en Compose | URL PostgreSQL usada por Drizzle y `/health`. Dentro de Docker debe apuntar al servicio `postgres`, no a `localhost`. |
-| `LOGTO_*` | vacío | Variables heredadas opcionales; no son necesarias para Nivel 0. |
+| `LOGTO_ISSUER` | vacío | Issuer esperado para access tokens de Logto usados por `/auth/test`. |
+| `LOGTO_JWKS_URL` | vacío | Endpoint JWKS remoto usado por `requireAuth` para validar JWT de Logto. |
+| `LOGTO_API_RESOURCE_INDICATOR` | vacío | Audience/API resource indicator configurado para el API de Civitas en Logto. Debe coincidir con `VITE_API_RESOURCE_INDICATOR`. |
 
 ### Frontend
 
@@ -97,7 +104,7 @@ Ver `frontend/.env.example`.
 | `FRONTEND_PUBLIC_PORT` | `5173` | Puerto publicado para servir la SPA. |
 | `PREVIEW_ALLOWED_HOSTS` | `civitas.socialstudies.cloud` | Lista separada por comas de dominios públicos adicionales que `vite preview` acepta en el header `Host`. Añade aquí futuros dominios de Coolify. |
 | `VITE_API_BASE_URL` | `http://localhost:3000` | URL pública del backend para el navegador. En producción/Coolify debe ser la URL pública real de la API. |
-| `VITE_ENABLE_LOGTO` | `false` | Mantiene desactivado el sample heredado de Logto en Nivel 0. |
+| `VITE_ENABLE_LOGTO` | `false` | Mantiene desactivado el flujo UI autenticado si no se está probando Logto localmente. |
 | `VITE_LOGTO_*` | vacío | Variables heredadas opcionales para una futura etapa de autenticación. |
 
 > Importante: las variables `VITE_*` se incrustan en el bundle durante `npm run build`. En Docker/Coolify deben configurarse antes de construir/redeployar la imagen del frontend. `PREVIEW_ALLOWED_HOSTS` se lee en runtime por `vite preview`, por lo que sirve para parametrizar dominios públicos sin cambiar código.
@@ -210,6 +217,7 @@ Variables recomendadas en Coolify:
 - `FRONTEND_PUBLIC_PORT=5173` o el puerto/ruta que Coolify asigne al servicio frontend
 - `PREVIEW_ALLOWED_HOSTS=civitas.socialstudies.cloud` para permitir el dominio público del frontend. Si hay más dominios, sepáralos por comas.
 - `VITE_API_BASE_URL=https://<dominio-publico-del-backend>`
+- `LOGTO_ISSUER`, `LOGTO_JWKS_URL` y `LOGTO_API_RESOURCE_INDICATOR` si se va a probar `/auth/test` en ese entorno
 - `VITE_ENABLE_LOGTO=false`
 
 No uses `http://backend:3000` en `VITE_API_BASE_URL` para producción: esa dirección solo existe dentro de la red Docker. El frontend corre en el navegador del usuario y necesita llamar a una URL pública del backend, por ejemplo `https://api.example.com`.
@@ -256,7 +264,8 @@ Debe responder `HTTP/1.1 200 OK` y servir la SPA de Vite.
 
 ## Deuda técnica anotada
 
-- Las rutas heredadas `/organizations` y `/documents` todavía representan el sample de Logto y deberán rediseñarse cuando se implemente autenticación y organizaciones reales de Civitas.
-- El frontend conserva componentes del sample autenticado detrás de `VITE_ENABLE_LOGTO`; no forman parte del flujo de Nivel 0.
+- El backend queda limitado a Fase 02: `/health`, `/auth/test` y `requireAuth` con JWT de Logto.
+- Organizaciones, documentos, organization tokens, roles y multi-tenancy quedan fuera del flujo actual y deberán diseñarse en issues posteriores.
+- El frontend conserva componentes del sample autenticado detrás de `VITE_ENABLE_LOGTO`; no forman parte del flujo backend de Fase 02.
 - La migración inicial solo crea una tabla mínima de verificación técnica. El modelo de dominio real debe definirse en issues posteriores.
 - `vite preview` es suficiente para esta migración simple sin Nginx/Traefik. Si más adelante se requiere compresión avanzada, caché fina o headers de seguridad específicos, conviene evaluar un servidor estático dedicado.
