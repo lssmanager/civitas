@@ -6,11 +6,12 @@
   "scripts": {
     "start": "node scripts/migrate.js && node index.js",
     "dev": "node --watch index.js",
-    "test": "node --check index.js && node --check middleware/auth.js && node --check db/schema.js && node --check services/users.js && node --check scripts/migrate.js",
+    "test": "node --check index.js && node --check middleware/auth.js && node --check middleware/owner.js && node --check db/schema.js && node --check services/users.js && node --check scripts/migrate.js && node --check scripts/grant-owner.js",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
-    "migrate": "node scripts/migrate.js"
+    "migrate": "node scripts/migrate.js",
+    "grant-owner": "node scripts/grant-owner.js"
   },
   "keywords": [],
   "author": "",
