@@ -3,6 +3,15 @@ const ORGANIZATION_ADMIN_ROLE_NAME = "organization_admin";
 
 let tokenCache = null;
 
+class LogtoManagementApiError extends Error {
+  constructor(message, { status, body } = {}) {
+    super(message);
+    this.name = "LogtoManagementApiError";
+    this.status = status;
+    this.body = body;
+  }
+}
+
 const getRequiredEnv = (name) => {
   const value = process.env[name];
   if (!value) {
@@ -13,22 +22,29 @@ const getRequiredEnv = (name) => {
 
 const normalizeEndpoint = (endpoint) => endpoint.replace(/\/$/, "");
 
+const getLogtoManagementConfig = () => ({
+  endpoint: normalizeEndpoint(getRequiredEnv("LOGTO_ENDPOINT")),
+  tokenEndpoint: getRequiredEnv("LOGTO_MANAGEMENT_API_TOKEN_ENDPOINT"),
+  clientId: getRequiredEnv("LOGTO_MANAGEMENT_API_APPLICATION_ID"),
+  clientSecret: getRequiredEnv("LOGTO_MANAGEMENT_API_APPLICATION_SECRET"),
+  resource: getRequiredEnv("LOGTO_MANAGEMENT_API_RESOURCE"),
+});
+
 async function fetchLogtoManagementApiAccessToken() {
   if (tokenCache?.expiresAt && Date.now() < tokenCache.expiresAt - 5 * 60 * 1000) {
     return tokenCache.token;
   }
 
-  const clientId = getRequiredEnv("LOGTO_MANAGEMENT_API_APPLICATION_ID");
-  const clientSecret = getRequiredEnv("LOGTO_MANAGEMENT_API_APPLICATION_SECRET");
-  const response = await fetch(getRequiredEnv("LOGTO_MANAGEMENT_API_TOKEN_ENDPOINT"), {
+  const config = getLogtoManagementConfig();
+  const response = await fetch(config.tokenEndpoint, {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
-      Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
+      Authorization: `Basic ${Buffer.from(`${config.clientId}:${config.clientSecret}`).toString("base64")}`,
     },
     body: new URLSearchParams({
       grant_type: "client_credentials",
-      resource: getRequiredEnv("LOGTO_MANAGEMENT_API_RESOURCE"),
+      resource: config.resource,
       scope: MANAGEMENT_TOKEN_SCOPE,
     }).toString(),
   });
@@ -36,7 +52,10 @@ async function fetchLogtoManagementApiAccessToken() {
   const tokenResponse = await response.json().catch(() => ({}));
 
   if (!response.ok || !tokenResponse.access_token) {
-    throw new Error(`Failed to obtain Logto Management API token: ${response.status} ${JSON.stringify(tokenResponse)}`);
+    throw new LogtoManagementApiError("Failed to obtain Logto Management API token", {
+      status: response.status,
+      body: tokenResponse,
+    });
   }
 
   tokenCache = {
@@ -47,9 +66,42 @@ async function fetchLogtoManagementApiAccessToken() {
   return tokenCache.token;
 }
 
+async function parseLogtoManagementApiResponse(response) {
+  if (response.status === 204) {
+    return null;
+  }
+
+  const body = await response.text();
+  if (!body) {
+    return null;
+  }
+
+  const contentType = response.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    try {
+      return JSON.parse(body);
+    } catch (error) {
+      throw new LogtoManagementApiError("Logto Management API returned invalid JSON", {
+        status: response.status,
+        body,
+      });
+    }
+  }
+
+  try {
+    return JSON.parse(body);
+  } catch (error) {
+    return {
+      status: response.status,
+      contentType,
+      rawBody: body,
+    };
+  }
+}
+
 async function callLogtoManagementApi(path, options = {}) {
   const accessToken = await fetchLogtoManagementApiAccessToken();
-  const endpoint = normalizeEndpoint(getRequiredEnv("LOGTO_ENDPOINT"));
+  const { endpoint } = getLogtoManagementConfig();
   const response = await fetch(`${endpoint}/api${path}`, {
     ...options,
     headers: {
@@ -59,22 +111,19 @@ async function callLogtoManagementApi(path, options = {}) {
     },
   });
 
+  const parsedBody = await parseLogtoManagementApiResponse(response);
+
   if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`Logto Management API request failed: ${response.status} ${body}`);
+    throw new LogtoManagementApiError("Logto Management API request failed", { status: response.status, body: parsedBody });
   }
 
-  if (response.status === 204) {
-    return null;
-  }
-
-  return response.json();
+  return parsedBody;
 }
 
 async function createLogtoOrganization({ name, description }) {
   return callLogtoManagementApi("/organizations", {
     method: "POST",
-    body: JSON.stringify({ name, description }),
+    body: JSON.stringify({ name, description: description || undefined }),
   });
 }
 
@@ -95,6 +144,16 @@ async function findOrganizationRoleByName(name) {
   return roles.find((role) => role.name === name) || null;
 }
 
+async function findLogtoOrganizationByName(name) {
+  const normalizedName = typeof name === "string" ? name.trim() : "";
+  if (!normalizedName) {
+    return null;
+  }
+
+  const organizations = await listLogtoOrganizations();
+  return organizations.find((organization) => organization?.name === normalizedName || organization?.nameCache === normalizedName) || null;
+}
+
 async function assignOrganizationRoleToUser({ organizationId, userId, organizationRoleId }) {
   return callLogtoManagementApi(`/organizations/${organizationId}/users/${userId}/roles`, {
     method: "POST",
@@ -109,11 +168,15 @@ async function listLogtoOrganizations() {
 
 module.exports = {
   ORGANIZATION_ADMIN_ROLE_NAME,
+  LogtoManagementApiError,
   addUserToLogtoOrganization,
   assignOrganizationRoleToUser,
   createLogtoOrganization,
   fetchLogtoManagementApiAccessToken,
+  findLogtoOrganizationByName,
   findOrganizationRoleByName,
+  getLogtoManagementConfig,
   listLogtoOrganizationRoles,
+  parseLogtoManagementApiResponse,
   listLogtoOrganizations,
 };

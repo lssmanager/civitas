@@ -10,6 +10,7 @@ const AUDIT_RESULTS = Object.freeze({
 
 const AUDIT_ACTIONS = Object.freeze({
   OWNER_ORGANIZATION_CREATE: "owner.organization.create",
+  OWNER_ORGANIZATION_LOGTO_SYNC: "owner.organization.logto_sync",
 });
 
 const DEFAULT_LIMIT = 25;

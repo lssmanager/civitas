@@ -36,6 +36,13 @@
       "when": 1791841080000,
       "tag": "0004_create_audit_logs",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791841140000,
+      "tag": "0005_add_logto_sync_status_to_organization_profiles",
+      "breakpoints": true
     }
   ]
 }
