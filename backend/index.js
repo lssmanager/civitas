@@ -18,6 +18,12 @@ const {
   serializeOrganizationProfile,
   upsertOrganizationProfile,
 } = require("./services/organizationProfiles");
+const {
+  AUDIT_ACTIONS,
+  AUDIT_RESULTS,
+  listAuditLogs,
+  recordAuditLogBestEffort,
+} = require("./services/auditLogs");
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -143,15 +149,25 @@ app.get("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organiz
 });
 
 app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organizations:create"), async (req, res) => {
+  let internalUser = null;
+  let logtoOrganizationId = null;
+  const { name, description, type, subdomain, seatTotal } = req.body || {};
+
   try {
-    const { name, description, type, subdomain, seatTotal } = req.body || {};
+    internalUser = await getOrCreateInternalUser(req.user);
 
     if (!name || typeof name !== "string") {
+      await recordAuditLogBestEffort({
+        actorUserId: internalUser.id,
+        action: AUDIT_ACTIONS.OWNER_ORGANIZATION_CREATE,
+        result: AUDIT_RESULTS.ERROR,
+        metadata: { reason: "validation_error", field: "name" },
+      });
       return res.status(400).json({ error: "Bad Request", message: "Organization name is required" });
     }
 
     const logtoOrganization = await createLogtoOrganization({ name, description });
-    const logtoOrganizationId = getLogtoOrganizationId(logtoOrganization);
+    logtoOrganizationId = getLogtoOrganizationId(logtoOrganization);
 
     if (!logtoOrganizationId) {
       throw new Error("Logto organization creation response did not include an organization id");
@@ -186,6 +202,14 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
       );
     }
 
+    await recordAuditLogBestEffort({
+      actorUserId: internalUser.id,
+      organizationId: logtoOrganizationId,
+      action: AUDIT_ACTIONS.OWNER_ORGANIZATION_CREATE,
+      result: AUDIT_RESULTS.SUCCESS,
+      metadata: { name, profileId: profile?.id ?? null },
+    });
+
     return res.status(201).json({
       organization: {
         logtoOrganizationId,
@@ -194,8 +218,29 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
       },
     });
   } catch (error) {
+    await recordAuditLogBestEffort({
+      actorUserId: internalUser?.id ?? null,
+      organizationId: logtoOrganizationId,
+      action: AUDIT_ACTIONS.OWNER_ORGANIZATION_CREATE,
+      result: AUDIT_RESULTS.ERROR,
+      metadata: { name, type, subdomain, seatTotal, error },
+    });
+
     console.error("Failed to create Logto organization", error);
-    return res.status(502).json({ error: "Bad Gateway", message: error.message });
+    return res.status(error.status === 401 || error.status === 403 ? error.status : 502).json({
+      error: error.status === 401 ? "Unauthorized" : error.status === 403 ? "Forbidden" : "Bad Gateway",
+      message: error.message,
+    });
+  }
+});
+
+app.get("/owner/audit", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  try {
+    const result = await listAuditLogs({ limit: req.query.limit, offset: req.query.offset });
+    return res.json(result);
+  } catch (error) {
+    console.error("Failed to list audit logs", error);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to list audit logs" });
   }
 });
 

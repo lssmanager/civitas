@@ -8,6 +8,7 @@ import { AuthRequiredState } from "../../shared/ui/AuthRequiredState";
 import { AccountPage } from "../AccountPage";
 import Callback from "../Callback";
 import { OwnerPage } from "../OwnerPage";
+import { OwnerAuditPage } from "../OwnerAuditPage";
 import { SelectOrganizationPage } from "../SelectOrganizationPage";
 
 function LogtoPrivateLayout() {
@@ -61,6 +62,7 @@ function App() {
         <Route element={<ProtectedContentOutlet />}>
           <Route index element={<Navigate to="/owner" replace />} />
           <Route path="owner" element={<OwnerPage />} />
+          <Route path="owner/audit" element={<OwnerAuditPage />} />
           <Route path="select-organization" element={<SelectOrganizationPage />} />
           <Route path="account" element={<AccountPage />} />
           <Route path="*" element={<Navigate to="/owner" replace />} />
