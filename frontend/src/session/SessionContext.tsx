@@ -1,3 +1,4 @@
+import { useLogto, type IdTokenClaims } from "@logto/react";
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Button } from "react-bootstrap";
 import { ApiRequestError } from "../api/base";
@@ -33,6 +34,7 @@ function getBootstrapErrorMessage(error: unknown) {
 
 type SessionContextValue = {
   me?: MeResponse;
+  idTokenClaims?: IdTokenClaims;
   isLoading: boolean;
   error?: string;
   refresh: () => void;
@@ -42,8 +44,11 @@ const SessionContext = createContext<SessionContextValue | undefined>(undefined)
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const { getMe } = useMeApi();
+  const { getIdTokenClaims } = useLogto();
   const getMeRef = useRef(getMe);
+  const getIdTokenClaimsRef = useRef(getIdTokenClaims);
   const [me, setMe] = useState<MeResponse>();
+  const [idTokenClaims, setIdTokenClaims] = useState<IdTokenClaims>();
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string>();
   const [retryNonce, setRetryNonce] = useState(0);
@@ -51,6 +56,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     getMeRef.current = getMe;
   }, [getMe]);
+
+  useEffect(() => {
+    getIdTokenClaimsRef.current = getIdTokenClaims;
+  }, [getIdTokenClaims]);
 
   useEffect(() => {
     let isMounted = true;
@@ -61,10 +70,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
       for (let attempt = 1; attempt <= SESSION_BOOTSTRAP_MAX_ATTEMPTS; attempt += 1) {
         try {
-          const response = await getMeRef.current();
+          const [meResponse, claims] = await Promise.all([
+            getMeRef.current(),
+            getIdTokenClaimsRef.current(),
+          ]);
 
           if (isMounted) {
-            setMe(response);
+            setMe(meResponse);
+            setIdTokenClaims(claims ?? undefined);
             setIsLoading(false);
           }
           return;
@@ -74,6 +87,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           if (!shouldRetry) {
             if (isMounted) {
               setMe(undefined);
+              setIdTokenClaims(undefined);
               setError(getBootstrapErrorMessage(bootstrapError));
               setIsLoading(false);
             }
@@ -95,11 +109,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const value = useMemo(
     () => ({
       me,
+      idTokenClaims,
       isLoading,
       error,
       refresh: () => setRetryNonce((current) => current + 1),
     }),
-    [error, isLoading, me]
+    [error, idTokenClaims, isLoading, me]
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
@@ -122,7 +137,7 @@ export function SessionGate({ children }: { children: ReactNode }) {
     return (
       <PageShell eyebrow="Sesion" title="Preparando acceso" description="Validando token, creando usuario interno y calentando la sesion antes de cargar la aplicacion.">
         <PageCard title="Bootstrap de sesion">
-          <LoadingState title="Inicializando Civitas" description="La aplicacion usa una sola llamada global a /me para estabilizar la sesion." />
+          <LoadingState title="Inicializando Civitas" description="La aplicacion usa una sola inicializacion global de sesion para toda el area privada." />
         </PageCard>
       </PageShell>
     );
