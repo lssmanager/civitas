@@ -1,5 +1,5 @@
 import { useLogto } from "@logto/react";
-import { Navigate, Outlet, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes } from "react-router-dom";
 import { isLogtoAuthEnabled } from "../../authConfig";
 import { APP_ENV } from "../../env";
 import { AppLayout } from "../../layouts/AppLayout";
@@ -58,7 +58,6 @@ function App() {
         <Route path="account" element={<AccountPage />} />
         <Route path="*" element={<Navigate to="/owner" replace />} />
       </Route>
-      <Route element={<Outlet />} />
     </Routes>
   );
 }
