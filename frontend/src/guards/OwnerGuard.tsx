@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Badge, Button } from "react-bootstrap";
 import { ApiRequestError } from "../api/base";
 import { type OwnerMeResponse, useOwnerApi } from "../api/owner";
@@ -44,9 +44,14 @@ function getOwnerError(error: unknown) {
 
 export function OwnerGuard({ children }: OwnerGuardProps) {
   const { getOwnerMe } = useOwnerApi();
+  const getOwnerMeRef = useRef(getOwnerMe);
   const [ownerMe, setOwnerMe] = useState<OwnerMeResponse>();
   const [error, setError] = useState<{ title: string; message: string }>();
   const [isLoading, setIsLoading] = useState(isLogtoAuthEnabled);
+
+  useEffect(() => {
+    getOwnerMeRef.current = getOwnerMe;
+  }, [getOwnerMe]);
 
   useEffect(() => {
     let isMounted = true;
@@ -62,7 +67,7 @@ export function OwnerGuard({ children }: OwnerGuardProps) {
       setError(undefined);
 
       try {
-        const response = await getOwnerMe();
+        const response = await getOwnerMeRef.current();
         if (isMounted) {
           setOwnerMe(response);
         }
@@ -83,7 +88,7 @@ export function OwnerGuard({ children }: OwnerGuardProps) {
     return () => {
       isMounted = false;
     };
-  }, [getOwnerMe]);
+  }, []);
 
   if (isLoading) {
     return (
