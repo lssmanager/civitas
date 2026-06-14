@@ -1,86 +1,23 @@
 import { useLogto, type IdTokenClaims } from "@logto/react";
-import { useEffect, useRef, useState } from "react";
-import { Alert, Badge, ListGroup, Spinner } from "react-bootstrap";
-import { ApiRequestError } from "../../api/base";
-import { type MeResponse, useMeApi } from "../../api/me";
+import { useEffect, useState } from "react";
+import { Alert, Badge, ListGroup } from "react-bootstrap";
 import { isLogtoAuthEnabled } from "../../authConfig";
+import { useSession } from "../../session/SessionContext";
 import { ErrorState, PageCard, PageShell } from "../../shared/ui";
 
 const formatDate = (value?: string | null) => (value ? new Date(value).toLocaleString() : "No disponible");
 
-function getMeErrorMessage(error: unknown) {
-  if (error instanceof ApiRequestError) {
-    if (error.status === 401) {
-      return "La sesión no es válida o falta autenticación. Inicia sesión otra vez.";
-    }
-
-    if (error.status === 403) {
-      return "El usuario interno existe, pero no está activo. Contacta al administrador.";
-    }
-  }
-
-  return error instanceof Error ? error.message : "No se pudo cargar el usuario interno.";
-}
-
 function LogtoAccountDetails() {
   const { getIdTokenClaims } = useLogto();
-  const { getMe } = useMeApi();
-  const getMeRef = useRef(getMe);
+  const { error, me } = useSession();
   const [logtoUser, setLogtoUser] = useState<IdTokenClaims>();
-  const [me, setMe] = useState<MeResponse>();
-  const [isLoadingMe, setIsLoadingMe] = useState(true);
-  const [meError, setMeError] = useState<string>();
-
-  useEffect(() => {
-    getMeRef.current = getMe;
-  }, [getMe]);
 
   useEffect(() => {
     void getIdTokenClaims().then((claims) => setLogtoUser(claims ?? undefined));
   }, [getIdTokenClaims]);
 
-  useEffect(() => {
-    let isMounted = true;
-
-    async function loadMe() {
-      setIsLoadingMe(true);
-      setMeError(undefined);
-
-      try {
-        const response = await getMeRef.current();
-        if (isMounted) {
-          setMe(response);
-        }
-      } catch (error) {
-        if (isMounted) {
-          setMe(undefined);
-          setMeError(getMeErrorMessage(error));
-        }
-      } finally {
-        if (isMounted) {
-          setIsLoadingMe(false);
-        }
-      }
-    }
-
-    void loadMe();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  if (isLoadingMe) {
-    return (
-      <div className="d-flex align-items-center gap-2 text-secondary">
-        <Spinner animation="border" size="sm" />
-        <span>Cargando usuario interno de Civitas...</span>
-      </div>
-    );
-  }
-
-  if (meError) {
-    return <Alert variant="danger">{meError}</Alert>;
+  if (error) {
+    return <Alert variant="danger">{error}</Alert>;
   }
 
   return (
