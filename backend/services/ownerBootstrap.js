@@ -1,4 +1,4 @@
-const { GLOBAL_ROLES, InternalUserInactiveError, grantOwnerGlobalRole } = require("./users");
+const { GLOBAL_ROLES, InternalUserInactiveError, getUserGlobalRole, grantOwnerGlobalRole } = require("./users");
 
 const BOOTSTRAP_ENABLED_VALUE = "true";
 
@@ -66,7 +66,7 @@ async function bootstrapOwnerForInternalUser(user) {
     return user;
   }
 
-  if (user.globalRole === GLOBAL_ROLES.OWNER) {
+  if (getUserGlobalRole(user) === GLOBAL_ROLES.OWNER) {
     return user;
   }
 

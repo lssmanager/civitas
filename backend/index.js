@@ -3,12 +3,15 @@ const cors = require("cors");
 require("dotenv").config();
 const { requireAuth } = require("./middleware/auth");
 const { requireOwner } = require("./middleware/owner");
-const { checkDatabaseConnection } = require("./db/connection");
+const { checkDatabaseConnection, getDatabaseConnectionTarget } = require("./db/connection");
 const { getOrCreateInternalUser, serializeUser } = require("./services/users");
 const { bootstrapOwnerAtStartup, bootstrapOwnerForInternalUser } = require("./services/ownerBootstrap");
 const { createOrganization, listOrganizations } = require("./services/organizations");
 const app = express();
 const port = process.env.PORT || 3000;
+const databaseTarget = getDatabaseConnectionTarget();
+
+console.log(`[database] Express using ${databaseTarget.host}:${databaseTarget.port}/${databaseTarget.database}`);
 
 // Middleware
 app.use(cors());

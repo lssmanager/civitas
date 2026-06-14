@@ -25,6 +25,10 @@ class InternalUserInactiveError extends Error {
   }
 }
 
+function getUserGlobalRole(user) {
+  return user?.globalRole ?? user?.global_role ?? null;
+}
+
 const normalizeEmail = (email) => {
   if (typeof email !== "string") {
     return null;
@@ -43,7 +47,7 @@ const serializeUser = (user) => ({
   logtoUserId: user.logtoUserId,
   email: user.email,
   status: user.status,
-  globalRole: user.globalRole ?? null,
+  globalRole: getUserGlobalRole(user),
   lastLoginAt: user.lastLoginAt?.toISOString?.() ?? user.lastLoginAt,
   createdAt: user.createdAt?.toISOString?.() ?? user.createdAt,
   updatedAt: user.updatedAt?.toISOString?.() ?? user.updatedAt,
@@ -168,6 +172,7 @@ module.exports = {
   createUserFromLogtoClaims,
   findUserByLogtoUserId,
   getOrCreateInternalUser,
+  getUserGlobalRole,
   grantOwnerGlobalRole,
   serializeUser,
   updateLastLogin,

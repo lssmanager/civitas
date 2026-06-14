@@ -1,11 +1,29 @@
 const { bootstrapOwnerForInternalUser } = require("../services/ownerBootstrap");
-const { GLOBAL_ROLES, getOrCreateInternalUser, serializeUser } = require("../services/users");
+const { GLOBAL_ROLES, getOrCreateInternalUser, getUserGlobalRole, serializeUser } = require("../services/users");
 
 async function requireOwner(req, res, next) {
   try {
     const internalUser = await bootstrapOwnerForInternalUser(await getOrCreateInternalUser(req.user));
 
-    if (internalUser.globalRole !== GLOBAL_ROLES.OWNER) {
+    const globalRole = getUserGlobalRole(internalUser);
+
+    console.log("[requireOwner] owner check", {
+      authSub: req.user?.sub,
+      internalUserId: internalUser.id,
+      status: internalUser.status,
+      globalRole,
+      hasCamelGlobalRole: Object.prototype.hasOwnProperty.call(internalUser, "globalRole"),
+      hasSnakeGlobalRole: Object.prototype.hasOwnProperty.call(internalUser, "global_role"),
+    });
+
+    if (globalRole !== GLOBAL_ROLES.OWNER) {
+      console.log("[requireOwner] forbidden", {
+        authSub: req.user?.sub,
+        internalUserId: internalUser.id,
+        reason: "missing owner_global",
+        globalRole,
+      });
+
       return res.status(403).json({
         error: "Forbidden",
         message: "Authenticated user does not have owner_global permissions",
