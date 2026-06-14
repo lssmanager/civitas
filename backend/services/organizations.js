@@ -1,9 +1,11 @@
-const { eq } = require("drizzle-orm");
+const { asc, desc, eq } = require("drizzle-orm");
 const { db } = require("../db/client");
 const { organizations } = require("../db/schema");
 
 const ORGANIZATION_TYPES = new Set(["school", "district", "community", "other"]);
 const ORGANIZATION_STATUSES = new Set(["active", "inactive", "archived"]);
+const NAME_MIN_LENGTH = 2;
+const NAME_MAX_LENGTH = 120;
 
 class OrganizationValidationError extends Error {
   constructor(message, details = {}) {
@@ -25,7 +27,7 @@ class OrganizationConflictError extends Error {
 
 const collapseSpaces = (value) => value.trim().replace(/\s+/g, " ");
 
-const normalizeCreateOrganizationPayload = (payload = {}) => {
+const normalizeOrganizationPayload = (payload = {}) => {
   const name = typeof payload.name === "string" ? collapseSpaces(payload.name) : "";
   const type = typeof payload.type === "string" ? payload.type.trim().toLowerCase() : "";
   const subdomain = typeof payload.subdomain === "string" ? payload.subdomain.trim().toLowerCase() : "";
@@ -34,6 +36,8 @@ const normalizeCreateOrganizationPayload = (payload = {}) => {
 
   if (!name) {
     errors.name = "Organization name is required";
+  } else if (name.length < NAME_MIN_LENGTH || name.length > NAME_MAX_LENGTH) {
+    errors.name = `Organization name must be between ${NAME_MIN_LENGTH} and ${NAME_MAX_LENGTH} characters`;
   }
 
   if (!type) {
@@ -77,7 +81,7 @@ const serializeOrganization = (organization) => ({
 });
 
 async function listOrganizations() {
-  const rows = await db.select().from(organizations).orderBy(organizations.createdAt);
+  const rows = await db.select().from(organizations).orderBy(desc(organizations.createdAt), asc(organizations.name));
   return rows.map(serializeOrganization);
 }
 
@@ -94,7 +98,7 @@ async function assertOrganizationIsUnique({ name, subdomain }) {
 }
 
 async function createOrganization(payload) {
-  const values = normalizeCreateOrganizationPayload(payload);
+  const values = normalizeOrganizationPayload(payload);
   await assertOrganizationIsUnique(values);
 
   try {
@@ -110,12 +114,15 @@ async function createOrganization(payload) {
 }
 
 module.exports = {
+  NAME_MAX_LENGTH,
+  NAME_MIN_LENGTH,
   ORGANIZATION_STATUSES,
   ORGANIZATION_TYPES,
   OrganizationConflictError,
   OrganizationValidationError,
   createOrganization,
   listOrganizations,
-  normalizeCreateOrganizationPayload,
+  normalizeCreateOrganizationPayload: normalizeOrganizationPayload,
+  normalizeOrganizationPayload,
   serializeOrganization,
 };
