@@ -12,6 +12,11 @@ const port = process.env.PORT || 3000;
 const databaseTarget = getDatabaseConnectionTarget();
 
 console.log(`[database] Express using ${databaseTarget.host}:${databaseTarget.port}/${databaseTarget.database}`);
+console.log("[auth] Logto config", {
+  issuer: process.env.LOGTO_ISSUER,
+  audience: process.env.LOGTO_API_RESOURCE_INDICATOR,
+  jwksUrl: process.env.LOGTO_JWKS_URL,
+});
 
 // Middleware
 app.use(cors());
