@@ -1,4 +1,4 @@
-const { index, pgTable, text, timestamp, uuid, varchar } = require("drizzle-orm/pg-core");
+const { index, integer, pgTable, text, timestamp, uniqueIndex, uuid, varchar } = require("drizzle-orm/pg-core");
 
 const healthChecks = pgTable("health_checks", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -24,7 +24,28 @@ const users = pgTable(
   })
 );
 
+const organizations = pgTable(
+  "organizations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    name: text("name").notNull(),
+    type: varchar("type", { length: 32 }).notNull(),
+    status: varchar("status", { length: 32 }).notNull().default("active"),
+    subdomain: varchar("subdomain", { length: 63 }).notNull(),
+    seatTotal: integer("seat_total").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    nameUniqueIdx: uniqueIndex("organizations_name_unique").on(table.name),
+    subdomainUniqueIdx: uniqueIndex("organizations_subdomain_unique").on(table.subdomain),
+    statusIdx: index("organizations_status_idx").on(table.status),
+    typeIdx: index("organizations_type_idx").on(table.type),
+  })
+);
+
 module.exports = {
   healthChecks,
+  organizations,
   users,
 };

@@ -22,6 +22,13 @@
       "when": 1791840960000,
       "tag": "0002_add_users_global_role",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791841020000,
+      "tag": "0003_create_organizations",
+      "breakpoints": true
     }
   ]
 }

@@ -1,5 +1,6 @@
 require("dotenv").config();
 const { pool } = require("../db/client");
+const { getDatabaseConnectionTarget } = require("../db/connection");
 const { grantOwnerGlobalRole, serializeUser } = require("../services/users");
 
 function readOption(name) {
@@ -17,6 +18,8 @@ function readOption(name) {
 }
 
 async function main() {
+  const databaseTarget = getDatabaseConnectionTarget();
+  console.log(`[database] grant-owner using ${databaseTarget.host}:${databaseTarget.port}/${databaseTarget.database}`);
   const logtoUserId =
     readOption("logto-user-id") ||
     process.env.CIVITAS_BOOTSTRAP_OWNER_LOGTO_USER_ID ||
