@@ -1,6 +1,6 @@
 import { Alert, Badge, ListGroup } from "react-bootstrap";
 import { isLogtoAuthEnabled } from "../../authConfig";
-import { useSession } from "../../session/SessionContext";
+import { useSession } from "../../session/sessionContext";
 import { ErrorState, PageCard, PageShell } from "../../shared/ui";
 
 const formatDate = (value?: string | null) => (value ? new Date(value).toLocaleString() : "No disponible");

@@ -1,5 +1,5 @@
 import { Badge, Button } from "react-bootstrap";
-import { useSession } from "../session/SessionContext";
+import { useSession } from "../session/sessionContext";
 import { ErrorState, PageCard, PageShell } from "../shared/ui";
 import {
   getOwnerAuthorizationFromSession,

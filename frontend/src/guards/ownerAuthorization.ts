@@ -1,4 +1,4 @@
-import { useSession, type SessionContextValue } from "../session/SessionContext";
+import { useSession, type SessionContextValue } from "../session/sessionContext";
 
 export type OwnerAuthorizationContext = {
   owner: {
