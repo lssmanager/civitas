@@ -1,3 +1,4 @@
+const crypto = require("crypto");
 const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
@@ -42,6 +43,7 @@ app.use(express.json());
 
 const getLogtoOrganizationId = (organization) => organization.id || organization.organizationId || organization.logtoOrganizationId;
 const SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,126}[a-z0-9])?$/;
+const APP_SUBDOMAIN_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const DOMAIN_PATTERN = /^(?=.{1,253}$)(?!-)(?:[a-z0-9-]{1,63}\.)+[a-z]{2,63}$/;
 const HEX_COLOR_PATTERN = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/;
 const DEFAULT_ROLE_NAMES = [ORGANIZATION_ADMIN_ROLE_NAME];
@@ -49,6 +51,7 @@ const DEFAULT_ROLE_NAMES = [ORGANIZATION_ADMIN_ROLE_NAME];
 const emptyToNull = (value) => (typeof value === "string" && value.trim() ? value.trim() : null);
 const normalizeSlug = (value) => emptyToNull(value)?.toLowerCase() || null;
 const normalizeDomain = (value) => emptyToNull(value)?.toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "") || null;
+const normalizeAppSubdomain = (value) => emptyToNull(value)?.toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "") || null;
 const normalizeHexColor = (value) => emptyToNull(value)?.toLowerCase() || null;
 const normalizeOptionalUrl = (value) => {
   const normalized = emptyToNull(value);
@@ -60,6 +63,10 @@ const normalizeOptionalUrl = (value) => {
     return null;
   }
 };
+const generateOidcCredentialSegment = (byteLength = 16) => crypto.randomBytes(byteLength).toString("base64url").toLowerCase();
+const buildInternalOidcSecretRef = () => `#internal:${crypto.randomBytes(30).toString("base64url")}`;
+const buildOidcRedirectUri = (appSubdomain) => `https://${appSubdomain}.learnsocialstudies.com/callback`;
+
 const normalizeRoleNames = (value) => {
   const input = Array.isArray(value) ? value : DEFAULT_ROLE_NAMES;
   const roles = input.map((role) => typeof role === "string" ? role.trim() : "").filter(Boolean);
@@ -69,14 +76,15 @@ const normalizeRoleNames = (value) => {
 function validateOrganizationProvisioningInput(body = {}) {
   const normalizedName = typeof body.name === "string" ? body.name.trim() : "";
   const slug = normalizeSlug(body.slug);
-  const adminDomain = normalizeDomain(body.adminDomain ?? body.admin_domain);
+  const subdomain = normalizeAppSubdomain(body.subdomain ?? body.appSubdomain ?? body.app_subdomain);
+  const adminDomain = normalizeDomain(body.adminDomain ?? body.admin_domain ?? body.institutionalProvisioningDomain);
   const primaryColor = normalizeHexColor(body.primaryColor ?? body.branding_primary_color);
   const primaryColorDark = normalizeHexColor(body.primaryColorDark ?? body.branding_primary_color_dark);
   const logoUrl = normalizeOptionalUrl(body.logoUrl ?? body.branding_logo_url);
   const faviconUrl = normalizeOptionalUrl(body.faviconUrl ?? body.branding_favicon_url);
-  const oidcRedirectUri = normalizeOptionalUrl(body.oidcRedirectUri ?? body.oidc_redirect_uri);
-  const oidcApplicationId = emptyToNull(body.oidcApplicationId ?? body.oidc_application_id);
-  const oidcApplicationSecret = emptyToNull(body.oidcApplicationSecret ?? body.oidc_application_secret);
+  const oidcRedirectUri = subdomain ? buildOidcRedirectUri(subdomain) : null;
+  const oidcApplicationId = `oidc_${generateOidcCredentialSegment(16)}`;
+  const oidcApplicationSecret = buildInternalOidcSecretRef();
   const baseAdmin = body.baseAdmin && typeof body.baseAdmin === "object" ? body.baseAdmin : {};
   const baseAdminName = emptyToNull(baseAdmin.name ?? body.baseAdminName);
   const baseAdminEmail = emptyToNull(baseAdmin.email ?? body.baseAdminEmail)?.toLowerCase() || null;
@@ -84,13 +92,18 @@ function validateOrganizationProvisioningInput(body = {}) {
 
   const errors = [];
   if (!normalizedName) errors.push({ field: "name", message: "Organization name is required" });
+  if (!slug) errors.push({ field: "slug", message: "Slug is required" });
   if (slug && !SLUG_PATTERN.test(slug)) errors.push({ field: "slug", message: "Slug must use lowercase letters, numbers and hyphens, without leading or trailing hyphens" });
-  if (adminDomain && !DOMAIN_PATTERN.test(adminDomain)) errors.push({ field: "adminDomain", message: "Admin domain must be a valid hostname such as admin.example.com" });
+  if (!subdomain) errors.push({ field: "subdomain", message: "Application subdomain is required" });
+  if (subdomain && !APP_SUBDOMAIN_PATTERN.test(subdomain)) errors.push({ field: "subdomain", message: "Application subdomain must be a single DNS label using lowercase letters, numbers and hyphens" });
+  if (!adminDomain) errors.push({ field: "adminDomain", message: "Institutional provisioning domain is required" });
+  if (adminDomain && !DOMAIN_PATTERN.test(adminDomain)) errors.push({ field: "adminDomain", message: "Institutional provisioning domain must be a valid hostname such as colegio.edu.co" });
   if ((body.logoUrl ?? body.branding_logo_url) && !logoUrl) errors.push({ field: "logoUrl", message: "Logo URL must be an http(s) URL" });
   if ((body.faviconUrl ?? body.branding_favicon_url) && !faviconUrl) errors.push({ field: "faviconUrl", message: "Favicon URL must be an http(s) URL" });
   if (primaryColor && !HEX_COLOR_PATTERN.test(primaryColor)) errors.push({ field: "primaryColor", message: "Primary color must be a hex color" });
   if (primaryColorDark && !HEX_COLOR_PATTERN.test(primaryColorDark)) errors.push({ field: "primaryColorDark", message: "Dark primary color must be a hex color" });
-  if ((body.oidcRedirectUri ?? body.oidc_redirect_uri) && !oidcRedirectUri) errors.push({ field: "oidcRedirectUri", message: "OIDC redirect URI must be an http(s) URL" });
+  if (!baseAdminName) errors.push({ field: "baseAdmin.name", message: "Base admin name is required" });
+  if (!baseAdminEmail) errors.push({ field: "baseAdmin.email", message: "Base admin email is required" });
   if (baseAdminEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(baseAdminEmail)) errors.push({ field: "baseAdmin.email", message: "Base admin email must be a valid email address" });
 
   return {
@@ -99,7 +112,7 @@ function validateOrganizationProvisioningInput(body = {}) {
       name: normalizedName,
       description: typeof body.description === "string" ? body.description.trim() : undefined,
       type: emptyToNull(body.type),
-      subdomain: normalizeDomain(body.subdomain),
+      subdomain,
       slug,
       adminDomain,
       logoUrl,
@@ -111,9 +124,14 @@ function validateOrganizationProvisioningInput(body = {}) {
       baseAdmin: { name: baseAdminName, email: baseAdminEmail, logtoUserId: baseAdminLogtoUserId },
       oidcApplicationId,
       oidcApplicationSecret,
-      oidcInitialConfig: oidcRedirectUri || oidcApplicationId ? { redirectUri: oidcRedirectUri, applicationId: oidcApplicationId, status: "prepared_local_only" } : null,
+      oidcInitialConfig: {
+        oidcRedirectUri,
+        oidcApplicationId,
+        oidcApplicationSecret,
+        status: "prepared_local_only",
+      },
       emailDomainProvisioningStatus: adminDomain ? "prepared" : "not_requested",
-      settings: body.settings && typeof body.settings === "object" ? body.settings : { scaffoldVersion: 1, status: "prepared" },
+      settings: { scaffoldVersion: 1, status: "prepared" },
       seatTotal: body.seatTotal,
     },
   };
@@ -316,13 +334,13 @@ const getSafeErrorMessage = (error) => {
   return `${error.message || "Logto synchronization failed"}${status}`;
 };
 
-async function resolveLogtoOrganizationForSync({ name, description }) {
+async function resolveLogtoOrganizationForSync({ name, description, customData }) {
   const existingOrganization = await findLogtoOrganizationByName(name);
   if (existingOrganization) {
     return { organization: existingOrganization, reconciled: true, source: "pre_create_name_lookup" };
   }
 
-  const createdOrganization = await createLogtoOrganization({ name, description });
+  const createdOrganization = await createLogtoOrganization({ name, description, customData });
   const createdOrganizationId = getLogtoOrganizationId(createdOrganization);
   if (createdOrganizationId) {
     return { organization: createdOrganization, reconciled: false, source: "create_response" };
@@ -502,7 +520,7 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
     const adminRoleId = adminRole?.id || adminRole?.organizationRoleId || adminRole?.roleId || null;
     if (!adminRoleId) throw new Error(`Logto organization role ${ORGANIZATION_ADMIN_ROLE_NAME} exists but no role id was returned`);
 
-    const resolvedLogtoOrganization = await resolveLogtoOrganizationForSync({ name: value.name, description: value.description });
+    const resolvedLogtoOrganization = await resolveLogtoOrganizationForSync({ name: value.name, description: value.description, customData: value.oidcInitialConfig });
     logtoOrganization = resolvedLogtoOrganization.organization;
     logtoOrganizationId = getLogtoOrganizationId(logtoOrganization);
     bootstrapStage = LOGTO_SYNC_STATUSES.LOGTO_CREATED;
@@ -522,7 +540,7 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
       defaultRoleNames: value.defaultRoleNames,
       oidcApplicationId: value.oidcApplicationId,
       oidcInitialConfig: value.oidcInitialConfig,
-      oidcApplicationSecretRef: value.oidcApplicationSecret ? `configured:${new Date().toISOString()}` : null,
+      oidcApplicationSecretRef: value.oidcApplicationSecret,
       emailDomainProvisioningStatus: value.emailDomainProvisioningStatus,
       settings: { ...(value.settings || {}), baseAdmin: value.baseAdmin, supportDetailsVisible: true },
       seatTotal: value.seatTotal,

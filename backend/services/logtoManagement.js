@@ -121,10 +121,10 @@ async function callLogtoManagementApi(path, options = {}) {
   return parsedBody;
 }
 
-async function createLogtoOrganization({ name, description }) {
+async function createLogtoOrganization({ name, description, customData }) {
   return callLogtoManagementApi("/organizations", {
     method: "POST",
-    body: JSON.stringify({ name, description: description || undefined }),
+    body: JSON.stringify({ name, description: description || undefined, customData: customData || undefined }),
   });
 }
 
