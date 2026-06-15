@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Alert, Badge, Button, Form } from "react-bootstrap";
+import { Link } from "react-router-dom";
 import { useOwnerApi, type OwnerOrganization } from "../../api/owner";
 import { useStableResource } from "../../shared/hooks/useStableResource";
 import { DataTable, EmptyState, ErrorState, LoadingState, PageCard, PageShell, type DataTableColumn } from "../../shared/ui";
@@ -24,6 +25,13 @@ export function OwnerOrganizationsPage() {
   const [adminDomain, setAdminDomain] = useState("");
   const [primaryColor, setPrimaryColor] = useState("");
   const [primaryColorDark, setPrimaryColorDark] = useState("");
+  const [logoUrl, setLogoUrl] = useState("");
+  const [faviconUrl, setFaviconUrl] = useState("");
+  const [loginExperienceEnabled, setLoginExperienceEnabled] = useState(false);
+  const [defaultRoles, setDefaultRoles] = useState<string[]>(["STUDENT"]);
+  const [oidcRedirectUri, setOidcRedirectUri] = useState("");
+  const [oidcApplicationId, setOidcApplicationId] = useState("");
+  const [oidcApplicationSecret, setOidcApplicationSecret] = useState("");
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -57,7 +65,8 @@ export function OwnerOrganizationsPage() {
         </div>
       ),
     },
-    { key: "slug", header: "Slug / dominio", render: (organization) => <span className="small">{organization.profile?.slug ?? "Sin slug"}<br />{organization.profile?.adminDomain ?? "Sin dominio admin"}</span> },
+    { key: "slug", header: "Operativa", render: (organization) => <span className="small">Slug: {organization.profile?.slug ?? "Sin slug"}<br />Admin: {organization.profile?.adminDomain ?? "Sin dominio"}<br />Roles: {organization.profile?.defaultRoleNames?.join(", ") || "Sin roles"}</span> },
+    { key: "settings", header: "Settings", render: (organization) => <Link className="btn btn-sm btn-outline-primary" to={`/owner/organizations/${organization.profile?.id ?? organization.logtoOrganizationId}/settings`}>Abrir</Link> },
     { key: "lastSync", header: "Último sync", render: (organization) => <span className="small">{formatDate(organization.profile?.logtoSyncedAt)}</span> },
     {
       key: "error",
@@ -78,13 +87,26 @@ export function OwnerOrganizationsPage() {
         adminDomain: adminDomain || undefined,
         primaryColor: primaryColor || undefined,
         primaryColorDark: primaryColorDark || undefined,
-        organizationLoginExperienceEnabled: Boolean(primaryColor || primaryColorDark),
+        logoUrl: logoUrl || undefined,
+        faviconUrl: faviconUrl || undefined,
+        organizationLoginExperienceEnabled: loginExperienceEnabled,
+        defaultRoleNames: defaultRoles,
+        oidcRedirectUri: oidcRedirectUri || undefined,
+        oidcApplicationId: oidcApplicationId || undefined,
+        oidcApplicationSecret: oidcApplicationSecret || undefined,
       });
       setName("");
       setSlug("");
       setAdminDomain("");
       setPrimaryColor("");
       setPrimaryColorDark("");
+      setLogoUrl("");
+      setFaviconUrl("");
+      setLoginExperienceEnabled(false);
+      setDefaultRoles(["STUDENT"]);
+      setOidcRedirectUri("");
+      setOidcApplicationId("");
+      setOidcApplicationSecret("");
       organizationsResource.reload();
       if (result.warning) setSubmitError(result.warning);
     } catch (error) {
@@ -104,9 +126,16 @@ export function OwnerOrganizationsPage() {
               <Form.Group controlId="ownerOrganizationSlug"><Form.Label>Slug</Form.Label><Form.Control value={slug} onChange={(event) => setSlug(event.target.value)} placeholder="acme-legal" /></Form.Group>
               <Form.Group controlId="ownerOrganizationAdminDomain"><Form.Label>Dominio admin</Form.Label><Form.Control value={adminDomain} onChange={(event) => setAdminDomain(event.target.value)} placeholder="admin.acme.test" /></Form.Group>
               <div className="row g-2">
-                <Form.Group className="col" controlId="ownerOrganizationPrimaryColor"><Form.Label>Color primario</Form.Label><Form.Control value={primaryColor} onChange={(event) => setPrimaryColor(event.target.value)} placeholder="#0d6efd" /></Form.Group>
-                <Form.Group className="col" controlId="ownerOrganizationPrimaryColorDark"><Form.Label>Color oscuro</Form.Label><Form.Control value={primaryColorDark} onChange={(event) => setPrimaryColorDark(event.target.value)} placeholder="#084298" /></Form.Group>
+                <Form.Group className="col" controlId="ownerOrganizationPrimaryColor"><Form.Label>Color primario</Form.Label><Form.Control value={primaryColor} onChange={(event) => setPrimaryColor(event.target.value)} placeholder="#0d6efd" pattern="^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$" /></Form.Group>
+                <Form.Group className="col" controlId="ownerOrganizationPrimaryColorDark"><Form.Label>Color oscuro</Form.Label><Form.Control value={primaryColorDark} onChange={(event) => setPrimaryColorDark(event.target.value)} placeholder="#084298" pattern="^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$" /></Form.Group>
               </div>
+              <Form.Group controlId="ownerOrganizationLogoUrl"><Form.Label>Logo URL</Form.Label><Form.Control type="url" value={logoUrl} onChange={(event) => setLogoUrl(event.target.value)} placeholder="https://cdn.example.com/logo.svg" /></Form.Group>
+              <Form.Group controlId="ownerOrganizationFaviconUrl"><Form.Label>Favicon URL</Form.Label><Form.Control type="url" value={faviconUrl} onChange={(event) => setFaviconUrl(event.target.value)} placeholder="https://cdn.example.com/favicon.ico" /></Form.Group>
+              <Form.Check type="switch" id="ownerOrganizationLoginExperience" label="Preparar login experience por organización" checked={loginExperienceEnabled} onChange={(event) => setLoginExperienceEnabled(event.target.checked)} />
+              <Form.Group controlId="ownerOrganizationRoles"><Form.Label>Roles predeterminados</Form.Label><Form.Control value={defaultRoles.join(", ")} onChange={(event) => setDefaultRoles(event.target.value.split(",").map((role) => role.trim().toUpperCase()).filter(Boolean))} placeholder="STUDENT" /><Form.Text>Incluye STUDENT por defecto; separa roles con coma.</Form.Text></Form.Group>
+              <Form.Group controlId="ownerOrganizationOidcRedirect"><Form.Label>OIDC redirect URI inicial</Form.Label><Form.Control type="url" value={oidcRedirectUri} onChange={(event) => setOidcRedirectUri(event.target.value)} placeholder="https://admin.acme.test/callback" /></Form.Group>
+              <Form.Group controlId="ownerOrganizationOidcApplicationId"><Form.Label>OIDC application id</Form.Label><Form.Control value={oidcApplicationId} onChange={(event) => setOidcApplicationId(event.target.value)} placeholder="app_xxx" /></Form.Group>
+              <Form.Group controlId="ownerOrganizationOidcSecret"><Form.Label>OIDC secret inicial</Form.Label><Form.Control type="password" value={oidcApplicationSecret} onChange={(event) => setOidcApplicationSecret(event.target.value)} placeholder="No se mostrará en listados" /><Form.Text>Se registra solo como configurado/redactado; no se devuelve en texto plano.</Form.Text></Form.Group>
               {submitError && <Alert variant="danger" className="mb-0">{submitError}</Alert>}
               <Button type="submit" disabled={isSubmitting || !name.trim()}>{isSubmitting ? "Creando..." : "Crear y sincronizar"}</Button>
             </Form>

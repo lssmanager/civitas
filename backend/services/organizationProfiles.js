@@ -1,4 +1,4 @@
-const { eq, inArray } = require("drizzle-orm");
+const { eq, inArray, or } = require("drizzle-orm");
 const { db } = require("../db/client");
 const { organizationProfiles } = require("../db/schema");
 
@@ -33,8 +33,10 @@ const serializeOrganizationProfile = (profile) => ({
   },
   organizationLoginExperienceEnabled: profile.organizationLoginExperienceEnabled,
   defaultRoleNames: profile.defaultRoleNames || [],
+  oidcApplicationId: profile.oidcApplicationId,
   oidcInitialConfig: profile.oidcInitialConfig || null,
   oidcApplicationSecretConfigured: Boolean(profile.oidcApplicationSecretRef),
+  emailDomainProvisioningStatus: profile.emailDomainProvisioningStatus,
   settings: profile.settings || null,
   seatTotal: profile.seatTotal,
   logtoSyncStatus: profile.logtoSyncStatus,
@@ -49,7 +51,7 @@ const normalizeSeatTotal = (seatTotal) => {
   return Number.isInteger(value) && value >= 0 ? value : 0;
 };
 
-async function createOrganizationProfile({ nameCache, type, subdomain, seatTotal }) {
+async function createOrganizationProfile({ nameCache, type, subdomain, slug, adminDomain, logoUrl, faviconUrl, primaryColor, primaryColorDark, organizationLoginExperienceEnabled = false, defaultRoleNames = [], oidcApplicationId = null, oidcInitialConfig = null, oidcApplicationSecretRef = null, emailDomainProvisioningStatus = "not_requested", settings = null, seatTotal }) {
   const now = new Date();
   const [profile] = await db
     .insert(organizationProfiles)
@@ -58,6 +60,19 @@ async function createOrganizationProfile({ nameCache, type, subdomain, seatTotal
       nameCache: nameCache || null,
       type: type || null,
       subdomain: subdomain || null,
+      slug: slug || null,
+      adminDomain: adminDomain || null,
+      logoUrl: logoUrl || null,
+      faviconUrl: faviconUrl || null,
+      primaryColor: primaryColor || null,
+      primaryColorDark: primaryColorDark || null,
+      organizationLoginExperienceEnabled: Boolean(organizationLoginExperienceEnabled),
+      defaultRoleNames,
+      oidcApplicationId: oidcApplicationId || null,
+      oidcInitialConfig,
+      oidcApplicationSecretRef,
+      emailDomainProvisioningStatus,
+      settings,
       seatTotal: normalizeSeatTotal(seatTotal),
       logtoSyncStatus: LOGTO_SYNC_STATUSES.PENDING,
       logtoSyncError: null,
@@ -100,7 +115,7 @@ async function markOrganizationProfileLogtoSyncError({ id, errorMessage, status 
   return markOrganizationProfileProvisioningStage({ id, status, errorMessage: errorMessage || "Logto synchronization failed" });
 }
 
-async function upsertOrganizationProfile({ logtoOrganizationId, nameCache, type, subdomain, slug, adminDomain, logoUrl, faviconUrl, primaryColor, primaryColorDark, organizationLoginExperienceEnabled = false, defaultRoleNames = [], oidcInitialConfig = null, oidcApplicationSecretRef = null, settings = null, seatTotal, logtoSyncStatus = LOGTO_SYNC_STATUSES.SYNCED, logtoSyncError = null }) {
+async function upsertOrganizationProfile({ logtoOrganizationId, nameCache, type, subdomain, slug, adminDomain, logoUrl, faviconUrl, primaryColor, primaryColorDark, organizationLoginExperienceEnabled = false, defaultRoleNames = [], oidcApplicationId = null, oidcInitialConfig = null, oidcApplicationSecretRef = null, emailDomainProvisioningStatus = "not_requested", settings = null, seatTotal, logtoSyncStatus = LOGTO_SYNC_STATUSES.SYNCED, logtoSyncError = null }) {
   const now = new Date();
   const values = {
     logtoOrganizationId,
@@ -115,8 +130,10 @@ async function upsertOrganizationProfile({ logtoOrganizationId, nameCache, type,
     primaryColorDark: primaryColorDark || null,
     organizationLoginExperienceEnabled: Boolean(organizationLoginExperienceEnabled),
     defaultRoleNames,
+    oidcApplicationId: oidcApplicationId || null,
     oidcInitialConfig,
     oidcApplicationSecretRef,
+    emailDomainProvisioningStatus,
     settings,
     seatTotal: normalizeSeatTotal(seatTotal),
     logtoSyncStatus,
@@ -135,6 +152,20 @@ async function upsertOrganizationProfile({ logtoOrganizationId, nameCache, type,
     .returning();
 
   return profile;
+}
+
+async function findOrganizationProfileBySlugOrAdminDomain({ slug, adminDomain }) {
+  const filters = [];
+  if (slug) filters.push(eq(organizationProfiles.slug, slug));
+  if (adminDomain) filters.push(eq(organizationProfiles.adminDomain, adminDomain));
+  if (filters.length === 0) return null;
+
+  const [profile] = await db
+    .select()
+    .from(organizationProfiles)
+    .where(filters.length === 1 ? filters[0] : or(...filters))
+    .limit(1);
+  return profile || null;
 }
 
 async function listOrganizationProfiles() {
@@ -157,6 +188,7 @@ async function getOrganizationProfilesByLogtoIds(logtoOrganizationIds) {
 module.exports = {
   LOGTO_SYNC_STATUSES,
   createOrganizationProfile,
+  findOrganizationProfileBySlugOrAdminDomain,
   getOrganizationProfilesByLogtoIds,
   listOrganizationProfiles,
   markOrganizationProfileLogtoSyncError,

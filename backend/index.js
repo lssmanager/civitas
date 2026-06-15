@@ -6,23 +6,19 @@ const { requireOwner } = require("./middleware/owner");
 const { checkDatabaseConnection } = require("./db/connection");
 const { getIdentityFromLogtoClaims, getOrCreateInternalUser, serializeUser } = require("./services/users");
 const {
-  ORGANIZATION_ADMIN_ROLE_NAME,
-  addUserToLogtoOrganization,
-  assignOrganizationRoleToUser,
   createLogtoOrganization,
   findLogtoOrganizationByName,
-  findOrganizationRoleByName,
   getLogtoUserById,
   listLogtoOrganizations,
 } = require("./services/logtoManagement");
 const {
   LOGTO_SYNC_STATUSES,
+  createOrganizationProfile,
+  findOrganizationProfileBySlugOrAdminDomain,
   listOrganizationProfiles,
   markOrganizationProfileLogtoSyncError,
   markOrganizationProfileLogtoSynced,
-  markOrganizationProfileProvisioningStage,
   serializeOrganizationProfile,
-  upsertOrganizationProfile,
 } = require("./services/organizationProfiles");
 const {
   AUDIT_ACTIONS,
@@ -39,6 +35,78 @@ app.use(cors());
 app.use(express.json());
 
 const getLogtoOrganizationId = (organization) => organization.id || organization.organizationId || organization.logtoOrganizationId;
+const SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,126}[a-z0-9])?$/;
+const DOMAIN_PATTERN = /^(?=.{1,253}$)(?!-)(?:[a-z0-9-]{1,63}\.)+[a-z]{2,63}$/;
+const HEX_COLOR_PATTERN = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/;
+const DEFAULT_ROLE_NAMES = ["STUDENT"];
+
+const emptyToNull = (value) => (typeof value === "string" && value.trim() ? value.trim() : null);
+const normalizeSlug = (value) => emptyToNull(value)?.toLowerCase() || null;
+const normalizeDomain = (value) => emptyToNull(value)?.toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "") || null;
+const normalizeHexColor = (value) => emptyToNull(value)?.toLowerCase() || null;
+const normalizeOptionalUrl = (value) => {
+  const normalized = emptyToNull(value);
+  if (!normalized) return null;
+  try {
+    const url = new URL(normalized);
+    return ["http:", "https:"].includes(url.protocol) ? url.toString() : null;
+  } catch (error) {
+    return null;
+  }
+};
+const normalizeRoleNames = (value) => {
+  const input = Array.isArray(value) ? value : DEFAULT_ROLE_NAMES;
+  const roles = input.map((role) => typeof role === "string" ? role.trim().toUpperCase() : "").filter(Boolean);
+  return Array.from(new Set(roles.length > 0 ? roles : DEFAULT_ROLE_NAMES));
+};
+
+function validateOrganizationProvisioningInput(body = {}) {
+  const normalizedName = typeof body.name === "string" ? body.name.trim() : "";
+  const slug = normalizeSlug(body.slug);
+  const adminDomain = normalizeDomain(body.adminDomain ?? body.admin_domain);
+  const primaryColor = normalizeHexColor(body.primaryColor ?? body.branding_primary_color);
+  const primaryColorDark = normalizeHexColor(body.primaryColorDark ?? body.branding_primary_color_dark);
+  const logoUrl = normalizeOptionalUrl(body.logoUrl ?? body.branding_logo_url);
+  const faviconUrl = normalizeOptionalUrl(body.faviconUrl ?? body.branding_favicon_url);
+  const oidcRedirectUri = normalizeOptionalUrl(body.oidcRedirectUri ?? body.oidc_redirect_uri);
+  const oidcApplicationId = emptyToNull(body.oidcApplicationId ?? body.oidc_application_id);
+  const oidcApplicationSecret = emptyToNull(body.oidcApplicationSecret ?? body.oidc_application_secret);
+
+  const errors = [];
+  if (!normalizedName) errors.push({ field: "name", message: "Organization name is required" });
+  if (slug && !SLUG_PATTERN.test(slug)) errors.push({ field: "slug", message: "Slug must use lowercase letters, numbers and hyphens, without leading or trailing hyphens" });
+  if (adminDomain && !DOMAIN_PATTERN.test(adminDomain)) errors.push({ field: "adminDomain", message: "Admin domain must be a valid hostname such as admin.example.com" });
+  if ((body.logoUrl ?? body.branding_logo_url) && !logoUrl) errors.push({ field: "logoUrl", message: "Logo URL must be an http(s) URL" });
+  if ((body.faviconUrl ?? body.branding_favicon_url) && !faviconUrl) errors.push({ field: "faviconUrl", message: "Favicon URL must be an http(s) URL" });
+  if (primaryColor && !HEX_COLOR_PATTERN.test(primaryColor)) errors.push({ field: "primaryColor", message: "Primary color must be a hex color" });
+  if (primaryColorDark && !HEX_COLOR_PATTERN.test(primaryColorDark)) errors.push({ field: "primaryColorDark", message: "Dark primary color must be a hex color" });
+  if ((body.oidcRedirectUri ?? body.oidc_redirect_uri) && !oidcRedirectUri) errors.push({ field: "oidcRedirectUri", message: "OIDC redirect URI must be an http(s) URL" });
+
+  return {
+    errors,
+    value: {
+      name: normalizedName,
+      description: typeof body.description === "string" ? body.description.trim() : undefined,
+      type: emptyToNull(body.type),
+      subdomain: normalizeDomain(body.subdomain),
+      slug,
+      adminDomain,
+      logoUrl,
+      faviconUrl,
+      primaryColor,
+      primaryColorDark,
+      organizationLoginExperienceEnabled: Boolean(body.organizationLoginExperienceEnabled),
+      defaultRoleNames: normalizeRoleNames(body.defaultRoleNames),
+      oidcApplicationId,
+      oidcApplicationSecret,
+      oidcInitialConfig: oidcRedirectUri || oidcApplicationId ? { redirectUri: oidcRedirectUri, applicationId: oidcApplicationId, status: "prepared_local_only" } : null,
+      emailDomainProvisioningStatus: adminDomain ? "prepared" : "not_requested",
+      settings: body.settings && typeof body.settings === "object" ? body.settings : { scaffoldVersion: 1, status: "prepared" },
+      seatTotal: body.seatTotal,
+    },
+  };
+}
+
 const getLogtoOrganizationName = (organization) => organization.name || organization.nameCache || null;
 
 const serializeOwnerOrganization = (profile, logtoOrganization = null) => ({
@@ -327,136 +395,60 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
   let profile = null;
   let logtoOrganization = null;
   let logtoOrganizationId = null;
-  const { name, description, type, subdomain, slug, adminDomain, logoUrl, faviconUrl, primaryColor, primaryColorDark, organizationLoginExperienceEnabled, defaultRoleNames, oidcInitialConfig, oidcApplicationSecret, settings, seatTotal } = req.body || {};
-  const normalizedName = typeof name === "string" ? name.trim() : "";
+  const { errors, value } = validateOrganizationProvisioningInput(req.body || {});
 
   try {
     internalUser = await getOrCreateInternalUser(req.user);
 
-    if (!normalizedName) {
-      await recordAuditLogBestEffort({
-        actorUserId: internalUser.id,
-        action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROFILE_CREATE,
-        result: AUDIT_RESULTS.ERROR,
-        metadata: { reason: "validation_error", field: "name" },
-      });
-      return res.status(400).json({ error: "Bad Request", message: "Organization name is required" });
+    if (errors.length > 0) {
+      await recordAuditLogBestEffort({ actorUserId: internalUser.id, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROFILE_CREATE, result: AUDIT_RESULTS.ERROR, metadata: { reason: "validation_error", errors } });
+      return res.status(400).json({ error: "Bad Request", message: errors[0].message, details: errors });
     }
 
-    const resolvedLogtoOrganization = await resolveLogtoOrganizationForSync({ name: normalizedName, description });
+    const duplicateProfile = await findOrganizationProfileBySlugOrAdminDomain({ slug: value.slug, adminDomain: value.adminDomain });
+    if (duplicateProfile) {
+      const duplicatedField = duplicateProfile.slug === value.slug ? "slug" : "adminDomain";
+      return res.status(409).json({ error: "Conflict", message: `Organization ${duplicatedField} is already configured` });
+    }
+
+    profile = await createOrganizationProfile({
+      nameCache: value.name,
+      type: value.type,
+      subdomain: value.subdomain,
+      slug: value.slug,
+      adminDomain: value.adminDomain,
+      logoUrl: value.logoUrl,
+      faviconUrl: value.faviconUrl,
+      primaryColor: value.primaryColor,
+      primaryColorDark: value.primaryColorDark,
+      organizationLoginExperienceEnabled: value.organizationLoginExperienceEnabled,
+      defaultRoleNames: value.defaultRoleNames,
+      oidcApplicationId: value.oidcApplicationId,
+      oidcInitialConfig: value.oidcInitialConfig,
+      oidcApplicationSecretRef: value.oidcApplicationSecret ? `configured:${new Date().toISOString()}` : null,
+      emailDomainProvisioningStatus: value.emailDomainProvisioningStatus,
+      settings: value.settings,
+      seatTotal: value.seatTotal,
+    });
+
+    await recordAuditLogBestEffort({ actorUserId: internalUser.id, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROFILE_CREATE, result: AUDIT_RESULTS.SUCCESS, metadata: { profileId: profile.id, name: value.name, slug: value.slug, adminDomain: value.adminDomain, oidcApplicationSecretReceived: Boolean(value.oidcApplicationSecret) } });
+
+    const resolvedLogtoOrganization = await resolveLogtoOrganizationForSync({ name: value.name, description: value.description });
     logtoOrganization = resolvedLogtoOrganization.organization;
-    const {
-      reconciled,
-      source: logtoOrganizationSource,
-    } = resolvedLogtoOrganization;
     logtoOrganizationId = getLogtoOrganizationId(logtoOrganization);
 
-    if (!logtoOrganizationId) {
-      throw new Error("Logto organization reconciliation did not include an organization id");
-    }
+    if (!logtoOrganizationId) throw new Error("Logto organization reconciliation did not include an organization id");
 
-    await recordAuditLogBestEffort({
-      actorUserId: internalUser.id,
-      organizationId: logtoOrganizationId,
-      action: AUDIT_ACTIONS.OWNER_ORGANIZATION_LOGTO_CREATE,
-      result: AUDIT_RESULTS.SUCCESS,
-      metadata: { ...buildAuditContext({ authUser: req.user, internalUser, organization: logtoOrganization }), name: normalizedName, logtoOrganizationId, reconciled, source: logtoOrganizationSource },
-    });
+    await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_LOGTO_CREATE, result: AUDIT_RESULTS.SUCCESS, metadata: { ...buildAuditContext({ authUser: req.user, internalUser, organization: logtoOrganization }), name: value.name, logtoOrganizationId, reconciled: resolvedLogtoOrganization.reconciled, source: resolvedLogtoOrganization.source } });
 
-    profile = await upsertOrganizationProfile({
-      logtoOrganizationId,
-      nameCache: getLogtoOrganizationName(logtoOrganization) || normalizedName,
-      type,
-      subdomain,
-      slug,
-      adminDomain,
-      logoUrl,
-      faviconUrl,
-      primaryColor,
-      primaryColorDark,
-      organizationLoginExperienceEnabled,
-      defaultRoleNames: Array.isArray(defaultRoleNames) ? defaultRoleNames : [],
-      oidcInitialConfig: oidcInitialConfig && typeof oidcInitialConfig === "object" ? oidcInitialConfig : null,
-      oidcApplicationSecretRef: oidcApplicationSecret ? `configured:${new Date().toISOString()}` : null,
-      settings: settings && typeof settings === "object" ? settings : null,
-      seatTotal,
-      logtoSyncStatus: LOGTO_SYNC_STATUSES.LOGTO_CREATED,
-    });
+    profile = await markOrganizationProfileLogtoSynced({ id: profile.id, logtoOrganizationId, nameCache: getLogtoOrganizationName(logtoOrganization) || value.name });
 
-    await recordAuditLogBestEffort({
-      actorUserId: internalUser.id,
-      organizationId: logtoOrganizationId,
-      action: AUDIT_ACTIONS.OWNER_ORGANIZATION_METADATA_RECONCILE,
-      result: AUDIT_RESULTS.SUCCESS,
-      metadata: { ...buildAuditContext({ authUser: req.user, internalUser, organization: logtoOrganization }), profileId: profile.id, logtoOrganizationId, status: profile.logtoSyncStatus },
-    });
-
-    profile = await markOrganizationProfileProvisioningStage({
-      id: profile.id,
-      status: LOGTO_SYNC_STATUSES.CREATOR_MEMBERSHIP_PENDING,
-    });
-    await addUserToLogtoOrganization({ organizationId: logtoOrganizationId, userId: req.user.sub });
-
-    await recordAuditLogBestEffort({
-      actorUserId: internalUser.id,
-      organizationId: logtoOrganizationId,
-      action: AUDIT_ACTIONS.OWNER_ORGANIZATION_CREATOR_MEMBERSHIP,
-      result: AUDIT_RESULTS.SUCCESS,
-      metadata: { ...buildAuditContext({ authUser: req.user, internalUser, organization: logtoOrganization }), profileId: profile.id, logtoOrganizationId, logtoUserId: req.user.sub },
-    });
-
-    profile = await markOrganizationProfileProvisioningStage({
-      id: profile.id,
-      status: LOGTO_SYNC_STATUSES.CREATOR_ROLE_PENDING,
-    });
-    const adminRole = await findOrganizationRoleByName(ORGANIZATION_ADMIN_ROLE_NAME);
-    if (!adminRole?.id) {
-      const roleError = new Error(
-        `Logto organization role not found in organization template: ${ORGANIZATION_ADMIN_ROLE_NAME}`
-      );
-      roleError.code = "LOGTO_ORGANIZATION_ROLE_MISSING";
-      await markOrganizationProfileProvisioningStage({
-        id: profile.id,
-        status: LOGTO_SYNC_STATUSES.CREATOR_ROLE_MISSING,
-        errorMessage: roleError.message,
-      });
-      throw roleError;
-    }
-
-    await assignOrganizationRoleToUser({
-      organizationId: logtoOrganizationId,
-      userId: req.user.sub,
-      organizationRoleId: adminRole.id,
-    });
-
-    profile = await markOrganizationProfileLogtoSynced({
-      id: profile.id,
-      logtoOrganizationId,
-      nameCache: getLogtoOrganizationName(logtoOrganization) || normalizedName,
-    });
-
-    await recordAuditLogBestEffort({
-      actorUserId: internalUser.id,
-      organizationId: logtoOrganizationId,
-      action: AUDIT_ACTIONS.OWNER_ORGANIZATION_CREATOR_ROLE,
-      result: AUDIT_RESULTS.SUCCESS,
-      metadata: { ...buildAuditContext({ authUser: req.user, internalUser, organization: logtoOrganization }), profileId: profile.id, logtoOrganizationId, roleName: ORGANIZATION_ADMIN_ROLE_NAME, roleId: adminRole.id },
-    });
-
-    await recordAuditLogBestEffort({
-      actorUserId: internalUser.id,
-      organizationId: logtoOrganizationId,
-      action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING,
-      result: AUDIT_RESULTS.SUCCESS,
-      metadata: { ...buildAuditContext({ authUser: req.user, internalUser, organization: logtoOrganization }), profileId: profile.id, logtoOrganizationId, finalStatus: profile.logtoSyncStatus },
-    });
+    await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { ...buildAuditContext({ authUser: req.user, internalUser, organization: logtoOrganization }), profileId: profile.id, logtoOrganizationId, finalStatus: profile.logtoSyncStatus, localOnlyPreparedSettings: ["branding", "login_experience", "default_roles", "oidc_initial_config", "email_domain"] } });
 
     return res.status(201).json({ organization: serializeOwnerOrganization(profile, logtoOrganization) });
   } catch (error) {
     const errorMessage = getSafeErrorMessage(error);
-    const pendingStatus = error?.code === "LOGTO_ORGANIZATION_ROLE_MISSING"
-      ? LOGTO_SYNC_STATUSES.CREATOR_ROLE_MISSING
-      : profile?.logtoSyncStatus || (logtoOrganizationId ? LOGTO_SYNC_STATUSES.LOGTO_CREATED : LOGTO_SYNC_STATUSES.ERROR);
+    const pendingStatus = logtoOrganizationId ? LOGTO_SYNC_STATUSES.LOGTO_CREATED : LOGTO_SYNC_STATUSES.ERROR;
 
     if (profile?.id) {
       profile = await markOrganizationProfileLogtoSyncError({ id: profile.id, errorMessage, status: pendingStatus }).catch((persistenceError) => {
@@ -465,37 +457,11 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
       });
     }
 
-    const failedAction = pendingStatus === LOGTO_SYNC_STATUSES.CREATOR_ROLE_PENDING
- || pendingStatus === LOGTO_SYNC_STATUSES.CREATOR_ROLE_MISSING
-      ? AUDIT_ACTIONS.OWNER_ORGANIZATION_CREATOR_ROLE
-      : pendingStatus === LOGTO_SYNC_STATUSES.CREATOR_MEMBERSHIP_PENDING
-        ? AUDIT_ACTIONS.OWNER_ORGANIZATION_CREATOR_MEMBERSHIP
-        : logtoOrganizationId
-          ? AUDIT_ACTIONS.OWNER_ORGANIZATION_METADATA_RECONCILE
-          : AUDIT_ACTIONS.OWNER_ORGANIZATION_LOGTO_CREATE;
-
-    await recordAuditLogBestEffort({
-      actorUserId: internalUser?.id ?? null,
-      organizationId: logtoOrganizationId || profile?.id,
-      action: failedAction,
-      result: AUDIT_RESULTS.ERROR,
-      metadata: { ...buildAuditContext({ authUser: req.user, internalUser, organization: logtoOrganization }), profileId: profile?.id, name: normalizedName || name, logtoOrganizationId, status: pendingStatus, error: errorMessage },
-    });
-
-    await recordAuditLogBestEffort({
-      actorUserId: internalUser?.id ?? null,
-      organizationId: logtoOrganizationId || profile?.id,
-      action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING,
-      result: AUDIT_RESULTS.ERROR,
-      metadata: { ...buildAuditContext({ authUser: req.user, internalUser, organization: logtoOrganization }), profileId: profile?.id, logtoOrganizationId, finalStatus: profile?.logtoSyncStatus || pendingStatus, error: errorMessage },
-    });
+    await recordAuditLogBestEffort({ actorUserId: internalUser?.id ?? null, organizationId: logtoOrganizationId || profile?.id, action: logtoOrganizationId ? AUDIT_ACTIONS.OWNER_ORGANIZATION_METADATA_RECONCILE : AUDIT_ACTIONS.OWNER_ORGANIZATION_LOGTO_CREATE, result: AUDIT_RESULTS.ERROR, metadata: { ...buildAuditContext({ authUser: req.user, internalUser, organization: logtoOrganization }), profileId: profile?.id, name: value.name, logtoOrganizationId, status: pendingStatus, error: errorMessage } });
 
     console.error("Organization provisioning failed", error);
     if (profile?.id || logtoOrganizationId) {
-      return res.status(201).json({
-        organization: serializeOwnerOrganization(profile, logtoOrganization),
-        warning: "Organization exists in Logto, but Civitas bootstrap is incomplete",
-      });
+      return res.status(201).json({ organization: serializeOwnerOrganization(profile, logtoOrganization), warning: "Civitas saved the local provisioning settings, but Logto bootstrap is incomplete" });
     }
 
     return res.status(502).json({ error: "Bad Gateway", message: "Failed to create organization in Logto" });

@@ -42,8 +42,10 @@ const organizationProfiles = pgTable(
     primaryColorDark: varchar("primary_color_dark", { length: 32 }),
     organizationLoginExperienceEnabled: boolean("organization_login_experience_enabled").notNull().default(false),
     defaultRoleNames: jsonb("default_role_names"),
+    oidcApplicationId: varchar("oidc_application_id", { length: 255 }),
     oidcInitialConfig: jsonb("oidc_initial_config"),
     oidcApplicationSecretRef: text("oidc_application_secret_ref"),
+    emailDomainProvisioningStatus: varchar("email_domain_provisioning_status", { length: 32 }).notNull().default("not_requested"),
     settings: jsonb("settings"),
     seatTotal: integer("seat_total").notNull().default(0),
     logtoSyncStatus: varchar("logto_sync_status", { length: 32 }).notNull().default("pending"),
@@ -56,6 +58,7 @@ const organizationProfiles = pgTable(
     logtoOrganizationIdx: index("organization_profiles_logto_org_idx").on(table.logtoOrganizationId),
     statusIdx: index("organization_profiles_status_idx").on(table.status),
     slugIdx: index("organization_profiles_slug_idx").on(table.slug),
+    adminDomainIdx: index("organization_profiles_admin_domain_idx").on(table.adminDomain),
     logtoSyncStatusIdx: index("organization_profiles_logto_sync_status_idx").on(table.logtoSyncStatus),
   })
 );
