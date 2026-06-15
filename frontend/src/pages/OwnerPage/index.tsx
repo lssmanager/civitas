@@ -29,11 +29,12 @@ function OwnerDashboard({ ownerMe }: OwnerDashboardProps) {
           </PageCard>
         </div>
         <div className="col-12 col-xl-5">
-          <PageCard title="Secciones de Fase 07" subtitle="La administración owner queda separada en vistas revisables por responsabilidad.">
+          <PageCard title="Secciones de Fase 07" subtitle="La administración owner queda separada en vistas navegables por responsabilidad.">
             <div className="d-flex flex-column gap-2">
-              <Link to="/owner/organizations" className="btn btn-outline-primary text-start">Organizaciones Logto / Civitas</Link>
-              <Link to="/owner/logs" className="btn btn-outline-secondary text-start">Logs</Link>
+              <Link to="/owner/organizations" className="btn btn-outline-primary text-start">Organizaciones</Link>
               <Link to="/select-organization" className="btn btn-outline-secondary text-start">Select Organization</Link>
+              <Link to="/owner/logs" className="btn btn-outline-secondary text-start">Logs</Link>
+              <Link to="/owner/settings" className="btn btn-outline-secondary text-start">Settings</Link>
             </div>
           </PageCard>
         </div>

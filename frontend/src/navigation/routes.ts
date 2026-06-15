@@ -4,26 +4,35 @@ export type AppRoute = {
   description?: string;
 };
 
+export type NavigationNode = AppRoute & {
+  children?: AppRoute[];
+};
+
 export const appRoutes = {
   owner: {
     path: "/owner",
     label: "Resumen",
-    description: "Resumen del espacio owner.",
+    description: "Landing operativa del espacio owner.",
   },
   ownerOrganizations: {
     path: "/owner/organizations",
-    label: "Organizaciones",
-    description: "Directorio canónico Logto / Civitas.",
+    label: "Directorio",
+    description: "Organizaciones canónicas Logto / Civitas.",
   },
   ownerLogs: {
     path: "/owner/logs",
     label: "Logs",
     description: "Eventos owner registrados por Civitas.",
   },
+  ownerSettings: {
+    path: "/owner/settings",
+    label: "Settings",
+    description: "Scaffold para configuración owner futura.",
+  },
   selectOrganization: {
     path: "/select-organization",
     label: "Select Organization",
-    description: "Selector visual sin conexión a organizaciones reales.",
+    description: "Selector visual de organizaciones reales de Logto.",
   },
   account: {
     path: "/account",
@@ -34,19 +43,37 @@ export const appRoutes = {
 
 export const primaryNavigation: AppRoute[] = [appRoutes.account];
 
+export const ownerNavigationTree: NavigationNode[] = [
+  appRoutes.owner,
+  {
+    path: "/owner/organizations-section",
+    label: "Organizaciones",
+    description: "Operación y selección de organizaciones.",
+    children: [appRoutes.ownerOrganizations, appRoutes.selectOrganization],
+  },
+  {
+    path: "/owner/observability-section",
+    label: "Observabilidad",
+    description: "Trazabilidad operativa del portal owner.",
+    children: [appRoutes.ownerLogs],
+  },
+  appRoutes.ownerSettings,
+];
+
 export const ownerNavigation: AppRoute[] = [
   appRoutes.owner,
   appRoutes.ownerOrganizations,
   appRoutes.selectOrganization,
   appRoutes.ownerLogs,
-  { path: "/owner/settings", label: "Settings", description: "Placeholder para settings owner." },
+  appRoutes.ownerSettings,
 ];
 
 export const routeMetadata: Record<string, { label: string; parentPath?: string }> = {
-  "/owner": { label: appRoutes.owner.label },
-  "/owner/organizations": { label: appRoutes.ownerOrganizations.label, parentPath: appRoutes.owner.path },
+  "/owner": { label: "Owner" },
+  "/owner/organizations": { label: "Organizaciones", parentPath: appRoutes.owner.path },
   "/owner/logs": { label: appRoutes.ownerLogs.label, parentPath: appRoutes.owner.path },
-  "/owner/settings": { label: "Settings", parentPath: appRoutes.owner.path },
-  "/select-organization": { label: appRoutes.selectOrganization.label, parentPath: appRoutes.owner.path },
+  "/owner/audit": { label: appRoutes.ownerLogs.label, parentPath: appRoutes.owner.path },
+  "/owner/settings": { label: appRoutes.ownerSettings.label, parentPath: appRoutes.owner.path },
+  "/select-organization": { label: appRoutes.selectOrganization.label, parentPath: appRoutes.ownerOrganizations.path },
   "/account": { label: appRoutes.account.label },
 };

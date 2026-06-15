@@ -139,3 +139,26 @@ body {
 .offcanvas .civitas-brand-mark + div p {
   margin-bottom: 0;
 }
+
+.civitas-sidebar .accordion-button {
+  border-radius: 0.75rem !important;
+  padding: 0.65rem 0.75rem;
+  color: var(--civitas-text);
+  background: transparent;
+  box-shadow: none;
+}
+
+.civitas-sidebar .accordion-button:not(.collapsed) {
+  color: var(--civitas-primary);
+  background: var(--civitas-primary-soft);
+  box-shadow: none;
+}
+
+.civitas-sidebar .accordion-button:focus {
+  border-color: rgba(36, 84, 214, 0.16);
+  box-shadow: 0 0 0 0.2rem rgba(36, 84, 214, 0.12);
+}
+
+.civitas-sidebar-section .accordion-button {
+  padding-left: 0.75rem;
+}

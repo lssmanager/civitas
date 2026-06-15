@@ -1,6 +1,6 @@
 import { Accordion, Nav } from "react-bootstrap";
-import { NavLink } from "react-router-dom";
-import { ownerNavigation, primaryNavigation } from "./routes";
+import { NavLink, useLocation } from "react-router-dom";
+import { ownerNavigationTree, primaryNavigation, type AppRoute, type NavigationNode } from "./routes";
 
 export function Sidebar() {
   return (
@@ -25,29 +25,65 @@ export function SidebarBrand() {
   );
 }
 
+function SidebarLink({ item, onNavigate, nested = false }: { item: AppRoute; onNavigate?: () => void; nested?: boolean }) {
+  return (
+    <NavLink
+      to={item.path}
+      onClick={onNavigate}
+      className={({ isActive }) => `nav-link civitas-sidebar-link rounded-3 py-2 ${nested ? "px-3 ms-3" : "px-3"} ${isActive ? "active" : ""}`}
+    >
+      <span className="fw-semibold">{item.label}</span>
+      {item.description && <span className="d-block small text-secondary">{item.description}</span>}
+    </NavLink>
+  );
+}
+
+function NavigationBranch({ item, index, onNavigate }: { item: NavigationNode; index: number; onNavigate?: () => void }) {
+  if (!item.children?.length) {
+    return <SidebarLink item={item} onNavigate={onNavigate} />;
+  }
+
+  return (
+    <Accordion.Item eventKey={`owner-section-${index}`} className="border-0 civitas-sidebar-section">
+      <Accordion.Header>
+        <span>
+          <span className="fw-semibold">{item.label}</span>
+          {item.description && <span className="d-block small text-secondary">{item.description}</span>}
+        </span>
+      </Accordion.Header>
+      <Accordion.Body className="p-0 pt-1">
+        <div className="d-flex flex-column gap-1 border-start ms-3 ps-1">
+          {item.children.map((child) => (
+            <SidebarLink key={child.path} item={child} onNavigate={onNavigate} nested />
+          ))}
+        </div>
+      </Accordion.Body>
+    </Accordion.Item>
+  );
+}
+
 export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
+  const location = useLocation();
+  const activeOwnerSections = ownerNavigationTree
+    .map((item, index) => item.children?.some((child) => child.path === location.pathname) ? `owner-section-${index}` : undefined)
+    .filter((key): key is string => Boolean(key));
+
   return (
     <Nav className="flex-column gap-2 p-3" as="nav">
-      <Accordion defaultActiveKey="owner" alwaysOpen>
+      <Accordion defaultActiveKey={["owner", ...activeOwnerSections]} alwaysOpen>
         <Accordion.Item eventKey="owner" className="border-0">
           <Accordion.Header>Owner</Accordion.Header>
           <Accordion.Body className="p-0 pt-2">
             <div className="d-flex flex-column gap-1">
-              {ownerNavigation.map((item) => (
-                <NavLink key={item.path} to={item.path} onClick={onNavigate} className={({ isActive }) => `nav-link civitas-sidebar-link rounded-3 px-3 py-2 ${isActive ? "active" : ""}`}>
-                  <span className="fw-semibold">{item.label}</span>
-                  {item.description && <span className="d-block small text-secondary">{item.description}</span>}
-                </NavLink>
+              {ownerNavigationTree.map((item, index) => (
+                <NavigationBranch key={item.path} item={item} index={index} onNavigate={onNavigate} />
               ))}
             </div>
           </Accordion.Body>
         </Accordion.Item>
       </Accordion>
       {primaryNavigation.map((item) => (
-        <NavLink key={item.path} to={item.path} onClick={onNavigate} className={({ isActive }) => `nav-link civitas-sidebar-link rounded-3 px-3 py-2 ${isActive ? "active" : ""}`}>
-          <span className="fw-semibold">{item.label}</span>
-          {item.description && <span className="d-block small text-secondary">{item.description}</span>}
-        </NavLink>
+        <SidebarLink key={item.path} item={item} onNavigate={onNavigate} />
       ))}
     </Nav>
   );
