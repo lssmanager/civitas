@@ -1,26 +1,23 @@
-import { ReservedResource, UserScope, type LogtoConfig } from "@logto/react";
+import { UserScope, type LogtoConfig } from "@logto/react";
 import { APP_ENV } from "./env";
+
+const GLOBAL_API_SCOPES = [
+  "owner:read",
+  "owner:manage",
+  "organizations:read",
+  "organizations:create",
+  "organizations:manage",
+] as const;
 
 export const logtoConfig: LogtoConfig = {
   endpoint: APP_ENV.logto.endpoint,
   appId: APP_ENV.logto.appId,
-  resources: APP_ENV.api.resourceIndicator ? [APP_ENV.api.resourceIndicator, ReservedResource.Organization] : [ReservedResource.Organization],
+  resources: APP_ENV.api.resourceIndicator ? [APP_ENV.api.resourceIndicator] : undefined,
   scopes: [
     UserScope.Email,
     UserScope.Profile,
     UserScope.Organizations,
-    "owner:read",
-    "owner:manage",
-    "organizations:read",
-    "organizations:create",
-    "organizations:manage",
-    "organization:read",
-    "organization:manage",
-    "members:read",
-    "members:invite",
-    "members:manage",
-    "documents:read",
-    "documents:create",
+    ...GLOBAL_API_SCOPES,
   ],
 };
 

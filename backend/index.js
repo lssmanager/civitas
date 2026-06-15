@@ -405,7 +405,7 @@ app.get("/me", requireAuth(API_RESOURCE), async (req, res) => {
   }
 });
 
-app.get("/owner/me", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+app.get("/owner/me", requireAuth(API_RESOURCE), ...requireOwner, async (req, res) => {
   try {
     const internalUser = await getOrCreateInternalUser(req.user);
 
@@ -569,7 +569,7 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
   }
 });
 
-app.get("/owner/audit", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+app.get("/owner/audit", requireAuth(API_RESOURCE), ...requireOwner, async (req, res) => {
   try {
     await getOrCreateInternalUser(req.user);
 
