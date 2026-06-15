@@ -10,10 +10,14 @@ const AUDIT_RESULTS = Object.freeze({
 
 const AUDIT_ACTIONS = Object.freeze({
   OWNER_ORGANIZATION_PROFILE_CREATE: "owner.organization.profile_create",
+  OWNER_ORGANIZATION_TEMPLATE_VALIDATE: "owner.organization.template_validate",
   OWNER_ORGANIZATION_LOGTO_CREATE: "owner.organization.logto_create",
   OWNER_ORGANIZATION_METADATA_RECONCILE: "owner.organization.metadata_reconcile",
+  OWNER_ORGANIZATION_BASE_MEMBER: "owner.organization.base_member",
+  OWNER_ORGANIZATION_BASE_ROLE: "owner.organization.base_role",
   OWNER_ORGANIZATION_CREATOR_MEMBERSHIP: "owner.organization.creator_membership",
   OWNER_ORGANIZATION_CREATOR_ROLE: "owner.organization.creator_role",
+  OWNER_ORGANIZATION_BOOTSTRAP_FAILED: "owner.organization.bootstrap_failed",
   OWNER_ORGANIZATION_PROVISIONING: "owner.organization.provisioning",
 });
 

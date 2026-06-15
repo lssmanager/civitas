@@ -14,6 +14,7 @@ import { OwnerPage } from "../OwnerPage";
 import { OwnerAuditPage } from "../OwnerAuditPage";
 import { OwnerOrganizationsPage } from "../OwnerOrganizationsPage";
 import { OwnerOrganizationSettingsPage } from "../OwnerOrganizationSettingsPage";
+import { OwnerSettingsPage } from "../OwnerSettingsPage";
 import { SelectOrganizationPage } from "../SelectOrganizationPage";
 
 function LogtoPrivateLayout() {
@@ -86,7 +87,8 @@ function App() {
             <Route path="organizations" element={<OwnerOrganizationsPage />} />
             <Route path="organizations/:organizationId/settings" element={<OwnerOrganizationSettingsPage />} />
             <Route path="logs" element={<OwnerAuditPage />} />
-            <Route path="settings" element={<OwnerPage />} />
+            <Route path="audit" element={<Navigate to="/owner/logs" replace />} />
+            <Route path="settings" element={<OwnerSettingsPage />} />
           </Route>
           <Route path="select-organization" element={<SelectOrganizationPage />} />
           <Route path="account" element={<AccountPage />} />

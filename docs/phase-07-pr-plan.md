@@ -9,7 +9,7 @@ Logto sigue siendo la fuente canónica de organizaciones, memberships, roles y p
 Incluye:
 - Parseo tolerante de respuestas no JSON de Logto Management API.
 - Etapas persistidas del bootstrap: organización Logto creada, metadata enlazada, creator membership pendiente/completo, rol admin pendiente/faltante, bootstrap incompleto, sincronizado/reconciliado.
-- Modelado explícito del rol faltante `organization_admin` como estado operativo recuperable, no como duplicación PostgreSQL-first del rol.
+- Modelado explícito del rol faltante `Admin-org` como estado operativo recuperable, no como duplicación PostgreSQL-first del rol.
 - Directorio owner con una fila por organización canónica de Logto y perfiles internos asociados como metadata de reconciliación.
 - Auditoría de eventos parciales reales y errores por etapa.
 

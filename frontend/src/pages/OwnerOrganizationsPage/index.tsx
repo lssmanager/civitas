@@ -1,114 +1,63 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Alert, Badge, Button, Form } from "react-bootstrap";
-import { Link } from "react-router-dom";
-import { useOwnerApi, type OwnerOrganization } from "../../api/owner";
+import { useOwnerApi } from "../../api/owner";
 import { useStableResource } from "../../shared/hooks/useStableResource";
-import { DataTable, EmptyState, ErrorState, LoadingState, PageCard, PageShell, type DataTableColumn } from "../../shared/ui";
-
-const getSyncBadge = (status?: string) => {
-  if (status === "synced" || status === "reconciled") return <Badge bg="success">Reconciliada</Badge>;
-  if (status === "logto_created") return <Badge bg="warning" text="dark">Logto creada</Badge>;
-  if (status === "creator_membership_pending") return <Badge bg="warning" text="dark">Membership pendiente</Badge>;
-  if (status === "creator_role_pending") return <Badge bg="warning" text="dark">Rol admin pendiente</Badge>;
-  if (status === "creator_role_missing") return <Badge bg="danger">Rol admin faltante</Badge>;
-  if (status === "bootstrap_incomplete") return <Badge bg="warning" text="dark">Bootstrap incompleto</Badge>;
-  if (status === "error") return <Badge bg="danger">Error Logto</Badge>;
-  return <Badge bg="warning" text="dark">Pendiente</Badge>;
-};
-
-const formatDate = (value?: string | null) => (value ? new Date(value).toLocaleString() : "Sin sync exitoso");
+import { ErrorState, LoadingState, PageCard, PageShell } from "../../shared/ui";
 
 export function OwnerOrganizationsPage() {
   const ownerApi = useOwnerApi();
   const [name, setName] = useState("");
-  const [slug, setSlug] = useState("");
   const [adminDomain, setAdminDomain] = useState("");
-  const [primaryColor, setPrimaryColor] = useState("");
-  const [primaryColorDark, setPrimaryColorDark] = useState("");
-  const [logoUrl, setLogoUrl] = useState("");
-  const [faviconUrl, setFaviconUrl] = useState("");
-  const [loginExperienceEnabled, setLoginExperienceEnabled] = useState(false);
-  const [defaultRoles, setDefaultRoles] = useState<string[]>(["STUDENT"]);
-  const [oidcRedirectUri, setOidcRedirectUri] = useState("");
-  const [oidcApplicationId, setOidcApplicationId] = useState("");
-  const [oidcApplicationSecret, setOidcApplicationSecret] = useState("");
+  const [baseAdminName, setBaseAdminName] = useState("");
+  const [baseAdminEmail, setBaseAdminEmail] = useState("");
+  const [baseAdminLogtoUserId, setBaseAdminLogtoUserId] = useState("");
+  const [defaultRoleName, setDefaultRoleName] = useState("Admin-org");
+  const [customSettingsJson, setCustomSettingsJson] = useState("{}");
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitWarning, setSubmitWarning] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const organizationsResource = useStableResource({
+  const templateResource = useStableResource({
     initialParams: {},
-    load: ownerApi.getOrganizations,
-    getKey: () => "owner-organizations",
-    getErrorMessage: (error) => error instanceof Error ? error.message : "No se pudieron cargar las organizaciones owner.",
+    load: ownerApi.getOrganizationTemplate,
+    getKey: () => "owner-organization-template",
+    getErrorMessage: (error) => error instanceof Error ? error.message : "No se pudo cargar la plantilla de organización de Logto.",
   });
 
-  const organizations = organizationsResource.data?.organizations ?? [];
-  const columns = useMemo<DataTableColumn<OwnerOrganization>[]>(() => [
-    {
-      key: "name",
-      header: "Organización",
-      render: (organization) => (
-        <div>
-          <div className="fw-semibold">{organization.name ?? organization.profile?.nameCache ?? "Sin nombre"}</div>
-          <div className="text-secondary small text-break">Organización Logto: {organization.logtoOrganizationId ?? "sin id"}</div>
-          <div className="text-secondary small text-break">Config. Civitas: {organization.profile?.id ?? "config. pendiente"}</div>
-        </div>
-      ),
-    },
-    {
-      key: "logto",
-      header: "Bootstrap",
-      render: (organization) => (
-        <div className="d-flex flex-column gap-1">
-          {getSyncBadge(organization.profile?.logtoSyncStatus)}
-          <span className="text-secondary small text-break">{organization.logtoOrganizationId ?? "Aún sin id Logto"}</span>
-        </div>
-      ),
-    },
-    { key: "slug", header: "Operativa", render: (organization) => <span className="small">Slug: {organization.profile?.slug ?? "Sin slug"}<br />Admin: {organization.profile?.adminDomain ?? "Sin dominio"}<br />Roles: {organization.profile?.defaultRoleNames?.join(", ") || "Sin roles"}</span> },
-    { key: "settings", header: "Settings", render: (organization) => <Link className="btn btn-sm btn-outline-primary" to={`/owner/organizations/${organization.profile?.id ?? organization.logtoOrganizationId}/settings`}>Abrir</Link> },
-    { key: "lastSync", header: "Último sync", render: (organization) => <span className="small">{formatDate(organization.profile?.logtoSyncedAt)}</span> },
-    {
-      key: "error",
-      header: "Error visible",
-      render: (organization) => organization.profile?.logtoSyncError ? <Alert variant="danger" className="py-2 px-3 mb-0 small">{organization.profile.logtoSyncError}</Alert> : <span className="text-secondary small">Sin error registrado</span>,
-    },
-  ], []);
+  const roles = templateResource.data?.roles.filter((role) => role.name) ?? [];
+  const selectedRole = roles.some((role) => role.name === defaultRoleName) ? defaultRoleName : roles[0]?.name ?? "Admin-org";
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setSubmitError(null);
+    setSubmitWarning(null);
     setIsSubmitting(true);
 
     try {
+      let settings: Record<string, unknown> | undefined;
+      if (customSettingsJson.trim()) {
+        settings = JSON.parse(customSettingsJson);
+      }
+
       const result = await ownerApi.createOrganization({
         name,
-        slug: slug || undefined,
         adminDomain: adminDomain || undefined,
-        primaryColor: primaryColor || undefined,
-        primaryColorDark: primaryColorDark || undefined,
-        logoUrl: logoUrl || undefined,
-        faviconUrl: faviconUrl || undefined,
-        organizationLoginExperienceEnabled: loginExperienceEnabled,
-        defaultRoleNames: defaultRoles,
-        oidcRedirectUri: oidcRedirectUri || undefined,
-        oidcApplicationId: oidcApplicationId || undefined,
-        oidcApplicationSecret: oidcApplicationSecret || undefined,
+        defaultRoleNames: [selectedRole],
+        baseAdmin: {
+          name: baseAdminName || undefined,
+          email: baseAdminEmail || undefined,
+          logtoUserId: baseAdminLogtoUserId || undefined,
+        },
+        settings,
       });
+
       setName("");
-      setSlug("");
       setAdminDomain("");
-      setPrimaryColor("");
-      setPrimaryColorDark("");
-      setLogoUrl("");
-      setFaviconUrl("");
-      setLoginExperienceEnabled(false);
-      setDefaultRoles(["STUDENT"]);
-      setOidcRedirectUri("");
-      setOidcApplicationId("");
-      setOidcApplicationSecret("");
-      organizationsResource.reload();
-      if (result.warning) setSubmitError(result.warning);
+      setBaseAdminName("");
+      setBaseAdminEmail("");
+      setBaseAdminLogtoUserId("");
+      setCustomSettingsJson("{}");
+      if (result.warning) setSubmitWarning(result.warning);
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : "No se pudo crear la organización.");
     } finally {
@@ -117,33 +66,51 @@ export function OwnerOrganizationsPage() {
   };
 
   return (
-    <PageShell eyebrow="Owner" title="Organizaciones Logto / Civitas" description="Logto/API es la fuente canónica de organizaciones; Civitas guarda solo configuración de producto que Logto no expone." actions={<Badge bg="success">organizations:read</Badge>}>
+    <PageShell
+      eyebrow="Owner / Organizaciones"
+      title="Crear organización"
+      description="Flujo enfocado en crear la organización canónica en Logto y ejecutar el bootstrap inicial por etapas. La observabilidad técnica vive en Logs."
+      actions={<Badge bg="success">organizations:create</Badge>}
+    >
       <div className="row g-4">
-        <div className="col-12 col-xl-4">
-          <PageCard title="Crear organización" subtitle="Provisionamiento ampliado inicial: organización canónica en Logto y configuración Civitas local para #51.">
-            <Form onSubmit={handleSubmit} className="d-flex flex-column gap-3">
-              <Form.Group controlId="ownerOrganizationName"><Form.Label>Nombre</Form.Label><Form.Control value={name} onChange={(event) => setName(event.target.value)} placeholder="Acme Legal" required /></Form.Group>
-              <Form.Group controlId="ownerOrganizationSlug"><Form.Label>Slug</Form.Label><Form.Control value={slug} onChange={(event) => setSlug(event.target.value)} placeholder="acme-legal" /></Form.Group>
-              <Form.Group controlId="ownerOrganizationAdminDomain"><Form.Label>Dominio admin</Form.Label><Form.Control value={adminDomain} onChange={(event) => setAdminDomain(event.target.value)} placeholder="admin.acme.test" /></Form.Group>
-              <div className="row g-2">
-                <Form.Group className="col" controlId="ownerOrganizationPrimaryColor"><Form.Label>Color primario</Form.Label><Form.Control value={primaryColor} onChange={(event) => setPrimaryColor(event.target.value)} placeholder="#0d6efd" pattern="^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$" /></Form.Group>
-                <Form.Group className="col" controlId="ownerOrganizationPrimaryColorDark"><Form.Label>Color oscuro</Form.Label><Form.Control value={primaryColorDark} onChange={(event) => setPrimaryColorDark(event.target.value)} placeholder="#084298" pattern="^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$" /></Form.Group>
-              </div>
-              <Form.Group controlId="ownerOrganizationLogoUrl"><Form.Label>Logo URL</Form.Label><Form.Control type="url" value={logoUrl} onChange={(event) => setLogoUrl(event.target.value)} placeholder="https://cdn.example.com/logo.svg" /></Form.Group>
-              <Form.Group controlId="ownerOrganizationFaviconUrl"><Form.Label>Favicon URL</Form.Label><Form.Control type="url" value={faviconUrl} onChange={(event) => setFaviconUrl(event.target.value)} placeholder="https://cdn.example.com/favicon.ico" /></Form.Group>
-              <Form.Check type="switch" id="ownerOrganizationLoginExperience" label="Preparar login experience por organización" checked={loginExperienceEnabled} onChange={(event) => setLoginExperienceEnabled(event.target.checked)} />
-              <Form.Group controlId="ownerOrganizationRoles"><Form.Label>Roles predeterminados</Form.Label><Form.Control value={defaultRoles.join(", ")} onChange={(event) => setDefaultRoles(event.target.value.split(",").map((role) => role.trim().toUpperCase()).filter(Boolean))} placeholder="STUDENT" /><Form.Text>Incluye STUDENT por defecto; separa roles con coma.</Form.Text></Form.Group>
-              <Form.Group controlId="ownerOrganizationOidcRedirect"><Form.Label>OIDC redirect URI inicial</Form.Label><Form.Control type="url" value={oidcRedirectUri} onChange={(event) => setOidcRedirectUri(event.target.value)} placeholder="https://admin.acme.test/callback" /></Form.Group>
-              <Form.Group controlId="ownerOrganizationOidcApplicationId"><Form.Label>OIDC application id</Form.Label><Form.Control value={oidcApplicationId} onChange={(event) => setOidcApplicationId(event.target.value)} placeholder="app_xxx" /></Form.Group>
-              <Form.Group controlId="ownerOrganizationOidcSecret"><Form.Label>OIDC secret inicial</Form.Label><Form.Control type="password" value={oidcApplicationSecret} onChange={(event) => setOidcApplicationSecret(event.target.value)} placeholder="No se mostrará en listados" /><Form.Text>Se registra solo como configurado/redactado; no se devuelve en texto plano.</Form.Text></Form.Group>
-              {submitError && <Alert variant="danger" className="mb-0">{submitError}</Alert>}
-              <Button type="submit" disabled={isSubmitting || !name.trim()}>{isSubmitting ? "Creando..." : "Crear y sincronizar"}</Button>
-            </Form>
+        <div className="col-12 col-xl-7">
+          <PageCard title="Nueva organización" subtitle="Logto es la fuente canónica; Civitas solo guarda metadata operativa, reconciliación y estado de bootstrap.">
+            {templateResource.isLoading ? (
+              <LoadingState title="Cargando plantilla" description="Consultando roles de la organization template de Logto." />
+            ) : templateResource.error ? (
+              <ErrorState title="No se pudo cargar la plantilla" message={templateResource.error} action={<Button onClick={templateResource.retry}>Reintentar</Button>} />
+            ) : (
+              <Form onSubmit={handleSubmit} className="d-flex flex-column gap-3">
+                {templateResource.data && !templateResource.data.ready ? (
+                  <Alert variant="danger" className="mb-0">
+                    Falta configurar la plantilla de Logto. Roles requeridos ausentes: {templateResource.data.missingRoleNames.join(", ") || "Admin-org"}.
+                  </Alert>
+                ) : null}
+                <Form.Group controlId="ownerOrganizationName"><Form.Label>Nombre de organización</Form.Label><Form.Control value={name} onChange={(event) => setName(event.target.value)} placeholder="Colegio 1" required /></Form.Group>
+                <Form.Group controlId="ownerOrganizationAdminDomain"><Form.Label>Dominio admin / correo</Form.Label><Form.Control value={adminDomain} onChange={(event) => setAdminDomain(event.target.value)} placeholder="colegio1.edu.co" /></Form.Group>
+                <div className="row g-3">
+                  <Form.Group className="col-12 col-lg-6" controlId="ownerOrganizationBaseAdminName"><Form.Label>Nombre admin base</Form.Label><Form.Control value={baseAdminName} onChange={(event) => setBaseAdminName(event.target.value)} placeholder="María Admin" /></Form.Group>
+                  <Form.Group className="col-12 col-lg-6" controlId="ownerOrganizationBaseAdminEmail"><Form.Label>Correo admin base</Form.Label><Form.Control type="email" value={baseAdminEmail} onChange={(event) => setBaseAdminEmail(event.target.value)} placeholder="admin@colegio1.edu.co" /></Form.Group>
+                </div>
+                <Form.Group controlId="ownerOrganizationBaseAdminLogtoId"><Form.Label>Logto user id admin base</Form.Label><Form.Control value={baseAdminLogtoUserId} onChange={(event) => setBaseAdminLogtoUserId(event.target.value)} placeholder="Opcional; si se omite, se usa el owner actual para bootstrap" /><Form.Text>La invitación por correo queda preparada para fase posterior; la asignación inmediata requiere usuario Logto existente.</Form.Text></Form.Group>
+                <Form.Group controlId="ownerOrganizationRoles"><Form.Label>Rol inicial desde plantilla Logto</Form.Label><Form.Select value={selectedRole} onChange={(event) => setDefaultRoleName(event.target.value)} disabled={roles.length === 0}>{roles.map((role) => <option value={role.name} key={role.id}>{role.name}</option>)}</Form.Select></Form.Group>
+                <Form.Group controlId="ownerOrganizationSettings"><Form.Label>Datos personalizados JSON</Form.Label><Form.Control as="textarea" rows={5} value={customSettingsJson} onChange={(event) => setCustomSettingsJson(event.target.value)} spellCheck={false} /><Form.Text>Solo metadata operativa Civitas; no reemplaza la organización canónica de Logto.</Form.Text></Form.Group>
+                {submitError && <Alert variant="danger" className="mb-0">{submitError}</Alert>}
+                {submitWarning && <Alert variant="warning" className="mb-0">{submitWarning}</Alert>}
+                <Button type="submit" disabled={isSubmitting || !name.trim() || !templateResource.data?.ready}>{isSubmitting ? "Creando..." : "Crear organización"}</Button>
+              </Form>
+            )}
           </PageCard>
         </div>
-        <div className="col-12 col-xl-8">
-          <PageCard title="Directorio canónico" subtitle="Una fila por organización real de Logto; Civitas adjunta configuración local complementaria.">
-            {organizationsResource.isLoading ? <LoadingState title="Cargando organizaciones" description="Consultando Logto y configuración Civitas." /> : organizationsResource.error ? <ErrorState title="No se pudieron cargar organizaciones" message={organizationsResource.error} action={<Button onClick={organizationsResource.retry}>Reintentar</Button>} /> : organizations.length === 0 ? <EmptyState title="Sin organizaciones" description="Crea la primera organización desde Logto; la configuración Civitas complementaria aparecerá aquí." /> : <DataTable columns={columns} rows={organizations} getRowKey={(row) => row.profile?.id ?? row.logtoOrganizationId ?? row.name ?? "organization"} />}
+        <div className="col-12 col-xl-5">
+          <PageCard title="Qué ocurre al crear" subtitle="Las etapas quedan auditadas de forma separada.">
+            <ol className="text-secondary mb-0 d-flex flex-column gap-2">
+              <li>Validar plantilla de Logto y el rol <code>Admin-org</code>.</li>
+              <li>Crear o reconciliar la organización canónica en Logto.</li>
+              <li>Enlazar metadata operativa local con <code>logto_organization_id</code>.</li>
+              <li>Agregar admin base a la organización y asignar rol inicial.</li>
+              <li>Enviar errores y soporte técnico a <strong>Observabilidad &gt; Logs</strong>.</li>
+            </ol>
           </PageCard>
         </div>
       </div>
