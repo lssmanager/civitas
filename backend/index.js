@@ -380,13 +380,36 @@ app.get("/organizations", requireAuth(API_RESOURCE), requireScope("organizations
 });
 
 app.get("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organizations:read"), async (req, res) => {
+  let profiles = [];
+
   try {
-    const [logtoOrganizations, profiles] = await Promise.all([listLogtoOrganizations(), listOrganizationProfiles()]);
+    profiles = await listOrganizationProfiles();
+  } catch (error) {
+    console.error("Failed to list local organization profiles", error);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to list local organization metadata" });
+  }
+
+  try {
+    const logtoOrganizations = await listLogtoOrganizations();
     const directory = buildLogtoOrganizationDirectory({ logtoOrganizations, profiles });
     return res.json({ organizations: directory.organizations, unreconciledProfiles: directory.unreconciledProfiles });
   } catch (error) {
     console.error("Failed to list owner organizations from Logto", error);
-    return res.status(502).json({ error: "Bad Gateway", message: "Failed to list organizations from Logto" });
+    return res.json({
+      organizations: sortProfilesByNewest(profiles).map((profile) => ({
+        ...serializeOwnerOrganization(profile, null),
+        syncStatus: profile.logtoSyncStatus || "logto_unavailable",
+        syncError: "Logto is unavailable; showing local operational metadata only.",
+        reconciliation: {
+          status: profile.logtoOrganizationId ? "logto_unavailable" : "local_profile_pending_logto",
+          profileCount: 1,
+          matchedBy: profile.logtoOrganizationId ? "logto_organization_id" : null,
+          profileIds: [profile.id],
+        },
+      })),
+      unreconciledProfiles: profiles.filter((profile) => !profile.logtoOrganizationId).map(serializeOrganizationProfile),
+      warning: "Logto organizations could not be loaded; showing local operational metadata only.",
+    });
   }
 });
 
