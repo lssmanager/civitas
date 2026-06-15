@@ -7,6 +7,9 @@ const LOGTO_SYNC_STATUSES = Object.freeze({
   LOGTO_CREATED: "logto_created",
   CREATOR_MEMBERSHIP_PENDING: "creator_membership_pending",
   CREATOR_ROLE_PENDING: "creator_role_pending",
+  CREATOR_ROLE_MISSING: "creator_role_missing",
+  BOOTSTRAP_INCOMPLETE: "bootstrap_incomplete",
+  RECONCILED: "reconciled",
   SYNCED: "synced",
   ERROR: "error",
 });
@@ -20,6 +23,19 @@ const serializeOrganizationProfile = (profile) => ({
   type: profile.type,
   status: profile.status,
   subdomain: profile.subdomain,
+  slug: profile.slug,
+  adminDomain: profile.adminDomain,
+  branding: {
+    logoUrl: profile.logoUrl,
+    faviconUrl: profile.faviconUrl,
+    primaryColor: profile.primaryColor,
+    primaryColorDark: profile.primaryColorDark,
+  },
+  organizationLoginExperienceEnabled: profile.organizationLoginExperienceEnabled,
+  defaultRoleNames: profile.defaultRoleNames || [],
+  oidcInitialConfig: profile.oidcInitialConfig || null,
+  oidcApplicationSecretConfigured: Boolean(profile.oidcApplicationSecretRef),
+  settings: profile.settings || null,
   seatTotal: profile.seatTotal,
   logtoSyncStatus: profile.logtoSyncStatus,
   logtoSyncError: profile.logtoSyncError,
@@ -84,13 +100,24 @@ async function markOrganizationProfileLogtoSyncError({ id, errorMessage, status 
   return markOrganizationProfileProvisioningStage({ id, status, errorMessage: errorMessage || "Logto synchronization failed" });
 }
 
-async function upsertOrganizationProfile({ logtoOrganizationId, nameCache, type, subdomain, seatTotal, logtoSyncStatus = LOGTO_SYNC_STATUSES.SYNCED, logtoSyncError = null }) {
+async function upsertOrganizationProfile({ logtoOrganizationId, nameCache, type, subdomain, slug, adminDomain, logoUrl, faviconUrl, primaryColor, primaryColorDark, organizationLoginExperienceEnabled = false, defaultRoleNames = [], oidcInitialConfig = null, oidcApplicationSecretRef = null, settings = null, seatTotal, logtoSyncStatus = LOGTO_SYNC_STATUSES.SYNCED, logtoSyncError = null }) {
   const now = new Date();
   const values = {
     logtoOrganizationId,
     nameCache: nameCache || null,
     type: type || null,
     subdomain: subdomain || null,
+    slug: slug || null,
+    adminDomain: adminDomain || null,
+    logoUrl: logoUrl || null,
+    faviconUrl: faviconUrl || null,
+    primaryColor: primaryColor || null,
+    primaryColorDark: primaryColorDark || null,
+    organizationLoginExperienceEnabled: Boolean(organizationLoginExperienceEnabled),
+    defaultRoleNames,
+    oidcInitialConfig,
+    oidcApplicationSecretRef,
+    settings,
     seatTotal: normalizeSeatTotal(seatTotal),
     logtoSyncStatus,
     logtoSyncError,

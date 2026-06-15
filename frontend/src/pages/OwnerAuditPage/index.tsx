@@ -22,7 +22,7 @@ const resultVariant = (result: string) => {
 };
 
 const getAuditErrorMessage = (error: unknown) =>
-  error instanceof Error ? error.message : "No se pudo cargar la auditoría owner.";
+  error instanceof Error ? error.message : "No se pudieron cargar los logs owner.";
 
 const formatActor = (row: OwnerAuditLog) => {
   const actor = row.actor;
@@ -97,12 +97,12 @@ export function OwnerAuditPage() {
   return (
     <PageShell
       eyebrow="Owner"
-      title="Auditoría owner"
+      title="Logs owner"
       description="Eventos operativos enriquecidos con identidad Logto del actor y organización canónica cuando está disponible."
       actions={<Badge bg="success">owner:read</Badge>}
     >
       <PageCard
-        title="Eventos de auditoría"
+        title="Logs operativos"
         subtitle="Listado paginado con eventos recientes primero. El actor visible prioriza Logto; PostgreSQL solo aporta el vínculo interno."
         actions={
           <ButtonGroup size="sm" aria-label="Paginación de auditoría">
@@ -127,10 +127,10 @@ export function OwnerAuditPage() {
         }
       >
         {isLoading ? (
-          <LoadingState title="Cargando auditoría" description="Consultando eventos owner registrados en Civitas." />
+          <LoadingState title="Cargando logs" description="Consultando eventos owner registrados en Civitas." />
         ) : error ? (
           <ErrorState
-            title="No se pudo cargar la auditoría"
+            title="No se pudieron cargar los logs"
             message={error}
             action={<Button onClick={retry}>Reintentar</Button>}
           />
@@ -139,7 +139,7 @@ export function OwnerAuditPage() {
             columns={columns}
             rows={events}
             getRowKey={(row) => row.id}
-            emptyTitle="Sin eventos de auditoría"
+            emptyTitle="Sin logs"
             emptyDescription="Cuando un owner cree organizaciones o falle una creación relevante, los eventos aparecerán aquí."
           />
         )}
