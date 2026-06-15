@@ -11,7 +11,7 @@ export function OwnerOrganizationsPage() {
   const [baseAdminName, setBaseAdminName] = useState("");
   const [baseAdminEmail, setBaseAdminEmail] = useState("");
   const [baseAdminLogtoUserId, setBaseAdminLogtoUserId] = useState("");
-  const [defaultRoleName, setDefaultRoleName] = useState("organization_admin");
+  const [defaultRoleName, setDefaultRoleName] = useState("Admin-org");
   const [customSettingsJson, setCustomSettingsJson] = useState("{}");
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitWarning, setSubmitWarning] = useState<string | null>(null);
@@ -25,7 +25,7 @@ export function OwnerOrganizationsPage() {
   });
 
   const roles = templateResource.data?.roles.filter((role) => role.name) ?? [];
-  const selectedRole = roles.some((role) => role.name === defaultRoleName) ? defaultRoleName : roles[0]?.name ?? "organization_admin";
+  const selectedRole = roles.some((role) => role.name === defaultRoleName) ? defaultRoleName : roles[0]?.name ?? "Admin-org";
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -83,7 +83,7 @@ export function OwnerOrganizationsPage() {
               <Form onSubmit={handleSubmit} className="d-flex flex-column gap-3">
                 {templateResource.data && !templateResource.data.ready ? (
                   <Alert variant="danger" className="mb-0">
-                    Falta configurar la plantilla de Logto. Roles requeridos ausentes: {templateResource.data.missingRoleNames.join(", ") || "organization_admin"}.
+                    Falta configurar la plantilla de Logto. Roles requeridos ausentes: {templateResource.data.missingRoleNames.join(", ") || "Admin-org"}.
                   </Alert>
                 ) : null}
                 <Form.Group controlId="ownerOrganizationName"><Form.Label>Nombre de organización</Form.Label><Form.Control value={name} onChange={(event) => setName(event.target.value)} placeholder="Colegio 1" required /></Form.Group>
@@ -105,7 +105,7 @@ export function OwnerOrganizationsPage() {
         <div className="col-12 col-xl-5">
           <PageCard title="Qué ocurre al crear" subtitle="Las etapas quedan auditadas de forma separada.">
             <ol className="text-secondary mb-0 d-flex flex-column gap-2">
-              <li>Validar plantilla de Logto y el rol <code>organization_admin</code>.</li>
+              <li>Validar plantilla de Logto y el rol <code>Admin-org</code>.</li>
               <li>Crear o reconciliar la organización canónica en Logto.</li>
               <li>Enlazar metadata operativa local con <code>logto_organization_id</code>.</li>
               <li>Agregar admin base a la organización y asignar rol inicial.</li>

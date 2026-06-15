@@ -1,5 +1,5 @@
 const MANAGEMENT_TOKEN_SCOPE = "all";
-const ORGANIZATION_ADMIN_ROLE_NAME = "organization_admin";
+const ORGANIZATION_ADMIN_ROLE_NAME = "Admin-org";
 const REQUIRED_ORGANIZATION_ROLE_NAMES = [ORGANIZATION_ADMIN_ROLE_NAME];
 
 let tokenCache = null;
