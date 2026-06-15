@@ -35,7 +35,7 @@ export type OwnerOrganization = {
     emailDomainProvisioningStatus?: string;
     settings?: Record<string, unknown> | null;
     seatTotal: number;
-    logtoSyncStatus: "pending" | "logto_created" | "creator_membership_pending" | "creator_role_pending" | "synced" | "error" | string;
+    logtoSyncStatus: "pending" | "logto_created" | "metadata_linked" | "base_member_pending" | "base_role_pending" | "bootstrapped" | "synced" | "error" | string;
     logtoSyncError: string | null;
     logtoSyncedAt: string | null;
     createdAt?: string;
@@ -82,6 +82,15 @@ export type OwnerAuditPagination = {
   offset?: number;
 };
 
+export type OwnerOrganizationTemplateRole = { id: string; name: string };
+
+export type OwnerOrganizationTemplate = {
+  roles: OwnerOrganizationTemplateRole[];
+  requiredRoleNames: string[];
+  missingRoleNames: string[];
+  ready: boolean;
+};
+
 export type CreateOwnerOrganizationInput = {
   name: string;
   description?: string;
@@ -92,10 +101,8 @@ export type CreateOwnerOrganizationInput = {
   adminDomain?: string;
   logoUrl?: string;
   faviconUrl?: string;
-  primaryColor?: string;
-  primaryColorDark?: string;
-  organizationLoginExperienceEnabled?: boolean;
   defaultRoleNames?: string[];
+  baseAdmin?: { name?: string; email?: string; logtoUserId?: string };
   oidcApplicationId?: string;
   oidcRedirectUri?: string;
   oidcInitialConfig?: Record<string, unknown>;
@@ -110,6 +117,7 @@ export const useOwnerApi = () => {
     () => ({
       getOwnerMe: async (): Promise<OwnerMeResponse> => fetchWithToken("/owner/me"),
       getOrganizations: async (): Promise<{ organizations: OwnerOrganization[] }> => fetchWithToken("/owner/organizations"),
+      getOrganizationTemplate: async (): Promise<OwnerOrganizationTemplate> => fetchWithToken("/owner/organization-template"),
       getAuditLogs: async (pagination: OwnerAuditPagination = {}): Promise<OwnerAuditResponse> => {
         const params = new URLSearchParams();
         if (pagination.limit !== undefined) params.set("limit", String(pagination.limit));

@@ -5,6 +5,10 @@ const { organizationProfiles } = require("../db/schema");
 const LOGTO_SYNC_STATUSES = Object.freeze({
   PENDING: "pending",
   LOGTO_CREATED: "logto_created",
+  METADATA_LINKED: "metadata_linked",
+  BASE_MEMBER_PENDING: "base_member_pending",
+  BASE_ROLE_PENDING: "base_role_pending",
+  BOOTSTRAPPED: "bootstrapped",
   CREATOR_MEMBERSHIP_PENDING: "creator_membership_pending",
   CREATOR_ROLE_PENDING: "creator_role_pending",
   CREATOR_ROLE_MISSING: "creator_role_missing",
@@ -105,7 +109,7 @@ async function markOrganizationProfileLogtoSynced({ id, logtoOrganizationId, nam
     id,
     logtoOrganizationId,
     nameCache,
-    status: LOGTO_SYNC_STATUSES.SYNCED,
+    status: LOGTO_SYNC_STATUSES.BOOTSTRAPPED,
     errorMessage: null,
     synced: true,
   });
@@ -115,7 +119,7 @@ async function markOrganizationProfileLogtoSyncError({ id, errorMessage, status 
   return markOrganizationProfileProvisioningStage({ id, status, errorMessage: errorMessage || "Logto synchronization failed" });
 }
 
-async function upsertOrganizationProfile({ logtoOrganizationId, nameCache, type, subdomain, slug, adminDomain, logoUrl, faviconUrl, primaryColor, primaryColorDark, organizationLoginExperienceEnabled = false, defaultRoleNames = [], oidcApplicationId = null, oidcInitialConfig = null, oidcApplicationSecretRef = null, emailDomainProvisioningStatus = "not_requested", settings = null, seatTotal, logtoSyncStatus = LOGTO_SYNC_STATUSES.SYNCED, logtoSyncError = null }) {
+async function upsertOrganizationProfile({ logtoOrganizationId, nameCache, type, subdomain, slug, adminDomain, logoUrl, faviconUrl, primaryColor, primaryColorDark, organizationLoginExperienceEnabled = false, defaultRoleNames = [], oidcApplicationId = null, oidcInitialConfig = null, oidcApplicationSecretRef = null, emailDomainProvisioningStatus = "not_requested", settings = null, seatTotal, logtoSyncStatus = LOGTO_SYNC_STATUSES.BOOTSTRAPPED, logtoSyncError = null }) {
   const now = new Date();
   const values = {
     logtoOrganizationId,
@@ -138,7 +142,7 @@ async function upsertOrganizationProfile({ logtoOrganizationId, nameCache, type,
     seatTotal: normalizeSeatTotal(seatTotal),
     logtoSyncStatus,
     logtoSyncError,
-    logtoSyncedAt: logtoSyncStatus === LOGTO_SYNC_STATUSES.SYNCED ? now : null,
+    logtoSyncedAt: [LOGTO_SYNC_STATUSES.BOOTSTRAPPED, LOGTO_SYNC_STATUSES.SYNCED].includes(logtoSyncStatus) ? now : null,
     updatedAt: now,
   };
 

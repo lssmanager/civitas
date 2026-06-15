@@ -1,5 +1,6 @@
 const MANAGEMENT_TOKEN_SCOPE = "all";
 const ORGANIZATION_ADMIN_ROLE_NAME = "organization_admin";
+const REQUIRED_ORGANIZATION_ROLE_NAMES = [ORGANIZATION_ADMIN_ROLE_NAME];
 
 let tokenCache = null;
 
@@ -139,9 +140,52 @@ async function listLogtoOrganizationRoles() {
   return Array.isArray(response) ? response : response?.data || response?.items || [];
 }
 
+const getOrganizationRoleName = (role = {}) => role.name || role.nameCache || role.key || null;
+const getOrganizationRoleId = (role = {}) => role.id || role.organizationRoleId || role.roleId || null;
+
 async function findOrganizationRoleByName(name) {
   const roles = await listLogtoOrganizationRoles();
-  return roles.find((role) => role.name === name) || null;
+  return roles.find((role) => getOrganizationRoleName(role) === name) || null;
+}
+
+async function validateOrganizationTemplate({ requiredRoleNames = REQUIRED_ORGANIZATION_ROLE_NAMES } = {}) {
+  const roles = await listLogtoOrganizationRoles();
+  const normalizedRoles = roles.map((role) => ({
+    ...role,
+    id: getOrganizationRoleId(role),
+    name: getOrganizationRoleName(role),
+  }));
+  const availableRoleNames = normalizedRoles.map((role) => role.name).filter(Boolean);
+  const missingRoleNames = requiredRoleNames.filter((roleName) => !availableRoleNames.includes(roleName));
+
+  return {
+    ok: missingRoleNames.length === 0,
+    requiredRoleNames,
+    missingRoleNames,
+    roles: normalizedRoles,
+  };
+}
+
+// Civitas validates organization-template roles before creating a Logto organization.
+// We intentionally fail fast instead of auto-mutating the template, because template
+// roles are tenant-wide security configuration managed in Logto Console/Management API.
+async function ensureOrganizationTemplate({ requiredRoleNames = REQUIRED_ORGANIZATION_ROLE_NAMES } = {}) {
+  const template = await validateOrganizationTemplate({ requiredRoleNames });
+  if (!template.ok) {
+    const error = new LogtoManagementApiError(`Logto organization template is missing required role(s): ${template.missingRoleNames.join(", ")}`, {
+      status: 424,
+      body: {
+        reason: "organization_template_missing_roles",
+        requiredRoleNames: template.requiredRoleNames,
+        missingRoleNames: template.missingRoleNames,
+        availableRoleNames: template.roles.map((role) => role.name).filter(Boolean),
+      },
+    });
+    error.code = "LOGTO_ORGANIZATION_TEMPLATE_MISSING_ROLES";
+    error.missingRoleNames = template.missingRoleNames;
+    throw error;
+  }
+  return template;
 }
 
 async function findLogtoOrganizationByName(name) {
@@ -172,16 +216,19 @@ async function listLogtoOrganizations() {
 
 module.exports = {
   ORGANIZATION_ADMIN_ROLE_NAME,
+  REQUIRED_ORGANIZATION_ROLE_NAMES,
   LogtoManagementApiError,
   addUserToLogtoOrganization,
   assignOrganizationRoleToUser,
   createLogtoOrganization,
   fetchLogtoManagementApiAccessToken,
   findLogtoOrganizationByName,
+  ensureOrganizationTemplate,
   findOrganizationRoleByName,
   getLogtoManagementConfig,
   getLogtoUserById,
   listLogtoOrganizationRoles,
+  validateOrganizationTemplate,
   parseLogtoManagementApiResponse,
   listLogtoOrganizations,
 };

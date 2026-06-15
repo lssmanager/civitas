@@ -16,8 +16,8 @@ export const appRoutes = {
   },
   ownerOrganizations: {
     path: "/owner/organizations",
-    label: "Directorio",
-    description: "Organizaciones canónicas Logto / Civitas.",
+    label: "Crear organización",
+    description: "Alta canónica en Logto con bootstrap por etapas.",
   },
   ownerLogs: {
     path: "/owner/logs",
@@ -48,7 +48,7 @@ export const ownerNavigationTree: NavigationNode[] = [
   {
     path: "/owner/organizations-section",
     label: "Organizaciones",
-    description: "Operación y selección de organizaciones.",
+    description: "Creación y selección de organizaciones.",
     children: [appRoutes.ownerOrganizations, appRoutes.selectOrganization],
   },
   {
@@ -72,7 +72,7 @@ export type RouteMetadata = { label: string; parentPath?: string };
 
 export const routeMetadata: Record<string, RouteMetadata> = {
   "/owner": { label: "Owner" },
-  "/owner/organizations": { label: "Organizaciones", parentPath: appRoutes.owner.path },
+  "/owner/organizations": { label: "Crear organización", parentPath: appRoutes.owner.path },
   "/owner/logs": { label: appRoutes.ownerLogs.label, parentPath: appRoutes.owner.path },
   "/owner/audit": { label: appRoutes.ownerLogs.label, parentPath: appRoutes.owner.path },
   "/owner/settings": { label: appRoutes.ownerSettings.label, parentPath: appRoutes.owner.path },

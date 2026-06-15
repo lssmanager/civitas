@@ -30,6 +30,11 @@ const formatActor = (row: OwnerAuditLog) => {
   return actor.email || actor.displayName || actor.logtoUserId || actor.internalUserId || "No resuelto";
 };
 
+const formatStage = (row: OwnerAuditLog) => {
+  const stage = row.metadata?.stage;
+  return typeof stage === "string" ? stage : "Sin etapa";
+};
+
 const formatOrganization = (row: OwnerAuditLog) => {
   if (!row.organizationId && !row.organization?.id) return "Global";
   const id = row.organization?.id ?? row.organizationId;
@@ -71,6 +76,7 @@ export function OwnerAuditPage() {
         ),
       },
       { key: "action", header: "Acción", render: (row: OwnerAuditLog) => <code>{row.action}</code> },
+      { key: "stage", header: "Etapa", render: (row: OwnerAuditLog) => <Badge bg="info" text="dark">{formatStage(row)}</Badge> },
       {
         key: "result",
         header: "Resultado",
