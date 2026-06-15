@@ -3,7 +3,7 @@ import { useMemo } from "react";
 import { APP_ENV } from "../env";
 
 const API_BASE_URL = APP_ENV.api.baseUrl;
-const CIVITAS_API_RESOURCE_INDICATOR = APP_ENV.api.resourceIndicator;
+const CIVITAS_API_RESOURCE_INDICATOR = APP_ENV.api.resourceIndicator || undefined;
 const inflightGetRequests = new Map<string, Promise<unknown>>();
 
 export type ApiError = {

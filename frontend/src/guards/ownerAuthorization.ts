@@ -1,3 +1,4 @@
+import { GLOBAL_OWNER_SCOPES } from "../authConfig";
 import { useSession, type SessionContextValue } from "../session/sessionContext";
 
 export type OwnerAuthorizationContext = {
@@ -10,7 +11,7 @@ export type OwnerAuthorizationContext = {
   };
 };
 
-export const OWNER_REQUIRED_SCOPE = "owner:read";
+export const OWNER_REQUIRED_SCOPE = GLOBAL_OWNER_SCOPES[0];
 
 export const devOwnerMe: OwnerAuthorizationContext = {
   owner: {

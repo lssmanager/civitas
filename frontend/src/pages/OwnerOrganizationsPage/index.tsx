@@ -7,12 +7,13 @@ import { ErrorState, LoadingState, PageCard, PageShell } from "../../shared/ui";
 export function OwnerOrganizationsPage() {
   const ownerApi = useOwnerApi();
   const [name, setName] = useState("");
+  const [slug, setSlug] = useState("");
+  const [appSubdomain, setAppSubdomain] = useState("");
   const [adminDomain, setAdminDomain] = useState("");
   const [baseAdminName, setBaseAdminName] = useState("");
   const [baseAdminEmail, setBaseAdminEmail] = useState("");
   const [baseAdminLogtoUserId, setBaseAdminLogtoUserId] = useState("");
   const [defaultRoleName, setDefaultRoleName] = useState("Admin-org");
-  const [customSettingsJson, setCustomSettingsJson] = useState("{}");
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitWarning, setSubmitWarning] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -34,13 +35,10 @@ export function OwnerOrganizationsPage() {
     setIsSubmitting(true);
 
     try {
-      let settings: Record<string, unknown> | undefined;
-      if (customSettingsJson.trim()) {
-        settings = JSON.parse(customSettingsJson);
-      }
-
       const result = await ownerApi.createOrganization({
         name,
+        slug,
+        subdomain: appSubdomain,
         adminDomain: adminDomain || undefined,
         defaultRoleNames: [selectedRole],
         baseAdmin: {
@@ -48,15 +46,15 @@ export function OwnerOrganizationsPage() {
           email: baseAdminEmail || undefined,
           logtoUserId: baseAdminLogtoUserId || undefined,
         },
-        settings,
       });
 
       setName("");
+      setSlug("");
+      setAppSubdomain("");
       setAdminDomain("");
       setBaseAdminName("");
       setBaseAdminEmail("");
       setBaseAdminLogtoUserId("");
-      setCustomSettingsJson("{}");
       if (result.warning) setSubmitWarning(result.warning);
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : "No se pudo crear la organización.");
@@ -86,18 +84,24 @@ export function OwnerOrganizationsPage() {
                     Falta configurar la plantilla de Logto. Roles requeridos ausentes: {templateResource.data.missingRoleNames.join(", ") || "Admin-org"}.
                   </Alert>
                 ) : null}
-                <Form.Group controlId="ownerOrganizationName"><Form.Label>Nombre de organización</Form.Label><Form.Control value={name} onChange={(event) => setName(event.target.value)} placeholder="Colegio 1" required /></Form.Group>
-                <Form.Group controlId="ownerOrganizationAdminDomain"><Form.Label>Dominio admin / correo</Form.Label><Form.Control value={adminDomain} onChange={(event) => setAdminDomain(event.target.value)} placeholder="colegio1.edu.co" /></Form.Group>
+                <Form.Group controlId="ownerOrganizationName"><Form.Label>Nombre de organización</Form.Label><Form.Control value={name} onChange={(event) => setName(event.target.value)} placeholder="Colegio San José" required /></Form.Group>
+                <Form.Group controlId="ownerOrganizationSlug"><Form.Label>Slug</Form.Label><Form.Control value={slug} onChange={(event) => setSlug(event.target.value)} placeholder="colegio-san-jose" required /><Form.Text>Identificador interno legible para rutas y operación owner; usa minúsculas, números y guiones.</Form.Text></Form.Group>
                 <div className="row g-3">
-                  <Form.Group className="col-12 col-lg-6" controlId="ownerOrganizationBaseAdminName"><Form.Label>Nombre admin base</Form.Label><Form.Control value={baseAdminName} onChange={(event) => setBaseAdminName(event.target.value)} placeholder="María Admin" /></Form.Group>
-                  <Form.Group className="col-12 col-lg-6" controlId="ownerOrganizationBaseAdminEmail"><Form.Label>Correo admin base</Form.Label><Form.Control type="email" value={baseAdminEmail} onChange={(event) => setBaseAdminEmail(event.target.value)} placeholder="admin@colegio1.edu.co" /></Form.Group>
+                  <Form.Group className="col-12 col-lg-6" controlId="ownerOrganizationAppSubdomain"><Form.Label>Subdominio app</Form.Label><Form.Control value={appSubdomain} onChange={(event) => setAppSubdomain(event.target.value)} placeholder="sanjose" required /><Form.Text>Solo el prefijo operativo de la app. Genera automáticamente <code>https://{appSubdomain || "sanjose"}.learnsocialstudies.com/callback</code>.</Form.Text></Form.Group>
+                  <Form.Group className="col-12 col-lg-6" controlId="ownerOrganizationAdminDomain"><Form.Label>Dominio institucional de aprovisionamiento</Form.Label><Form.Control value={adminDomain} onChange={(event) => setAdminDomain(event.target.value)} placeholder="colegiosanjose.edu.co" required /><Form.Text>Dominio real de correo/identidad institucional; no es el subdominio app.</Form.Text></Form.Group>
+                </div>
+                <div className="row g-3">
+                  <Form.Group className="col-12 col-lg-6" controlId="ownerOrganizationBaseAdminName"><Form.Label>Nombre admin base</Form.Label><Form.Control value={baseAdminName} onChange={(event) => setBaseAdminName(event.target.value)} placeholder="María Admin" required /></Form.Group>
+                  <Form.Group className="col-12 col-lg-6" controlId="ownerOrganizationBaseAdminEmail"><Form.Label>Correo admin base</Form.Label><Form.Control type="email" value={baseAdminEmail} onChange={(event) => setBaseAdminEmail(event.target.value)} placeholder="admin@colegio1.edu.co" required /></Form.Group>
                 </div>
                 <Form.Group controlId="ownerOrganizationBaseAdminLogtoId"><Form.Label>Logto user id admin base</Form.Label><Form.Control value={baseAdminLogtoUserId} onChange={(event) => setBaseAdminLogtoUserId(event.target.value)} placeholder="Opcional; si se omite, se usa el owner actual para bootstrap" /><Form.Text>La invitación por correo queda preparada para fase posterior; la asignación inmediata requiere usuario Logto existente.</Form.Text></Form.Group>
                 <Form.Group controlId="ownerOrganizationRoles"><Form.Label>Rol inicial desde plantilla Logto</Form.Label><Form.Select value={selectedRole} onChange={(event) => setDefaultRoleName(event.target.value)} disabled={roles.length === 0}>{roles.map((role) => <option value={role.name} key={role.id}>{role.name}</option>)}</Form.Select></Form.Group>
-                <Form.Group controlId="ownerOrganizationSettings"><Form.Label>Datos personalizados JSON</Form.Label><Form.Control as="textarea" rows={5} value={customSettingsJson} onChange={(event) => setCustomSettingsJson(event.target.value)} spellCheck={false} /><Form.Text>Solo metadata operativa Civitas; no reemplaza la organización canónica de Logto.</Form.Text></Form.Group>
+                <Alert variant="info" className="mb-0">
+                  No se solicita JSON manual de <code>customData</code>. Civitas construirá internamente <code>oidcRedirectUri</code> desde el subdominio app y gestionará <code>oidcApplicationId</code> / <code>oidcApplicationSecret</code> en el flujo de backend.
+                </Alert>
                 {submitError && <Alert variant="danger" className="mb-0">{submitError}</Alert>}
                 {submitWarning && <Alert variant="warning" className="mb-0">{submitWarning}</Alert>}
-                <Button type="submit" disabled={isSubmitting || !name.trim() || !templateResource.data?.ready}>{isSubmitting ? "Creando..." : "Crear organización"}</Button>
+                <Button type="submit" disabled={isSubmitting || !name.trim() || !slug.trim() || !appSubdomain.trim() || !adminDomain.trim() || !baseAdminName.trim() || !baseAdminEmail.trim() || !templateResource.data?.ready}>{isSubmitting ? "Creando..." : "Crear organización"}</Button>
               </Form>
             )}
           </PageCard>
@@ -108,6 +112,7 @@ export function OwnerOrganizationsPage() {
               <li>Validar plantilla de Logto y el rol <code>Admin-org</code>.</li>
               <li>Crear o reconciliar la organización canónica en Logto.</li>
               <li>Enlazar metadata operativa local con <code>logto_organization_id</code>.</li>
+              <li>Generar <code>customData</code> OIDC desde campos humanos, sin pedir JSON al owner.</li>
               <li>Agregar admin base a la organización y asignar rol inicial.</li>
               <li>Enviar errores y soporte técnico a <strong>Observabilidad &gt; Logs</strong>.</li>
             </ol>

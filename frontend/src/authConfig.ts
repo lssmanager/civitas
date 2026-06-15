@@ -9,16 +9,15 @@ export const GLOBAL_OWNER_SCOPES = [
   "organizations:manage",
 ] as const;
 
-// Keep the SPA bootstrap focused on the Civitas product API resource. Logto applies
-// configured custom scopes to every configured resource, so mixing the reserved
-// organization resource here would request owner/global API scopes against
-// organization tokens and can make Logto refuse the token exchange.
-const resources = APP_ENV.api.resourceIndicator ? [APP_ENV.api.resourceIndicator] : [];
+// Global bootstrap must only target the Civitas API resource. Tenant-scoped
+// organization roles such as Admin-org are resolved in organization bootstrap,
+// not in the owner access token request.
+const globalApiResources = APP_ENV.api.resourceIndicator ? [APP_ENV.api.resourceIndicator] : undefined;
 
 export const logtoConfig: LogtoConfig = {
   endpoint: APP_ENV.logto.endpoint,
   appId: APP_ENV.logto.appId,
-  resources,
+  resources: globalApiResources,
   scopes: [
     UserScope.Email,
     UserScope.Profile,

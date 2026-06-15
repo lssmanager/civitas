@@ -103,10 +103,6 @@ export type CreateOwnerOrganizationInput = {
   faviconUrl?: string;
   defaultRoleNames?: string[];
   baseAdmin?: { name?: string; email?: string; logtoUserId?: string };
-  oidcApplicationId?: string;
-  oidcRedirectUri?: string;
-  oidcInitialConfig?: Record<string, unknown>;
-  oidcApplicationSecret?: string;
   settings?: Record<string, unknown>;
 };
 
