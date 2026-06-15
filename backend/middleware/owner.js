@@ -1,6 +1,8 @@
 const { requireScope } = require("./auth");
 
-const requireGlobalOwnerToken = (req, res, next) => {
+const requireOwnerScope = requireScope("owner:read");
+
+const requireOwner = (req, res, next) => {
   if (req.user?.organizationId) {
     return res.status(403).json({
       error: "Forbidden",
@@ -8,10 +10,8 @@ const requireGlobalOwnerToken = (req, res, next) => {
     });
   }
 
-  return next();
+  return requireOwnerScope(req, res, next);
 };
-
-const requireOwner = [requireGlobalOwnerToken, requireScope("owner:read")];
 
 module.exports = {
   requireOwner,

@@ -1,7 +1,7 @@
 import { UserScope, type LogtoConfig } from "@logto/react";
 import { APP_ENV } from "./env";
 
-const GLOBAL_API_SCOPES = [
+export const GLOBAL_OWNER_SCOPES = [
   "owner:read",
   "owner:manage",
   "organizations:read",
@@ -16,8 +16,7 @@ export const logtoConfig: LogtoConfig = {
   scopes: [
     UserScope.Email,
     UserScope.Profile,
-    UserScope.Organizations,
-    ...GLOBAL_API_SCOPES,
+    ...GLOBAL_OWNER_SCOPES,
   ],
 };
 
