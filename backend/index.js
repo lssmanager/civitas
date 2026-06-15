@@ -13,12 +13,11 @@ const {
 } = require("./services/logtoManagement");
 const {
   LOGTO_SYNC_STATUSES,
-  createOrganizationProfile,
   findOrganizationProfileBySlugOrAdminDomain,
   listOrganizationProfiles,
   markOrganizationProfileLogtoSyncError,
-  markOrganizationProfileLogtoSynced,
   serializeOrganizationProfile,
+  upsertOrganizationProfile,
 } = require("./services/organizationProfiles");
 const {
   AUDIT_ACTIONS,
@@ -380,36 +379,14 @@ app.get("/organizations", requireAuth(API_RESOURCE), requireScope("organizations
 });
 
 app.get("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organizations:read"), async (req, res) => {
-  let profiles = [];
-
-  try {
-    profiles = await listOrganizationProfiles();
-  } catch (error) {
-    console.error("Failed to list local organization profiles", error);
-    return res.status(500).json({ error: "Internal Server Error", message: "Failed to list local organization metadata" });
-  }
-
   try {
     const logtoOrganizations = await listLogtoOrganizations();
+    const profiles = await listOrganizationProfiles();
     const directory = buildLogtoOrganizationDirectory({ logtoOrganizations, profiles });
     return res.json({ organizations: directory.organizations, unreconciledProfiles: directory.unreconciledProfiles });
   } catch (error) {
     console.error("Failed to list owner organizations from Logto", error);
-    return res.json({
-      organizations: sortProfilesByNewest(profiles).map((profile) => ({
-        ...serializeOwnerOrganization(profile, null),
-        syncStatus: profile.logtoSyncStatus || "logto_unavailable",
-        syncError: "Logto is unavailable; showing local operational metadata only.",
-        reconciliation: {
-          status: profile.logtoOrganizationId ? "logto_unavailable" : "local_profile_pending_logto",
-          profileCount: 1,
-          matchedBy: profile.logtoOrganizationId ? "logto_organization_id" : null,
-          profileIds: [profile.id],
-        },
-      })),
-      unreconciledProfiles: profiles.filter((profile) => !profile.logtoOrganizationId).map(serializeOrganizationProfile),
-      warning: "Logto organizations could not be loaded; showing local operational metadata only.",
-    });
+    return res.status(502).json({ error: "Bad Gateway", message: "Failed to list canonical organizations from Logto" });
   }
 });
 
@@ -434,8 +411,17 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
       return res.status(409).json({ error: "Conflict", message: `Organization ${duplicatedField} is already configured` });
     }
 
-    profile = await createOrganizationProfile({
-      nameCache: value.name,
+    const resolvedLogtoOrganization = await resolveLogtoOrganizationForSync({ name: value.name, description: value.description });
+    logtoOrganization = resolvedLogtoOrganization.organization;
+    logtoOrganizationId = getLogtoOrganizationId(logtoOrganization);
+
+    if (!logtoOrganizationId) throw new Error("Logto organization reconciliation did not include an organization id");
+
+    await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_LOGTO_CREATE, result: AUDIT_RESULTS.SUCCESS, metadata: { ...buildAuditContext({ authUser: req.user, internalUser, organization: logtoOrganization }), name: value.name, logtoOrganizationId, reconciled: resolvedLogtoOrganization.reconciled, source: resolvedLogtoOrganization.source } });
+
+    profile = await upsertOrganizationProfile({
+      logtoOrganizationId,
+      nameCache: getLogtoOrganizationName(logtoOrganization) || value.name,
       type: value.type,
       subdomain: value.subdomain,
       slug: value.slug,
@@ -452,21 +438,10 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
       emailDomainProvisioningStatus: value.emailDomainProvisioningStatus,
       settings: value.settings,
       seatTotal: value.seatTotal,
+      logtoSyncStatus: LOGTO_SYNC_STATUSES.SYNCED,
     });
 
-    await recordAuditLogBestEffort({ actorUserId: internalUser.id, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROFILE_CREATE, result: AUDIT_RESULTS.SUCCESS, metadata: { profileId: profile.id, name: value.name, slug: value.slug, adminDomain: value.adminDomain, oidcApplicationSecretReceived: Boolean(value.oidcApplicationSecret) } });
-
-    const resolvedLogtoOrganization = await resolveLogtoOrganizationForSync({ name: value.name, description: value.description });
-    logtoOrganization = resolvedLogtoOrganization.organization;
-    logtoOrganizationId = getLogtoOrganizationId(logtoOrganization);
-
-    if (!logtoOrganizationId) throw new Error("Logto organization reconciliation did not include an organization id");
-
-    await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_LOGTO_CREATE, result: AUDIT_RESULTS.SUCCESS, metadata: { ...buildAuditContext({ authUser: req.user, internalUser, organization: logtoOrganization }), name: value.name, logtoOrganizationId, reconciled: resolvedLogtoOrganization.reconciled, source: resolvedLogtoOrganization.source } });
-
-    profile = await markOrganizationProfileLogtoSynced({ id: profile.id, logtoOrganizationId, nameCache: getLogtoOrganizationName(logtoOrganization) || value.name });
-
-    await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { ...buildAuditContext({ authUser: req.user, internalUser, organization: logtoOrganization }), profileId: profile.id, logtoOrganizationId, finalStatus: profile.logtoSyncStatus, localOnlyPreparedSettings: ["branding", "login_experience", "default_roles", "oidc_initial_config", "email_domain"] } });
+    await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_METADATA_RECONCILE, result: AUDIT_RESULTS.SUCCESS, metadata: { ...buildAuditContext({ authUser: req.user, internalUser, organization: logtoOrganization }), profileId: profile.id, logtoOrganizationId, localOnlyPreparedSettings: ["branding", "login_experience", "default_roles", "oidc_initial_config", "email_domain"] } });
 
     return res.status(201).json({ organization: serializeOwnerOrganization(profile, logtoOrganization) });
   } catch (error) {
@@ -483,8 +458,8 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
     await recordAuditLogBestEffort({ actorUserId: internalUser?.id ?? null, organizationId: logtoOrganizationId || profile?.id, action: logtoOrganizationId ? AUDIT_ACTIONS.OWNER_ORGANIZATION_METADATA_RECONCILE : AUDIT_ACTIONS.OWNER_ORGANIZATION_LOGTO_CREATE, result: AUDIT_RESULTS.ERROR, metadata: { ...buildAuditContext({ authUser: req.user, internalUser, organization: logtoOrganization }), profileId: profile?.id, name: value.name, logtoOrganizationId, status: pendingStatus, error: errorMessage } });
 
     console.error("Organization provisioning failed", error);
-    if (profile?.id || logtoOrganizationId) {
-      return res.status(201).json({ organization: serializeOwnerOrganization(profile, logtoOrganization), warning: "Civitas saved the local provisioning settings, but Logto bootstrap is incomplete" });
+    if (logtoOrganizationId) {
+      return res.status(201).json({ organization: serializeOwnerOrganization(profile, logtoOrganization), warning: "Organization exists in Logto, but Civitas-only settings could not be fully saved" });
     }
 
     return res.status(502).json({ error: "Bad Gateway", message: "Failed to create organization in Logto" });

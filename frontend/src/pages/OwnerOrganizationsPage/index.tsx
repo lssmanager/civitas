@@ -51,7 +51,7 @@ export function OwnerOrganizationsPage() {
         <div>
           <div className="fw-semibold">{organization.name ?? organization.profile?.nameCache ?? "Sin nombre"}</div>
           <div className="text-secondary small text-break">Organización Logto: {organization.logtoOrganizationId ?? "sin id"}</div>
-          <div className="text-secondary small text-break">Perfil operativo: {organization.profile?.id ?? "metadata pendiente"}</div>
+          <div className="text-secondary small text-break">Config. Civitas: {organization.profile?.id ?? "config. pendiente"}</div>
         </div>
       ),
     },
@@ -117,10 +117,10 @@ export function OwnerOrganizationsPage() {
   };
 
   return (
-    <PageShell eyebrow="Owner" title="Organizaciones Logto / Civitas" description="Logto es la fuente canónica; Civitas guarda metadata operativa, reconciliación y estado de bootstrap." actions={<Badge bg="success">organizations:read</Badge>}>
+    <PageShell eyebrow="Owner" title="Organizaciones Logto / Civitas" description="Logto/API es la fuente canónica de organizaciones; Civitas guarda solo configuración de producto que Logto no expone." actions={<Badge bg="success">organizations:read</Badge>}>
       <div className="row g-4">
         <div className="col-12 col-xl-4">
-          <PageCard title="Crear organización" subtitle="Provisionamiento ampliado inicial: identidad canónica en Logto y metadata local para #51.">
+          <PageCard title="Crear organización" subtitle="Provisionamiento ampliado inicial: organización canónica en Logto y configuración Civitas local para #51.">
             <Form onSubmit={handleSubmit} className="d-flex flex-column gap-3">
               <Form.Group controlId="ownerOrganizationName"><Form.Label>Nombre</Form.Label><Form.Control value={name} onChange={(event) => setName(event.target.value)} placeholder="Acme Legal" required /></Form.Group>
               <Form.Group controlId="ownerOrganizationSlug"><Form.Label>Slug</Form.Label><Form.Control value={slug} onChange={(event) => setSlug(event.target.value)} placeholder="acme-legal" /></Form.Group>
@@ -142,8 +142,8 @@ export function OwnerOrganizationsPage() {
           </PageCard>
         </div>
         <div className="col-12 col-xl-8">
-          <PageCard title="Directorio canónico" subtitle="Una fila por organización real de Logto; los perfiles Civitas son metadata reconciliable.">
-            {organizationsResource.isLoading ? <LoadingState title="Cargando organizaciones" description="Consultando Logto y metadata operativa." /> : organizationsResource.error ? <ErrorState title="No se pudieron cargar organizaciones" message={organizationsResource.error} action={<Button onClick={organizationsResource.retry}>Reintentar</Button>} /> : organizations.length === 0 ? <EmptyState title="Sin organizaciones" description="Crea la primera organización; si el bootstrap queda parcial, el estado persistido aparecerá aquí." /> : <DataTable columns={columns} rows={organizations} getRowKey={(row) => row.profile?.id ?? row.logtoOrganizationId ?? row.name ?? "organization"} />}
+          <PageCard title="Directorio canónico" subtitle="Una fila por organización real de Logto; Civitas adjunta configuración local complementaria.">
+            {organizationsResource.isLoading ? <LoadingState title="Cargando organizaciones" description="Consultando Logto y configuración Civitas." /> : organizationsResource.error ? <ErrorState title="No se pudieron cargar organizaciones" message={organizationsResource.error} action={<Button onClick={organizationsResource.retry}>Reintentar</Button>} /> : organizations.length === 0 ? <EmptyState title="Sin organizaciones" description="Crea la primera organización desde Logto; la configuración Civitas complementaria aparecerá aquí." /> : <DataTable columns={columns} rows={organizations} getRowKey={(row) => row.profile?.id ?? row.logtoOrganizationId ?? row.name ?? "organization"} />}
           </PageCard>
         </div>
       </div>

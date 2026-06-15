@@ -21,11 +21,11 @@ export function OwnerOrganizationSettingsPage() {
     <PageShell
       eyebrow="Owner / Settings"
       title={organization?.name ?? profile?.nameCache ?? "Settings de organización"}
-      description="Entrypoint estructural para settings B2B por organización. Logto conserva la identidad canónica; Civitas prepara metadata operativa editable en fases siguientes."
+      description="Entrypoint estructural para settings B2B por organización. Logto/API conserva la organización canónica; Civitas prepara solo configuración de producto editable en fases siguientes."
       actions={<Link to="/owner/organizations" className="btn btn-outline-secondary">Volver</Link>}
     >
       {organizationsResource.isLoading ? (
-        <LoadingState title="Cargando settings" description="Consultando directorio Logto y metadata operativa local." />
+        <LoadingState title="Cargando settings" description="Consultando directorio Logto y configuración Civitas local." />
       ) : organizationsResource.error ? (
         <ErrorState title="No se pudo cargar settings" message={organizationsResource.error} action={<Button onClick={organizationsResource.retry}>Reintentar</Button>} />
       ) : !organization ? (
@@ -42,7 +42,7 @@ export function OwnerOrganizationSettingsPage() {
             </PageCard>
           </div>
           <div className="col-12 col-lg-6">
-            <PageCard title="Configuración preparada" subtitle="Persistida localmente para el futuro portal organization admin.">
+            <PageCard title="Configuración preparada" subtitle="Configuración exclusiva de Civitas para el futuro portal organization admin.">
               <dl className="mb-0 small">
                 <dt>Slug</dt><dd>{profile?.slug ?? "Sin slug"}</dd>
                 <dt>Dominio admin</dt><dd>{profile?.adminDomain ?? "Sin dominio"}</dd>
