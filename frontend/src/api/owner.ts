@@ -16,6 +16,7 @@ export type OwnerMeResponse = {
 export type OwnerOrganization = {
   logtoOrganizationId: string | null;
   name: string | null;
+  logtoOrganization?: Record<string, unknown> | null;
   profile: {
     id: string;
     logtoOrganizationId: string | null;
@@ -24,7 +25,7 @@ export type OwnerOrganization = {
     status: string;
     subdomain: string | null;
     seatTotal: number;
-    logtoSyncStatus: "pending" | "synced" | "error" | string;
+    logtoSyncStatus: "pending" | "logto_created" | "creator_membership_pending" | "creator_role_pending" | "synced" | "error" | string;
     logtoSyncError: string | null;
     logtoSyncedAt: string | null;
     createdAt?: string;
@@ -33,10 +34,24 @@ export type OwnerOrganization = {
 };
 
 
+export type OwnerAuditActor = {
+  internalUserId: string | null;
+  logtoUserId: string | null;
+  email: string | null;
+  displayName: string | null;
+};
+
+export type OwnerAuditOrganization = {
+  id: string | null;
+  name: string | null;
+};
+
 export type OwnerAuditLog = {
   id: string;
   actorUserId: string | null;
+  actor?: OwnerAuditActor;
   organizationId: string | null;
+  organization?: OwnerAuditOrganization;
   action: string;
   result: "success" | "error" | "denied" | string;
   metadata: Record<string, unknown> | null;
@@ -79,7 +94,7 @@ export const useOwnerApi = () => {
         const query = params.toString();
         return fetchWithToken(`/owner/audit${query ? `?${query}` : ""}`);
       },
-      createOrganization: async (data: CreateOwnerOrganizationInput): Promise<{ organization: OwnerOrganization }> =>
+      createOrganization: async (data: CreateOwnerOrganizationInput): Promise<{ organization: OwnerOrganization; warning?: string }> =>
         fetchWithToken("/owner/organizations", { method: "POST", body: JSON.stringify(data) }),
     }),
     [fetchWithToken]

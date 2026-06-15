@@ -161,6 +161,10 @@ async function assignOrganizationRoleToUser({ organizationId, userId, organizati
   });
 }
 
+async function getLogtoUserById(userId) {
+  return callLogtoManagementApi(`/users/${encodeURIComponent(userId)}`);
+}
+
 async function listLogtoOrganizations() {
   const response = await callLogtoManagementApi("/organizations");
   return Array.isArray(response) ? response : response?.data || response?.items || [];
@@ -176,6 +180,7 @@ module.exports = {
   findLogtoOrganizationByName,
   findOrganizationRoleByName,
   getLogtoManagementConfig,
+  getLogtoUserById,
   listLogtoOrganizationRoles,
   parseLogtoManagementApiResponse,
   listLogtoOrganizations,

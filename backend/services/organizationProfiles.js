@@ -4,6 +4,9 @@ const { organizationProfiles } = require("../db/schema");
 
 const LOGTO_SYNC_STATUSES = Object.freeze({
   PENDING: "pending",
+  LOGTO_CREATED: "logto_created",
+  CREATOR_MEMBERSHIP_PENDING: "creator_membership_pending",
+  CREATOR_ROLE_PENDING: "creator_role_pending",
   SYNCED: "synced",
   ERROR: "error",
 });
@@ -50,40 +53,38 @@ async function createOrganizationProfile({ nameCache, type, subdomain, seatTotal
   return profile;
 }
 
+async function markOrganizationProfileProvisioningStage({ id, logtoOrganizationId, nameCache, status, errorMessage = null, synced = false }) {
+  const now = new Date();
+  const update = {
+    logtoSyncStatus: status,
+    logtoSyncError: errorMessage,
+    updatedAt: now,
+  };
+
+  if (logtoOrganizationId !== undefined) update.logtoOrganizationId = logtoOrganizationId;
+  if (nameCache !== undefined) update.nameCache = nameCache || null;
+  if (synced) update.logtoSyncedAt = now;
+
+  const [profile] = await db.update(organizationProfiles).set(update).where(eq(organizationProfiles.id, id)).returning();
+  return profile;
+}
+
 async function markOrganizationProfileLogtoSynced({ id, logtoOrganizationId, nameCache }) {
-  const now = new Date();
-  const [profile] = await db
-    .update(organizationProfiles)
-    .set({
-      logtoOrganizationId,
-      nameCache: nameCache || null,
-      logtoSyncStatus: LOGTO_SYNC_STATUSES.SYNCED,
-      logtoSyncError: null,
-      logtoSyncedAt: now,
-      updatedAt: now,
-    })
-    .where(eq(organizationProfiles.id, id))
-    .returning();
-
-  return profile;
+  return markOrganizationProfileProvisioningStage({
+    id,
+    logtoOrganizationId,
+    nameCache,
+    status: LOGTO_SYNC_STATUSES.SYNCED,
+    errorMessage: null,
+    synced: true,
+  });
 }
 
-async function markOrganizationProfileLogtoSyncError({ id, errorMessage }) {
-  const now = new Date();
-  const [profile] = await db
-    .update(organizationProfiles)
-    .set({
-      logtoSyncStatus: LOGTO_SYNC_STATUSES.ERROR,
-      logtoSyncError: errorMessage || "Logto synchronization failed",
-      updatedAt: now,
-    })
-    .where(eq(organizationProfiles.id, id))
-    .returning();
-
-  return profile;
+async function markOrganizationProfileLogtoSyncError({ id, errorMessage, status = LOGTO_SYNC_STATUSES.ERROR }) {
+  return markOrganizationProfileProvisioningStage({ id, status, errorMessage: errorMessage || "Logto synchronization failed" });
 }
 
-async function upsertOrganizationProfile({ logtoOrganizationId, nameCache, type, subdomain, seatTotal }) {
+async function upsertOrganizationProfile({ logtoOrganizationId, nameCache, type, subdomain, seatTotal, logtoSyncStatus = LOGTO_SYNC_STATUSES.SYNCED, logtoSyncError = null }) {
   const now = new Date();
   const values = {
     logtoOrganizationId,
@@ -91,9 +92,9 @@ async function upsertOrganizationProfile({ logtoOrganizationId, nameCache, type,
     type: type || null,
     subdomain: subdomain || null,
     seatTotal: normalizeSeatTotal(seatTotal),
-    logtoSyncStatus: LOGTO_SYNC_STATUSES.SYNCED,
-    logtoSyncError: null,
-    logtoSyncedAt: now,
+    logtoSyncStatus,
+    logtoSyncError,
+    logtoSyncedAt: logtoSyncStatus === LOGTO_SYNC_STATUSES.SYNCED ? now : null,
     updatedAt: now,
   };
 
@@ -133,6 +134,7 @@ module.exports = {
   listOrganizationProfiles,
   markOrganizationProfileLogtoSyncError,
   markOrganizationProfileLogtoSynced,
+  markOrganizationProfileProvisioningStage,
   serializeOrganizationProfile,
   upsertOrganizationProfile,
 };

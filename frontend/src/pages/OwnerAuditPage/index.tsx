@@ -24,6 +24,18 @@ const resultVariant = (result: string) => {
 const getAuditErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : "No se pudo cargar la auditoría owner.";
 
+const formatActor = (row: OwnerAuditLog) => {
+  const actor = row.actor;
+  if (!actor) return row.actorUserId ?? "No resuelto";
+  return actor.email || actor.displayName || actor.logtoUserId || actor.internalUserId || "No resuelto";
+};
+
+const formatOrganization = (row: OwnerAuditLog) => {
+  if (!row.organizationId && !row.organization?.id) return "Global";
+  const id = row.organization?.id ?? row.organizationId;
+  return row.organization?.name ? `${row.organization.name} (${id})` : id;
+};
+
 export function OwnerAuditPage() {
   const { getAuditLogs } = useOwnerApi();
   const {
@@ -50,7 +62,13 @@ export function OwnerAuditPage() {
       {
         key: "actor",
         header: "Actor",
-        render: (row: OwnerAuditLog) => <span className="text-break">{row.actorUserId ?? "No resuelto"}</span>,
+        render: (row: OwnerAuditLog) => (
+          <div className="text-break">
+            <div className="fw-semibold">{formatActor(row)}</div>
+            <div className="text-secondary small">Logto: {row.actor?.logtoUserId ?? "No resuelto"}</div>
+            <div className="text-secondary small">Interno: {row.actor?.internalUserId ?? row.actorUserId ?? "No resuelto"}</div>
+          </div>
+        ),
       },
       { key: "action", header: "Acción", render: (row: OwnerAuditLog) => <code>{row.action}</code> },
       {
@@ -61,7 +79,12 @@ export function OwnerAuditPage() {
       {
         key: "organization",
         header: "Organización",
-        render: (row: OwnerAuditLog) => <span className="text-break">{row.organizationId ?? "Global"}</span>,
+        render: (row: OwnerAuditLog) => (
+          <div className="text-break">
+            <div className="fw-semibold">{formatOrganization(row)}</div>
+            <div className="text-secondary small">organization_id: {row.organization?.id ?? row.organizationId ?? "Global"}</div>
+          </div>
+        ),
       },
     ],
     []
@@ -74,13 +97,13 @@ export function OwnerAuditPage() {
   return (
     <PageShell
       eyebrow="Owner"
-      title="Auditoría mínima"
-      description="Eventos operativos generados por el middleware owner. Esta fase muestra creación de organizaciones y resultados básicos."
+      title="Auditoría owner"
+      description="Eventos operativos enriquecidos con identidad Logto del actor y organización canónica cuando está disponible."
       actions={<Badge bg="success">owner:read</Badge>}
     >
       <PageCard
         title="Eventos de auditoría"
-        subtitle="Listado paginado con eventos recientes primero. No incluye filtros avanzados ni exportación en esta fase."
+        subtitle="Listado paginado con eventos recientes primero. El actor visible prioriza Logto; PostgreSQL solo aporta el vínculo interno."
         actions={
           <ButtonGroup size="sm" aria-label="Paginación de auditoría">
             <Button

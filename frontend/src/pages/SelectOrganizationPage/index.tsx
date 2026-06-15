@@ -4,7 +4,10 @@ import { useStableResource } from "../../shared/hooks/useStableResource";
 import { EmptyState, ErrorState, LoadingState, PageCard, PageShell } from "../../shared/ui";
 
 const getSyncBadge = (status?: string) => {
-  if (status === "synced") return <Badge bg="success">Logto sincronizado</Badge>;
+  if (status === "synced") return <Badge bg="success">Bootstrap completo</Badge>;
+  if (status === "logto_created") return <Badge bg="warning" text="dark">Logto creada</Badge>;
+  if (status === "creator_membership_pending") return <Badge bg="warning" text="dark">Membership pendiente</Badge>;
+  if (status === "creator_role_pending") return <Badge bg="warning" text="dark">Rol admin pendiente</Badge>;
   if (status === "error") return <Badge bg="danger">Sync con error</Badge>;
   if (status === "metadata_missing") return <Badge bg="warning" text="dark">Metadata faltante</Badge>;
   if (status === "conflict") return <Badge bg="danger">Reconciliación pendiente</Badge>;
@@ -53,7 +56,7 @@ function OrganizationCard({ organization }: { organization: SelectableOrganizati
 
         <div className="small text-secondary d-flex flex-column gap-1">
           <span>{subdomain ? `Subdominio: ${subdomain}` : "Sin subdominio local configurado"}</span>
-          <span>Último sync exitoso: {formatLastSync(profile?.logtoSyncedAt)}</span>
+          <span>Último bootstrap completo: {formatLastSync(profile?.logtoSyncedAt)}</span>
           <span>{getReconciliationLabel(organization)}</span>
           {organization.reconciliation.profileIds.length > 0 ? (
             <span className="text-break">Perfiles internos asociados: {organization.reconciliation.profileIds.join(", ")}</span>
