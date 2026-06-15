@@ -64,26 +64,18 @@ npm run migrate
 
 ## Bootstrap del primer owner global
 
-Fase 04 introduce un rol global mínimo, `owner_global`, guardado en PostgreSQL en `users.global_role`.
-Este rol pertenece al usuario interno de Civitas vinculado por `users.logto_user_id`; no se toma del token ni de roles de Logto.
+La autorización owner global vigente es Logto-first: el portal owner y las APIs
+owner se habilitan con scopes globales del API resource de Civitas, por ejemplo
+`owner:read`, `owner:manage`, `organizations:read` y `organizations:create`.
+No depende de pertenecer a una organization ni del rol de organización `Admin-org`.
 
-El bootstrap del primer owner debe ser explícito y manual. Primero el usuario debe existir en `users` (por ejemplo, iniciando sesión una vez para que `GET /me` lo cree). Después, desde producción o dentro del contenedor backend con `DATABASE_URL` apuntando a la base correcta, ejecuta:
+`Admin-org` pertenece únicamente a la plantilla de organizaciones de Logto y se
+usa durante el bootstrap tenant-scoped para asignar el rol inicial al miembro
+base/creador dentro de la organización recién creada. Ese rol no reemplaza los
+scopes globales owner.
 
-```bash
-npm --prefix backend run grant-owner -- --logto-user-id 0guhs45pelhm
-```
-
-Si ya estás dentro del directorio `backend`, el equivalente es:
-
-```bash
-npm run grant-owner -- --logto-user-id 0guhs45pelhm
-```
-
-También se puede usar una variable explícita para scripts de despliegue:
-
-```bash
-CIVITAS_OWNER_LOGTO_USER_ID=0guhs45pelhm npm --prefix backend run grant-owner
-```
-
-El script es idempotente: volver a ejecutarlo sobre el mismo usuario mantiene `global_role = 'owner_global'` y refresca `updated_at`.
-Si no encuentra un usuario existente con ese `logto_user_id` o email, termina con error claro y no crea ni promueve automáticamente a nadie.
+Para bootstrap operativo del primer owner, asigna en Logto los scopes globales
+del API resource de Civitas al usuario/rol global correspondiente y fuerza una
+renovación de sesión para que el access token incluya dichos scopes. PostgreSQL
+solo conserva el usuario interno y metadata operativa; no es la fuente de
+autorización owner global.

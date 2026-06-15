@@ -9,10 +9,15 @@ export const GLOBAL_OWNER_SCOPES = [
   "organizations:manage",
 ] as const;
 
+// Global bootstrap must only target the Civitas API resource. Tenant-scoped
+// organization roles such as Admin-org are resolved in organization bootstrap,
+// not in the owner access token request.
+const globalApiResources = APP_ENV.api.resourceIndicator ? [APP_ENV.api.resourceIndicator] : undefined;
+
 export const logtoConfig: LogtoConfig = {
   endpoint: APP_ENV.logto.endpoint,
   appId: APP_ENV.logto.appId,
-  resources: APP_ENV.api.resourceIndicator ? [APP_ENV.api.resourceIndicator] : undefined,
+  resources: globalApiResources,
   scopes: [
     UserScope.Email,
     UserScope.Profile,
