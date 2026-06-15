@@ -7,7 +7,8 @@ const CIVITAS_API_RESOURCE_INDICATOR = APP_ENV.api.resourceIndicator;
 const inflightGetRequests = new Map<string, Promise<unknown>>();
 
 export type ApiError = {
-  message: string;
+  message?: string;
+  error?: string;
   status?: number;
 };
 
@@ -67,7 +68,12 @@ export const useApi = () => {
             });
 
             if (!response.ok) {
-              throw new ApiRequestError(`API request failed: ${response.statusText}`, response.status);
+              const errorPayload = await response.json().catch(() => null) as ApiError | null;
+              const apiMessage = errorPayload?.message || errorPayload?.error;
+              throw new ApiRequestError(
+                apiMessage ? `API request failed: ${apiMessage}` : `API request failed: ${response.statusText || response.status}`,
+                response.status
+              );
             }
 
             return (await response.json()) as T;
