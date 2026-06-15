@@ -1,0 +1,13 @@
+ALTER TABLE "organization_profiles" ADD COLUMN IF NOT EXISTS "slug" varchar(128);
+ALTER TABLE "organization_profiles" ADD COLUMN IF NOT EXISTS "admin_domain" varchar(255);
+ALTER TABLE "organization_profiles" ADD COLUMN IF NOT EXISTS "logo_url" text;
+ALTER TABLE "organization_profiles" ADD COLUMN IF NOT EXISTS "favicon_url" text;
+ALTER TABLE "organization_profiles" ADD COLUMN IF NOT EXISTS "primary_color" varchar(32);
+ALTER TABLE "organization_profiles" ADD COLUMN IF NOT EXISTS "primary_color_dark" varchar(32);
+ALTER TABLE "organization_profiles" ADD COLUMN IF NOT EXISTS "organization_login_experience_enabled" boolean DEFAULT false NOT NULL;
+ALTER TABLE "organization_profiles" ADD COLUMN IF NOT EXISTS "default_role_names" jsonb;
+ALTER TABLE "organization_profiles" ADD COLUMN IF NOT EXISTS "oidc_initial_config" jsonb;
+ALTER TABLE "organization_profiles" ADD COLUMN IF NOT EXISTS "oidc_application_secret_ref" text;
+ALTER TABLE "organization_profiles" ADD COLUMN IF NOT EXISTS "settings" jsonb;
+CREATE UNIQUE INDEX IF NOT EXISTS "organization_profiles_slug_unique" ON "organization_profiles" ("slug");
+CREATE INDEX IF NOT EXISTS "organization_profiles_slug_idx" ON "organization_profiles" ("slug");

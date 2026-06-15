@@ -7,17 +7,22 @@ export type AppRoute = {
 export const appRoutes = {
   owner: {
     path: "/owner",
-    label: "Owner",
-    description: "Vista mock del espacio principal de administración.",
+    label: "Resumen",
+    description: "Resumen del espacio owner.",
   },
-  ownerAudit: {
-    path: "/owner/audit",
-    label: "Auditoría",
-    description: "Eventos owner básicos registrados por Civitas.",
+  ownerOrganizations: {
+    path: "/owner/organizations",
+    label: "Organizaciones",
+    description: "Directorio canónico Logto / Civitas.",
+  },
+  ownerLogs: {
+    path: "/owner/logs",
+    label: "Logs",
+    description: "Eventos owner registrados por Civitas.",
   },
   selectOrganization: {
     path: "/select-organization",
-    label: "Seleccionar organización",
+    label: "Select Organization",
     description: "Selector visual sin conexión a organizaciones reales.",
   },
   account: {
@@ -27,16 +32,21 @@ export const appRoutes = {
   },
 } as const satisfies Record<string, AppRoute>;
 
-export const primaryNavigation: AppRoute[] = [
+export const primaryNavigation: AppRoute[] = [appRoutes.account];
+
+export const ownerNavigation: AppRoute[] = [
   appRoutes.owner,
-  appRoutes.ownerAudit,
+  appRoutes.ownerOrganizations,
   appRoutes.selectOrganization,
-  appRoutes.account,
+  appRoutes.ownerLogs,
+  { path: "/owner/settings", label: "Settings", description: "Placeholder para settings owner." },
 ];
 
 export const routeMetadata: Record<string, { label: string; parentPath?: string }> = {
   "/owner": { label: appRoutes.owner.label },
-  "/owner/audit": { label: appRoutes.ownerAudit.label, parentPath: appRoutes.owner.path },
-  "/select-organization": { label: appRoutes.selectOrganization.label },
+  "/owner/organizations": { label: appRoutes.ownerOrganizations.label, parentPath: appRoutes.owner.path },
+  "/owner/logs": { label: appRoutes.ownerLogs.label, parentPath: appRoutes.owner.path },
+  "/owner/settings": { label: "Settings", parentPath: appRoutes.owner.path },
+  "/select-organization": { label: appRoutes.selectOrganization.label, parentPath: appRoutes.owner.path },
   "/account": { label: appRoutes.account.label },
 };

@@ -24,6 +24,14 @@ export type OwnerOrganization = {
     type: string | null;
     status: string;
     subdomain: string | null;
+    slug?: string | null;
+    adminDomain?: string | null;
+    branding?: { logoUrl: string | null; faviconUrl: string | null; primaryColor: string | null; primaryColorDark: string | null; };
+    organizationLoginExperienceEnabled?: boolean;
+    defaultRoleNames?: string[];
+    oidcInitialConfig?: Record<string, unknown> | null;
+    oidcApplicationSecretConfigured?: boolean;
+    settings?: Record<string, unknown> | null;
     seatTotal: number;
     logtoSyncStatus: "pending" | "logto_created" | "creator_membership_pending" | "creator_role_pending" | "synced" | "error" | string;
     logtoSyncError: string | null;
@@ -78,6 +86,17 @@ export type CreateOwnerOrganizationInput = {
   type?: string;
   subdomain?: string;
   seatTotal?: number;
+  slug?: string;
+  adminDomain?: string;
+  logoUrl?: string;
+  faviconUrl?: string;
+  primaryColor?: string;
+  primaryColorDark?: string;
+  organizationLoginExperienceEnabled?: boolean;
+  defaultRoleNames?: string[];
+  oidcInitialConfig?: Record<string, unknown>;
+  oidcApplicationSecret?: string;
+  settings?: Record<string, unknown>;
 };
 
 export const useOwnerApi = () => {

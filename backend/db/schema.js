@@ -1,4 +1,4 @@
-const { index, integer, jsonb, pgTable, text, timestamp, uuid, varchar } = require("drizzle-orm/pg-core");
+const { boolean, index, integer, jsonb, pgTable, text, timestamp, uuid, varchar } = require("drizzle-orm/pg-core");
 
 const healthChecks = pgTable("health_checks", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -34,6 +34,17 @@ const organizationProfiles = pgTable(
     type: varchar("type", { length: 64 }),
     status: varchar("status", { length: 32 }).notNull().default("active"),
     subdomain: varchar("subdomain", { length: 255 }).unique(),
+    slug: varchar("slug", { length: 128 }).unique(),
+    adminDomain: varchar("admin_domain", { length: 255 }),
+    logoUrl: text("logo_url"),
+    faviconUrl: text("favicon_url"),
+    primaryColor: varchar("primary_color", { length: 32 }),
+    primaryColorDark: varchar("primary_color_dark", { length: 32 }),
+    organizationLoginExperienceEnabled: boolean("organization_login_experience_enabled").notNull().default(false),
+    defaultRoleNames: jsonb("default_role_names"),
+    oidcInitialConfig: jsonb("oidc_initial_config"),
+    oidcApplicationSecretRef: text("oidc_application_secret_ref"),
+    settings: jsonb("settings"),
     seatTotal: integer("seat_total").notNull().default(0),
     logtoSyncStatus: varchar("logto_sync_status", { length: 32 }).notNull().default("pending"),
     logtoSyncError: text("logto_sync_error"),
@@ -44,6 +55,7 @@ const organizationProfiles = pgTable(
   (table) => ({
     logtoOrganizationIdx: index("organization_profiles_logto_org_idx").on(table.logtoOrganizationId),
     statusIdx: index("organization_profiles_status_idx").on(table.status),
+    slugIdx: index("organization_profiles_slug_idx").on(table.slug),
     logtoSyncStatusIdx: index("organization_profiles_logto_sync_status_idx").on(table.logtoSyncStatus),
   })
 );

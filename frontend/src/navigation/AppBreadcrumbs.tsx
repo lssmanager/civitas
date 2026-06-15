@@ -11,7 +11,12 @@ export function AppBreadcrumbs() {
       <Breadcrumb.Item linkAs={Link} linkProps={{ to: "/owner" }}>
         Civitas
       </Breadcrumb.Item>
-      {current ? (
+      {current?.parentPath ? (
+        <>
+          <Breadcrumb.Item linkAs={Link} linkProps={{ to: current.parentPath }}>Owner</Breadcrumb.Item>
+          <Breadcrumb.Item active>{current.label}</Breadcrumb.Item>
+        </>
+      ) : current ? (
         <Breadcrumb.Item active>{current.label}</Breadcrumb.Item>
       ) : (
         <Breadcrumb.Item active>Vista local</Breadcrumb.Item>

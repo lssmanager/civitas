@@ -12,6 +12,7 @@ import { AccountPage } from "../AccountPage";
 import Callback from "../Callback";
 import { OwnerPage } from "../OwnerPage";
 import { OwnerAuditPage } from "../OwnerAuditPage";
+import { OwnerOrganizationsPage } from "../OwnerOrganizationsPage";
 import { SelectOrganizationPage } from "../SelectOrganizationPage";
 
 function LogtoPrivateLayout() {
@@ -81,7 +82,9 @@ function App() {
           <Route index element={<Navigate to="/owner" replace />} />
           <Route path="owner" element={<OwnerLayout />}>
             <Route index element={<OwnerPage />} />
-            <Route path="audit" element={<OwnerAuditPage />} />
+            <Route path="organizations" element={<OwnerOrganizationsPage />} />
+            <Route path="logs" element={<OwnerAuditPage />} />
+            <Route path="settings" element={<OwnerPage />} />
           </Route>
           <Route path="select-organization" element={<SelectOrganizationPage />} />
           <Route path="account" element={<AccountPage />} />

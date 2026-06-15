@@ -327,7 +327,7 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
   let profile = null;
   let logtoOrganization = null;
   let logtoOrganizationId = null;
-  const { name, description, type, subdomain, seatTotal } = req.body || {};
+  const { name, description, type, subdomain, slug, adminDomain, logoUrl, faviconUrl, primaryColor, primaryColorDark, organizationLoginExperienceEnabled, defaultRoleNames, oidcInitialConfig, oidcApplicationSecret, settings, seatTotal } = req.body || {};
   const normalizedName = typeof name === "string" ? name.trim() : "";
 
   try {
@@ -368,6 +368,17 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
       nameCache: getLogtoOrganizationName(logtoOrganization) || normalizedName,
       type,
       subdomain,
+      slug,
+      adminDomain,
+      logoUrl,
+      faviconUrl,
+      primaryColor,
+      primaryColorDark,
+      organizationLoginExperienceEnabled,
+      defaultRoleNames: Array.isArray(defaultRoleNames) ? defaultRoleNames : [],
+      oidcInitialConfig: oidcInitialConfig && typeof oidcInitialConfig === "object" ? oidcInitialConfig : null,
+      oidcApplicationSecretRef: oidcApplicationSecret ? `configured:${new Date().toISOString()}` : null,
+      settings: settings && typeof settings === "object" ? settings : null,
       seatTotal,
       logtoSyncStatus: LOGTO_SYNC_STATUSES.LOGTO_CREATED,
     });
@@ -404,6 +415,11 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
         `Logto organization role not found in organization template: ${ORGANIZATION_ADMIN_ROLE_NAME}`
       );
       roleError.code = "LOGTO_ORGANIZATION_ROLE_MISSING";
+      await markOrganizationProfileProvisioningStage({
+        id: profile.id,
+        status: LOGTO_SYNC_STATUSES.CREATOR_ROLE_MISSING,
+        errorMessage: roleError.message,
+      });
       throw roleError;
     }
 
@@ -438,7 +454,9 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
     return res.status(201).json({ organization: serializeOwnerOrganization(profile, logtoOrganization) });
   } catch (error) {
     const errorMessage = getSafeErrorMessage(error);
-    const pendingStatus = profile?.logtoSyncStatus || (logtoOrganizationId ? LOGTO_SYNC_STATUSES.LOGTO_CREATED : LOGTO_SYNC_STATUSES.ERROR);
+    const pendingStatus = error?.code === "LOGTO_ORGANIZATION_ROLE_MISSING"
+      ? LOGTO_SYNC_STATUSES.CREATOR_ROLE_MISSING
+      : profile?.logtoSyncStatus || (logtoOrganizationId ? LOGTO_SYNC_STATUSES.LOGTO_CREATED : LOGTO_SYNC_STATUSES.ERROR);
 
     if (profile?.id) {
       profile = await markOrganizationProfileLogtoSyncError({ id: profile.id, errorMessage, status: pendingStatus }).catch((persistenceError) => {
@@ -448,6 +466,7 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
     }
 
     const failedAction = pendingStatus === LOGTO_SYNC_STATUSES.CREATOR_ROLE_PENDING
+ || pendingStatus === LOGTO_SYNC_STATUSES.CREATOR_ROLE_MISSING
       ? AUDIT_ACTIONS.OWNER_ORGANIZATION_CREATOR_ROLE
       : pendingStatus === LOGTO_SYNC_STATUSES.CREATOR_MEMBERSHIP_PENDING
         ? AUDIT_ACTIONS.OWNER_ORGANIZATION_CREATOR_MEMBERSHIP
