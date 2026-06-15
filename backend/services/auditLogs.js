@@ -9,8 +9,12 @@ const AUDIT_RESULTS = Object.freeze({
 });
 
 const AUDIT_ACTIONS = Object.freeze({
-  OWNER_ORGANIZATION_CREATE: "owner.organization.create",
-  OWNER_ORGANIZATION_LOGTO_SYNC: "owner.organization.logto_sync",
+  OWNER_ORGANIZATION_PROFILE_CREATE: "owner.organization.profile_create",
+  OWNER_ORGANIZATION_LOGTO_CREATE: "owner.organization.logto_create",
+  OWNER_ORGANIZATION_METADATA_RECONCILE: "owner.organization.metadata_reconcile",
+  OWNER_ORGANIZATION_CREATOR_MEMBERSHIP: "owner.organization.creator_membership",
+  OWNER_ORGANIZATION_CREATOR_ROLE: "owner.organization.creator_role",
+  OWNER_ORGANIZATION_PROVISIONING: "owner.organization.provisioning",
 });
 
 const DEFAULT_LIMIT = 25;

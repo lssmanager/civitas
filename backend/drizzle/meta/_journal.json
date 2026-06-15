@@ -43,6 +43,13 @@
       "when": 1791841140000,
       "tag": "0005_add_logto_sync_status_to_organization_profiles",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791841200000,
+      "tag": "0006_expand_organization_provisioning_status",
+      "breakpoints": true
     }
   ]
 }

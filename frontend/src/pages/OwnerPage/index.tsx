@@ -11,7 +11,10 @@ type OwnerDashboardProps = {
 };
 
 const getSyncBadge = (status?: string) => {
-  if (status === "synced") return <Badge bg="success">Sincronizada</Badge>;
+  if (status === "synced") return <Badge bg="success">Bootstrap completo</Badge>;
+  if (status === "logto_created") return <Badge bg="warning" text="dark">Logto creada</Badge>;
+  if (status === "creator_membership_pending") return <Badge bg="warning" text="dark">Membership pendiente</Badge>;
+  if (status === "creator_role_pending") return <Badge bg="warning" text="dark">Rol admin pendiente</Badge>;
   if (status === "error") return <Badge bg="danger">Error Logto</Badge>;
   return <Badge bg="warning" text="dark">Pendiente</Badge>;
 };
@@ -40,7 +43,8 @@ function OwnerDashboard({ ownerMe }: OwnerDashboardProps) {
       render: (organization) => (
         <div>
           <div className="fw-semibold">{organization.name ?? organization.profile?.nameCache ?? "Sin nombre"}</div>
-          <div className="text-secondary small text-break">Perfil interno: {organization.profile?.id}</div>
+          <div className="text-secondary small text-break">Organización Logto: {organization.logtoOrganizationId ?? "sin id"}</div>
+          <div className="text-secondary small text-break">Perfil operativo: {organization.profile?.id ?? "metadata pendiente"}</div>
         </div>
       ),
     },
@@ -74,9 +78,12 @@ function OwnerDashboard({ ownerMe }: OwnerDashboardProps) {
     setIsSubmitting(true);
 
     try {
-      await ownerApi.createOrganization({ name });
+      const result = await ownerApi.createOrganization({ name });
       setName("");
       organizationsResource.reload();
+      if (result.warning) {
+        setSubmitError(result.warning);
+      }
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : "No se pudo crear la organización.");
     } finally {
@@ -110,7 +117,7 @@ function OwnerDashboard({ ownerMe }: OwnerDashboardProps) {
           </PageCard>
         </div>
         <div className="col-12 col-xl-4">
-          <PageCard title="Crear organización" subtitle="Civitas persiste primero y luego sincroniza con Logto vía backend M2M.">
+          <PageCard title="Crear organización" subtitle="Logto crea la organización canónica; Civitas reconcilia metadata operativa y bootstrap del creador.">
             <Form onSubmit={handleSubmit} className="d-flex flex-column gap-3">
               <Form.Group controlId="ownerOrganizationName">
                 <Form.Label>Nombre</Form.Label>
@@ -122,7 +129,7 @@ function OwnerDashboard({ ownerMe }: OwnerDashboardProps) {
           </PageCard>
         </div>
         <div className="col-12 col-xl-8">
-          <PageCard title="Organizaciones Civitas / Logto" subtitle="El estado de sincronización se lee desde PostgreSQL para evitar inconsistencias invisibles.">
+          <PageCard title="Organizaciones Logto / Civitas" subtitle="Una fila por organización canónica de Logto; PostgreSQL solo aporta metadata operativa y estado de bootstrap.">
             {organizationsResource.isLoading ? (
               <LoadingState title="Cargando organizaciones" description="Consultando el registro operativo interno de Civitas." />
             ) : organizationsResource.error ? (
