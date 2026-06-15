@@ -1,6 +1,9 @@
 import { Breadcrumb } from "react-bootstrap";
 import { Link, useLocation } from "react-router-dom";
-import { routeMetadata } from "./routes";
+import { routeMetadata, routePatterns, type RouteMetadata } from "./routes";
+
+const getRouteMetadata = (pathname: string): RouteMetadata | undefined =>
+  routeMetadata[pathname] ?? routePatterns.find((routePattern) => routePattern.pattern.test(pathname))?.metadata;
 
 const buildTrail = (pathname: string) => {
   const trail: { path: string; label: string }[] = [];
@@ -9,7 +12,7 @@ const buildTrail = (pathname: string) => {
 
   while (currentPath && !visited.has(currentPath)) {
     visited.add(currentPath);
-    const current: { label: string; parentPath?: string } | undefined = routeMetadata[currentPath];
+    const current = getRouteMetadata(currentPath);
     if (!current) break;
     trail.unshift({ path: currentPath, label: current.label });
     currentPath = current.parentPath;

@@ -13,6 +13,7 @@ import Callback from "../Callback";
 import { OwnerPage } from "../OwnerPage";
 import { OwnerAuditPage } from "../OwnerAuditPage";
 import { OwnerOrganizationsPage } from "../OwnerOrganizationsPage";
+import { OwnerOrganizationSettingsPage } from "../OwnerOrganizationSettingsPage";
 import { OwnerSettingsPage } from "../OwnerSettingsPage";
 import { SelectOrganizationPage } from "../SelectOrganizationPage";
 
@@ -84,6 +85,7 @@ function App() {
           <Route path="owner" element={<OwnerLayout />}>
             <Route index element={<OwnerPage />} />
             <Route path="organizations" element={<OwnerOrganizationsPage />} />
+            <Route path="organizations/:organizationId/settings" element={<OwnerOrganizationSettingsPage />} />
             <Route path="logs" element={<OwnerAuditPage />} />
             <Route path="audit" element={<Navigate to="/owner/logs" replace />} />
             <Route path="settings" element={<OwnerSettingsPage />} />

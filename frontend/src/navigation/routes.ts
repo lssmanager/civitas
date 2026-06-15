@@ -68,7 +68,9 @@ export const ownerNavigation: AppRoute[] = [
   appRoutes.ownerSettings,
 ];
 
-export const routeMetadata: Record<string, { label: string; parentPath?: string }> = {
+export type RouteMetadata = { label: string; parentPath?: string };
+
+export const routeMetadata: Record<string, RouteMetadata> = {
   "/owner": { label: "Owner" },
   "/owner/organizations": { label: "Organizaciones", parentPath: appRoutes.owner.path },
   "/owner/logs": { label: appRoutes.ownerLogs.label, parentPath: appRoutes.owner.path },
@@ -77,3 +79,10 @@ export const routeMetadata: Record<string, { label: string; parentPath?: string 
   "/select-organization": { label: appRoutes.selectOrganization.label, parentPath: appRoutes.ownerOrganizations.path },
   "/account": { label: appRoutes.account.label },
 };
+
+export const routePatterns: Array<{ pattern: RegExp; metadata: RouteMetadata }> = [
+  {
+    pattern: /^\/owner\/organizations\/[^/]+\/settings$/,
+    metadata: { label: "Settings de organización", parentPath: appRoutes.ownerOrganizations.path },
+  },
+];

@@ -29,8 +29,10 @@ export type OwnerOrganization = {
     branding?: { logoUrl: string | null; faviconUrl: string | null; primaryColor: string | null; primaryColorDark: string | null; };
     organizationLoginExperienceEnabled?: boolean;
     defaultRoleNames?: string[];
+    oidcApplicationId?: string | null;
     oidcInitialConfig?: Record<string, unknown> | null;
     oidcApplicationSecretConfigured?: boolean;
+    emailDomainProvisioningStatus?: string;
     settings?: Record<string, unknown> | null;
     seatTotal: number;
     logtoSyncStatus: "pending" | "logto_created" | "creator_membership_pending" | "creator_role_pending" | "synced" | "error" | string;
@@ -94,6 +96,8 @@ export type CreateOwnerOrganizationInput = {
   primaryColorDark?: string;
   organizationLoginExperienceEnabled?: boolean;
   defaultRoleNames?: string[];
+  oidcApplicationId?: string;
+  oidcRedirectUri?: string;
   oidcInitialConfig?: Record<string, unknown>;
   oidcApplicationSecret?: string;
   settings?: Record<string, unknown>;

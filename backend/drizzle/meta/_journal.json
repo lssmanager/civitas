@@ -57,6 +57,13 @@
       "when": 1791841260000,
       "tag": "0007_add_organization_provisioning_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791841320000,
+      "tag": "0008_complete_organization_provisioning_settings",
+      "breakpoints": true
     }
   ]
 }
