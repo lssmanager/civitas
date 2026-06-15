@@ -34,10 +34,24 @@ export type OwnerOrganization = {
 };
 
 
+export type OwnerAuditActor = {
+  internalUserId: string | null;
+  logtoUserId: string | null;
+  email: string | null;
+  displayName: string | null;
+};
+
+export type OwnerAuditOrganization = {
+  id: string | null;
+  name: string | null;
+};
+
 export type OwnerAuditLog = {
   id: string;
   actorUserId: string | null;
+  actor?: OwnerAuditActor;
   organizationId: string | null;
+  organization?: OwnerAuditOrganization;
   action: string;
   result: "success" | "error" | "denied" | string;
   metadata: Record<string, unknown> | null;

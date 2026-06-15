@@ -1,6 +1,6 @@
-const { count, desc } = require("drizzle-orm");
+const { count, desc, eq } = require("drizzle-orm");
 const { db } = require("../db/client");
-const { auditLogs } = require("../db/schema");
+const { auditLogs, users } = require("../db/schema");
 
 const AUDIT_RESULTS = Object.freeze({
   SUCCESS: "success",
@@ -68,15 +68,43 @@ function normalizePagination({ limit, offset } = {}) {
   };
 }
 
-const serializeAuditLog = (log) => ({
-  id: log.id,
-  actorUserId: log.actorUserId,
-  organizationId: log.organizationId,
-  action: log.action,
-  result: log.result,
-  metadata: log.metadata,
-  createdAt: toIso(log.createdAt),
-});
+const getMetadataValue = (metadata, key) => metadata && typeof metadata === "object" ? metadata[key] : null;
+
+const buildActorSnapshot = ({ log, actor }) => {
+  const metadataActor = getMetadataValue(log.metadata, "actor");
+  return {
+    internalUserId: log.actorUserId,
+    logtoUserId: getMetadataValue(metadataActor, "logtoUserId") || actor?.logtoUserId || null,
+    email: getMetadataValue(metadataActor, "email") || actor?.email || null,
+    displayName: getMetadataValue(metadataActor, "displayName") || getMetadataValue(metadataActor, "username") || actor?.email || actor?.logtoUserId || null,
+  };
+};
+
+const buildOrganizationSnapshot = ({ log, organizationNamesById = new Map() }) => {
+  const metadataOrganization = getMetadataValue(log.metadata, "organization");
+  const organizationId = log.organizationId;
+  return {
+    id: organizationId,
+    name: getMetadataValue(metadataOrganization, "name") || (organizationId ? organizationNamesById.get(organizationId) : null) || null,
+  };
+};
+
+const serializeAuditLog = (row, { organizationNamesById = new Map() } = {}) => {
+  const log = row.auditLog || row;
+  const actor = row.actor || null;
+
+  return {
+    id: log.id,
+    actorUserId: log.actorUserId,
+    actor: buildActorSnapshot({ log, actor }),
+    organizationId: log.organizationId,
+    organization: buildOrganizationSnapshot({ log, organizationNamesById }),
+    action: log.action,
+    result: log.result,
+    metadata: log.metadata,
+    createdAt: toIso(log.createdAt),
+  };
+};
 
 async function recordAuditLog({ actorUserId = null, organizationId = null, action, result, metadata = null }) {
   if (!ALLOWED_AUDIT_ACTIONS.has(action)) {
@@ -110,18 +138,19 @@ async function recordAuditLogBestEffort(event) {
   }
 }
 
-async function listAuditLogs(paginationInput = {}) {
+async function listAuditLogs(paginationInput = {}, enrichment = {}) {
   const pagination = normalizePagination(paginationInput);
   const [totalRow] = await db.select({ value: count() }).from(auditLogs);
   const rows = await db
-    .select()
+    .select({ auditLog: auditLogs, actor: users })
     .from(auditLogs)
+    .leftJoin(users, eq(auditLogs.actorUserId, users.id))
     .orderBy(desc(auditLogs.createdAt), desc(auditLogs.id))
     .limit(pagination.limit)
     .offset(pagination.offset);
 
   return {
-    auditLogs: rows.map(serializeAuditLog),
+    auditLogs: rows.map((row) => serializeAuditLog(row, enrichment)),
     pagination: {
       ...pagination,
       total: Number(totalRow?.value ?? 0),

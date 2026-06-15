@@ -4,7 +4,7 @@ require("dotenv").config();
 const { requireAuth, requireOrganizationAccess, requireScope } = require("./middleware/auth");
 const { requireOwner } = require("./middleware/owner");
 const { checkDatabaseConnection } = require("./db/connection");
-const { getOrCreateInternalUser, serializeUser } = require("./services/users");
+const { getIdentityFromLogtoClaims, getOrCreateInternalUser, serializeUser } = require("./services/users");
 const {
   ORGANIZATION_ADMIN_ROLE_NAME,
   addUserToLogtoOrganization,
@@ -12,6 +12,7 @@ const {
   createLogtoOrganization,
   findLogtoOrganizationByName,
   findOrganizationRoleByName,
+  getLogtoUserById,
   listLogtoOrganizations,
 } = require("./services/logtoManagement");
 const {
@@ -56,6 +57,62 @@ const sortProfilesByNewest = (profiles) =>
   [...profiles].sort((left, right) => toMillis(right.updatedAt) - toMillis(left.updatedAt) || toMillis(right.createdAt) - toMillis(left.createdAt));
 
 const getCanonicalLogtoOrganizationName = (organization) => getLogtoOrganizationName(organization);
+
+
+const normalizeLogtoUserToClaims = (logtoUser = {}) => ({
+  sub: logtoUser.id || logtoUser.userId || logtoUser.sub,
+  email: logtoUser.primaryEmail || logtoUser.email || logtoUser.profile?.email,
+  name: logtoUser.name || logtoUser.profile?.name,
+  username: logtoUser.username || logtoUser.profile?.username,
+  picture: logtoUser.avatar || logtoUser.profile?.picture,
+});
+
+async function getLogtoIdentityClaimsBestEffort(logtoUserId) {
+  if (!logtoUserId) return {};
+
+  try {
+    return normalizeLogtoUserToClaims(await getLogtoUserById(logtoUserId));
+  } catch (error) {
+    console.error("Failed to enrich identity from Logto Management API", error);
+    return {};
+  }
+}
+
+const buildSessionTokenMetadata = (claims = {}) => ({
+  issuedAt: claims.iat ? new Date(Number(claims.iat) * 1000).toISOString() : null,
+  expiresAt: claims.exp ? new Date(Number(claims.exp) * 1000).toISOString() : null,
+  permissionFreshness: "Token claims are authoritative for this request; Logto role changes apply after token renewal or expiration.",
+});
+
+const buildRequestIdentity = (authUser, internalUser = null) => {
+  const logtoIdentity = getIdentityFromLogtoClaims({ ...(authUser?.claims || {}), sub: authUser?.sub });
+  return {
+    internalUserId: internalUser?.id ?? null,
+    logtoUserId: logtoIdentity.logtoUserId,
+    email: logtoIdentity.email ?? internalUser?.email ?? null,
+    displayName: logtoIdentity.displayName,
+    username: logtoIdentity.username,
+  };
+};
+
+const buildAuditContext = ({ authUser, internalUser, organization = null } = {}) => ({
+  actor: buildRequestIdentity(authUser, internalUser),
+  ...(organization
+    ? {
+        organization: {
+          id: getLogtoOrganizationId(organization),
+          name: getLogtoOrganizationName(organization),
+        },
+      }
+    : {}),
+});
+
+const buildOrganizationNamesById = (logtoOrganizations = []) =>
+  new Map(
+    logtoOrganizations
+      .map((organization) => [getLogtoOrganizationId(organization), getLogtoOrganizationName(organization)])
+      .filter(([id]) => Boolean(id))
+  );
 
 function buildLogtoOrganizationDirectory({ logtoOrganizations, profiles }) {
   const profilesByLogtoId = new Map();
@@ -182,16 +239,25 @@ app.get("/auth/test", requireAuth(API_RESOURCE), (req, res) => {
 
 app.get("/me", requireAuth(API_RESOURCE), async (req, res) => {
   try {
-    const internalUser = await getOrCreateInternalUser(req.user);
+    const logtoIdentityClaims = await getLogtoIdentityClaimsBestEffort(req.user.sub);
+    const enrichedAuthUser = {
+      ...req.user,
+      claims: { ...(req.user.claims || {}), ...logtoIdentityClaims, sub: req.user.sub },
+    };
+    const internalUser = await getOrCreateInternalUser(enrichedAuthUser);
+
+    const identity = buildRequestIdentity(enrichedAuthUser, internalUser);
 
     return res.json({
       user: serializeUser(internalUser),
+      identity,
       auth: {
         sub: req.user.sub,
         issuer: req.user.claims?.iss,
         audience: req.user.claims?.aud,
         scopes: req.user.scopes,
         organizationId: req.user.organizationId,
+        token: buildSessionTokenMetadata(req.user.claims),
       },
     });
   } catch (error) {
@@ -294,7 +360,7 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
       organizationId: logtoOrganizationId,
       action: AUDIT_ACTIONS.OWNER_ORGANIZATION_LOGTO_CREATE,
       result: AUDIT_RESULTS.SUCCESS,
-      metadata: { name: normalizedName, logtoOrganizationId, reconciled, source: logtoOrganizationSource },
+      metadata: { ...buildAuditContext({ authUser: req.user, internalUser, organization: logtoOrganization }), name: normalizedName, logtoOrganizationId, reconciled, source: logtoOrganizationSource },
     });
 
     profile = await upsertOrganizationProfile({
@@ -311,7 +377,7 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
       organizationId: logtoOrganizationId,
       action: AUDIT_ACTIONS.OWNER_ORGANIZATION_METADATA_RECONCILE,
       result: AUDIT_RESULTS.SUCCESS,
-      metadata: { profileId: profile.id, logtoOrganizationId, status: profile.logtoSyncStatus },
+      metadata: { ...buildAuditContext({ authUser: req.user, internalUser, organization: logtoOrganization }), profileId: profile.id, logtoOrganizationId, status: profile.logtoSyncStatus },
     });
 
     profile = await markOrganizationProfileProvisioningStage({
@@ -325,7 +391,7 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
       organizationId: logtoOrganizationId,
       action: AUDIT_ACTIONS.OWNER_ORGANIZATION_CREATOR_MEMBERSHIP,
       result: AUDIT_RESULTS.SUCCESS,
-      metadata: { profileId: profile.id, logtoOrganizationId, logtoUserId: req.user.sub },
+      metadata: { ...buildAuditContext({ authUser: req.user, internalUser, organization: logtoOrganization }), profileId: profile.id, logtoOrganizationId, logtoUserId: req.user.sub },
     });
 
     profile = await markOrganizationProfileProvisioningStage({
@@ -358,7 +424,7 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
       organizationId: logtoOrganizationId,
       action: AUDIT_ACTIONS.OWNER_ORGANIZATION_CREATOR_ROLE,
       result: AUDIT_RESULTS.SUCCESS,
-      metadata: { profileId: profile.id, logtoOrganizationId, roleName: ORGANIZATION_ADMIN_ROLE_NAME, roleId: adminRole.id },
+      metadata: { ...buildAuditContext({ authUser: req.user, internalUser, organization: logtoOrganization }), profileId: profile.id, logtoOrganizationId, roleName: ORGANIZATION_ADMIN_ROLE_NAME, roleId: adminRole.id },
     });
 
     await recordAuditLogBestEffort({
@@ -366,7 +432,7 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
       organizationId: logtoOrganizationId,
       action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING,
       result: AUDIT_RESULTS.SUCCESS,
-      metadata: { profileId: profile.id, logtoOrganizationId, finalStatus: profile.logtoSyncStatus },
+      metadata: { ...buildAuditContext({ authUser: req.user, internalUser, organization: logtoOrganization }), profileId: profile.id, logtoOrganizationId, finalStatus: profile.logtoSyncStatus },
     });
 
     return res.status(201).json({ organization: serializeOwnerOrganization(profile, logtoOrganization) });
@@ -394,7 +460,7 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
       organizationId: logtoOrganizationId || profile?.id,
       action: failedAction,
       result: AUDIT_RESULTS.ERROR,
-      metadata: { profileId: profile?.id, name: normalizedName || name, logtoOrganizationId, status: pendingStatus, error: errorMessage },
+      metadata: { ...buildAuditContext({ authUser: req.user, internalUser, organization: logtoOrganization }), profileId: profile?.id, name: normalizedName || name, logtoOrganizationId, status: pendingStatus, error: errorMessage },
     });
 
     await recordAuditLogBestEffort({
@@ -402,7 +468,7 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
       organizationId: logtoOrganizationId || profile?.id,
       action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING,
       result: AUDIT_RESULTS.ERROR,
-      metadata: { profileId: profile?.id, logtoOrganizationId, finalStatus: profile?.logtoSyncStatus || pendingStatus, error: errorMessage },
+      metadata: { ...buildAuditContext({ authUser: req.user, internalUser, organization: logtoOrganization }), profileId: profile?.id, logtoOrganizationId, finalStatus: profile?.logtoSyncStatus || pendingStatus, error: errorMessage },
     });
 
     console.error("Organization provisioning failed", error);
@@ -421,7 +487,14 @@ app.get("/owner/audit", requireAuth(API_RESOURCE), requireOwner, async (req, res
   try {
     await getOrCreateInternalUser(req.user);
 
-    const result = await listAuditLogs({ limit: req.query.limit, offset: req.query.offset });
+    const logtoOrganizations = await listLogtoOrganizations().catch((error) => {
+      console.error("Failed to enrich audit logs with Logto organization names", error);
+      return [];
+    });
+    const result = await listAuditLogs(
+      { limit: req.query.limit, offset: req.query.offset },
+      { organizationNamesById: buildOrganizationNamesById(logtoOrganizations) }
+    );
     return res.json(result);
   } catch (error) {
     if (error.status === 401) {

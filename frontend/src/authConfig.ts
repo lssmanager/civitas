@@ -6,6 +6,8 @@ export const logtoConfig: LogtoConfig = {
   appId: APP_ENV.logto.appId,
   resources: APP_ENV.api.resourceIndicator ? [APP_ENV.api.resourceIndicator, ReservedResource.Organization] : [ReservedResource.Organization],
   scopes: [
+    UserScope.Email,
+    UserScope.Profile,
     UserScope.Organizations,
     "owner:read",
     "owner:manage",

@@ -31,8 +31,25 @@ const normalizeEmail = (email) => {
 };
 
 const getEmailFromClaims = (claims = {}) => {
-  return normalizeEmail(claims.email || claims.primary_email || claims.username);
+  return normalizeEmail(claims.email || claims.primary_email || claims.email_address || claims.username);
 };
+
+const getDisplayNameFromClaims = (claims = {}) => {
+  const value = claims.name || claims.display_name || claims.full_name || claims.nickname || claims.username || claims.email || claims.sub;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+};
+
+const getUsernameFromClaims = (claims = {}) => {
+  const value = claims.username || claims.preferred_username || claims.nickname;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+};
+
+const getIdentityFromLogtoClaims = (claims = {}) => ({
+  logtoUserId: claims.sub || null,
+  email: getEmailFromClaims(claims),
+  displayName: getDisplayNameFromClaims(claims),
+  username: getUsernameFromClaims(claims),
+});
 
 const serializeUser = (user) => ({
   id: user.id,
@@ -131,6 +148,7 @@ module.exports = {
   InternalUserInactiveError,
   createUserFromLogtoClaims,
   findUserByLogtoUserId,
+  getIdentityFromLogtoClaims,
   getOrCreateInternalUser,
   serializeUser,
   updateLastLogin,
