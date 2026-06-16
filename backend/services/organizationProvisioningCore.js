@@ -23,6 +23,7 @@ const normalizeRoleNames = (value) => {
 const getLogtoOrganizationId = (organization) => organization.id || organization.organizationId || organization.logtoOrganizationId;
 const getLogtoOrganizationName = (organization) => organization.name || organization.nameCache || null;
 const getOrganizationRoleId = (role = {}) => role.id || role.organizationRoleId || role.roleId || null;
+const getLogtoUserEmail = (user = {}) => user.primaryEmail || user.email || user.profile?.email || null;
 
 function normalizeCanonicalProvisioningInput(body = {}) {
   const name = typeof body.name === "string" ? body.name.trim() : "";
@@ -80,7 +81,7 @@ async function assignBaseAdminBestEffort({ canonical, logtoOrganization, logtoOr
       metadata: {
         ...auditContextBuilder({ organization: logtoOrganization }),
         stage: "base_admin_skipped_missing_logto_user_id",
-        baseAdmin: canonical.baseAdmin,
+        baseAdminLogtoUserIdProvided: false,
         actionRequired: "provide_existing_logto_user_id_before_assigning_organization_admin",
       },
     });
@@ -95,15 +96,23 @@ async function assignBaseAdminBestEffort({ canonical, logtoOrganization, logtoOr
   const template = await ensureOrganizationTemplate({ requiredRoleNames: requestedRoleNames });
   await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_TEMPLATE_VALIDATE, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "template_validated", requiredRoleNames: requestedRoleNames, availableRoleNames: template.roles.map((role) => role.name).filter(Boolean) } });
 
-  await getLogtoUserById(baseAdminLogtoUserId);
-  await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "base_admin_user_validated", baseAdminLogtoUserId } });
+  const baseAdminLogtoUser = await getLogtoUserById(baseAdminLogtoUserId);
+  const logtoUserEmail = getLogtoUserEmail(baseAdminLogtoUser)?.toLowerCase() || null;
+  if (logtoUserEmail !== canonical.baseAdmin.email) {
+    const error = new Error("Base admin Logto user email does not match the requested base admin email");
+    error.code = "BASE_ADMIN_EMAIL_MISMATCH";
+    error.status = 409;
+    error.diagnostic = "The provided baseAdmin.logtoUserId belongs to a different email than baseAdmin.email; admin assignment was stopped.";
+    throw error;
+  }
+  await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "base_admin_user_validated", baseAdminLogtoUserId, baseAdminEmailMatched: true } });
 
   const adminRole = await findOrganizationRoleByName(ORGANIZATION_ADMIN_ROLE_NAME);
   const adminRoleId = getOrganizationRoleId(adminRole);
   if (!adminRoleId) throw new Error(`Logto organization role ${ORGANIZATION_ADMIN_ROLE_NAME} exists but no role id was returned`);
 
   await addUserToLogtoOrganization({ organizationId: logtoOrganizationId, userId: baseAdminLogtoUserId });
-  await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_BASE_MEMBER, result: AUDIT_RESULTS.SUCCESS, metadata: { ...auditContextBuilder({ organization: logtoOrganization }), stage: "base_member_added", baseAdmin: { ...canonical.baseAdmin, logtoUserId: baseAdminLogtoUserId } } });
+  await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_BASE_MEMBER, result: AUDIT_RESULTS.SUCCESS, metadata: { ...auditContextBuilder({ organization: logtoOrganization }), stage: "base_member_added", baseAdminLogtoUserId } });
 
   await assignOrganizationRoleToUser({ organizationId: logtoOrganizationId, userId: baseAdminLogtoUserId, organizationRoleId: adminRoleId, organizationRoleName: ORGANIZATION_ADMIN_ROLE_NAME });
   await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_BASE_ROLE, result: AUDIT_RESULTS.SUCCESS, metadata: { ...auditContextBuilder({ organization: logtoOrganization }), stage: "base_role_assigned", roleName: ORGANIZATION_ADMIN_ROLE_NAME, roleId: adminRoleId, baseAdminLogtoUserId } });
