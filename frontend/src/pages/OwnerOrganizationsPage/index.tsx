@@ -64,11 +64,11 @@ export function OwnerOrganizationsPage() {
     <PageShell
       eyebrow="Owner / Crear organización"
       title="Crear organización"
-      description="Formulario operativo para dar de alta una organización. La consola técnica y la reconciliación viven en Observabilidad."
+      description="Formulario operativo para dar de alta una organización con los datos mínimos del alta."
       actions={<Badge bg="success">organizations:create</Badge>}
     >
       <div className="row g-4">
-        <div className="col-12 col-xl-8">
+        <div className="col-12 col-xl-8 mx-auto">
           <PageCard title="Nueva organización" subtitle="Completa los datos humanos mínimos para ejecutar el alta owner.">
             {templateResource.isLoading ? (
               <LoadingState title="Cargando plantilla" description="Consultando roles de la organization template de Logto." />
@@ -93,22 +93,13 @@ export function OwnerOrganizationsPage() {
                 </div>
                 <Form.Group controlId="ownerOrganizationRoles"><Form.Label>Rol inicial desde plantilla Logto</Form.Label><Form.Select value={selectedRole} onChange={(event) => setDefaultRoleName(event.target.value)} disabled={roles.length === 0}>{roles.map((role) => <option value={role.name} key={role.id}>{role.name}</option>)}</Form.Select></Form.Group>
                 <Alert variant="info" className="mb-0">
-                  Civitas generará la configuración técnica necesaria a partir de estos campos. Revisa detalles, ids y reconciliación en <strong>Observabilidad &gt; Logs</strong>.
+                  Al crear la organización, Civitas ejecutará el alta y mostrará aquí el resultado operativo del flujo.
                 </Alert>
                 {submitError && <Alert variant="danger" className="mb-0">{submitError}</Alert>}
                 {submitWarning && <Alert variant="warning" className="mb-0">{submitWarning}</Alert>}
                 <Button type="submit" disabled={isSubmitting || !name.trim() || !slug.trim() || !appSubdomain.trim() || !adminDomain.trim() || !baseAdminName.trim() || !baseAdminEmail.trim() || !templateResource.data?.ready}>{isSubmitting ? "Creando..." : "Crear organización"}</Button>
               </Form>
             )}
-          </PageCard>
-        </div>
-        <div className="col-12 col-xl-4">
-          <PageCard title="Después del alta" subtitle="Feedback operativo del flujo.">
-            <ul className="text-secondary mb-0 d-flex flex-column gap-2">
-              <li>El formulario validará campos requeridos antes de enviar.</li>
-              <li>Si la creación termina con advertencias, aparecerán aquí como feedback operativo.</li>
-              <li>Los ids Logto, estados parciales y errores técnicos se revisan en <strong>Observabilidad &gt; Logs</strong>.</li>
-            </ul>
           </PageCard>
         </div>
       </div>
