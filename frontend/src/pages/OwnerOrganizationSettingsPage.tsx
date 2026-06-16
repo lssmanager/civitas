@@ -16,6 +16,8 @@ export function OwnerOrganizationSettingsPage() {
 
   const organization = organizationsResource.data?.organizations.find((item) => item.profile?.id === organizationId || item.logtoOrganizationId === organizationId);
   const profile = organization?.profile;
+  const provisioningState = profile?.settings?.provisioningState && typeof profile.settings.provisioningState === "object" ? profile.settings.provisioningState as Record<string, unknown> : null;
+  const requiresResume = Boolean(provisioningState?.requiresResume);
 
   return (
     <PageShell
@@ -37,7 +39,8 @@ export function OwnerOrganizationSettingsPage() {
               <dl className="mb-0 small">
                 <dt>Logto organization id</dt><dd className="text-break">{organization.logtoOrganizationId ?? "Pendiente"}</dd>
                 <dt>Nombre</dt><dd>{organization.name ?? profile?.nameCache ?? "Sin nombre"}</dd>
-                <dt>Estado sync</dt><dd><Badge bg={profile?.logtoSyncStatus === "synced" ? "success" : "warning"}>{profile?.logtoSyncStatus ?? "metadata_missing"}</Badge></dd>
+                <dt>Estado sync</dt><dd><Badge bg={profile?.logtoSyncStatus === "bootstrapped" || profile?.logtoSyncStatus === "synced" ? "success" : requiresResume ? "danger" : "warning"}>{profile?.logtoSyncStatus ?? "metadata_missing"}</Badge></dd>
+                <dt>Bootstrap</dt><dd>{requiresResume ? `Requiere reanudación${provisioningState?.failedStage ? ` desde ${String(provisioningState.failedStage)}` : ""}` : "Completo o sin acción pendiente"}</dd>
               </dl>
             </PageCard>
           </div>
@@ -65,7 +68,7 @@ export function OwnerOrganizationSettingsPage() {
             <PageCard title="OIDC inicial" subtitle="El secreto nunca se devuelve en texto plano; solo se informa si fue configurado.">
               <dl className="mb-0 small">
                 <dt>Application ID</dt><dd className="text-break">{profile?.oidcApplicationId ?? "Pendiente"}</dd>
-                <dt>Redirect URI</dt><dd className="text-break">{String(profile?.oidcInitialConfig?.redirectUri ?? "Pendiente")}</dd>
+                <dt>Redirect URI</dt><dd className="text-break">{String(profile?.oidcInitialConfig?.oidcRedirectUri ?? "Pendiente")}</dd>
                 <dt>Secret</dt><dd>{profile?.oidcApplicationSecretConfigured ? "Configurado (redactado)" : "No configurado"}</dd>
                 <dt>Dominio email</dt><dd>{profile?.emailDomainProvisioningStatus ?? "not_requested"}</dd>
               </dl>

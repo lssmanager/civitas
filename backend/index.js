@@ -27,7 +27,7 @@ const {
   listAuditLogs,
   recordAuditLogBestEffort,
 } = require("./services/auditLogs");
-const { normalizeCanonicalProvisioningInput, runCanonicalOrganizationBootstrap } = require("./services/organizationProvisioningCore");
+const { normalizeCanonicalProvisioningInput, resumeOrganizationBootstrap, runCanonicalOrganizationBootstrap } = require("./services/organizationProvisioningCore");
 const { buildExtendedProfileFields, buildLogtoOrganizationCustomData, normalizeExtendedProvisioningInput } = require("./services/organizationProvisioningSettings");
 
 const app = express();
@@ -391,18 +391,21 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
     }
 
     const duplicateProfile = await findOrganizationProfileBySlugOrAdminDomain({ slug: extendedInput.value.slug, adminDomain: extendedInput.value.adminDomain });
-    if (duplicateProfile) {
+    const resumableStatuses = new Set([LOGTO_SYNC_STATUSES.LOGTO_CREATED, LOGTO_SYNC_STATUSES.BASE_ADMIN_INVITATION_PENDING, LOGTO_SYNC_STATUSES.BASE_MEMBER_PENDING, LOGTO_SYNC_STATUSES.BASE_ROLE_PENDING, LOGTO_SYNC_STATUSES.BOOTSTRAP_INCOMPLETE]);
+    if (duplicateProfile && !resumableStatuses.has(duplicateProfile.logtoSyncStatus)) {
       const duplicatedField = duplicateProfile.slug === extendedInput.value.slug ? "slug" : "adminDomain";
       return res.status(409).json({ error: "Conflict", message: `Organization ${duplicatedField} is already configured` });
     }
 
-    const result = await runCanonicalOrganizationBootstrap({
+    const bootstrapRunner = duplicateProfile ? resumeOrganizationBootstrap : runCanonicalOrganizationBootstrap;
+    const result = await bootstrapRunner({
       canonical: canonicalInput.value,
       extendedProfileFields: buildExtendedProfileFields(extendedInput.value, { baseAdmin: canonicalInput.value.baseAdmin }),
       logtoCustomData: buildLogtoOrganizationCustomData(extendedInput.value),
       authUser: req.user,
       internalUser,
       auditContextBuilder: ({ organization }) => buildAuditContext({ authUser: req.user, internalUser, organization }),
+      existingProfile: duplicateProfile || null,
     });
 
     profile = result.profile;
@@ -425,7 +428,7 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
     const status = error.code === "LOGTO_ORGANIZATION_TEMPLATE_MISSING_ROLES" ? 424 : logtoOrganizationId ? 201 : 502;
 
     if (profile?.id) {
-      profile = await markOrganizationProfileLogtoSyncError({ id: profile.id, errorMessage, status: bootstrapStage }).catch((persistenceError) => {
+      profile = await markOrganizationProfileLogtoSyncError({ id: profile.id, errorMessage, status: LOGTO_SYNC_STATUSES.BOOTSTRAP_INCOMPLETE, settings: { ...(profile.settings || {}), provisioningState: { ...(profile.settings?.provisioningState || {}), status: "bootstrap_incomplete", failedStage: bootstrapStage, requiresResume: true, logtoOrganizationExists: Boolean(logtoOrganizationId), metadataLinked: Boolean(profile?.logtoOrganizationId || logtoOrganizationId) } } }).catch((persistenceError) => {
         console.error(`Failed to persist provisioning error for organization profile ${profile?.id}`, persistenceError);
         return profile;
       });

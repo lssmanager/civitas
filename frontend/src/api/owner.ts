@@ -35,7 +35,7 @@ export type OwnerOrganization = {
     emailDomainProvisioningStatus?: string;
     settings?: Record<string, unknown> | null;
     seatTotal: number;
-    logtoSyncStatus: "pending" | "logto_created" | "metadata_linked" | "base_admin_invitation_pending" | "base_member_pending" | "base_role_pending" | "bootstrapped" | "synced" | "error" | string;
+    logtoSyncStatus: "pending" | "logto_created" | "metadata_linked" | "base_admin_invitation_pending" | "base_member_pending" | "base_role_pending" | "bootstrap_incomplete" | "bootstrapped" | "synced" | "error" | string;
     logtoSyncError: string | null;
     logtoSyncedAt: string | null;
     createdAt?: string;
