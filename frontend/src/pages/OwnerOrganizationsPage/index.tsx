@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Alert, Badge, Button, Form } from "react-bootstrap";
 import { useOwnerApi } from "../../api/owner";
+import { ORGANIZATION_BOOTSTRAP_ADMIN_ROLE } from "../../authLayers";
 import { useStableResource } from "../../shared/hooks/useStableResource";
 import { ErrorState, LoadingState, PageCard, PageShell } from "../../shared/ui";
 
@@ -13,7 +14,7 @@ export function OwnerOrganizationsPage() {
   const [baseAdminName, setBaseAdminName] = useState("");
   const [baseAdminEmail, setBaseAdminEmail] = useState("");
   const [baseAdminLogtoUserId, setBaseAdminLogtoUserId] = useState("");
-  const [defaultRoleName, setDefaultRoleName] = useState("Admin-org");
+  const [defaultRoleName, setDefaultRoleName] = useState<string>(ORGANIZATION_BOOTSTRAP_ADMIN_ROLE);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitWarning, setSubmitWarning] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -26,7 +27,7 @@ export function OwnerOrganizationsPage() {
   });
 
   const roles = templateResource.data?.roles.filter((role) => role.name) ?? [];
-  const selectedRole = roles.some((role) => role.name === defaultRoleName) ? defaultRoleName : roles[0]?.name ?? "Admin-org";
+  const selectedRole = roles.some((role) => role.name === defaultRoleName) ? defaultRoleName : roles[0]?.name ?? ORGANIZATION_BOOTSTRAP_ADMIN_ROLE;
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -81,7 +82,7 @@ export function OwnerOrganizationsPage() {
               <Form onSubmit={handleSubmit} className="d-flex flex-column gap-3">
                 {templateResource.data && !templateResource.data.ready ? (
                   <Alert variant="danger" className="mb-0">
-                    Falta configurar la plantilla de Logto. Roles requeridos ausentes: {templateResource.data.missingRoleNames.join(", ") || "Admin-org"}.
+                    Falta configurar la plantilla de Logto. Roles requeridos ausentes: {templateResource.data.missingRoleNames.join(", ") || ORGANIZATION_BOOTSTRAP_ADMIN_ROLE}.
                   </Alert>
                 ) : null}
                 <Form.Group controlId="ownerOrganizationName"><Form.Label>Nombre de organización</Form.Label><Form.Control value={name} onChange={(event) => setName(event.target.value)} placeholder="Colegio San José" required /></Form.Group>
@@ -109,7 +110,7 @@ export function OwnerOrganizationsPage() {
         <div className="col-12 col-xl-5">
           <PageCard title="Qué ocurre al crear" subtitle="Las etapas quedan auditadas de forma separada.">
             <ol className="text-secondary mb-0 d-flex flex-column gap-2">
-              <li>Validar plantilla de Logto y el rol <code>Admin-org</code>.</li>
+              <li>Validar plantilla de Logto y el rol <code>{ORGANIZATION_BOOTSTRAP_ADMIN_ROLE}</code>.</li>
               <li>Crear o reconciliar la organización canónica en Logto.</li>
               <li>Enlazar metadata operativa local con <code>logto_organization_id</code>.</li>
               <li>Agregar admin base a la organización y asignar rol inicial.</li>

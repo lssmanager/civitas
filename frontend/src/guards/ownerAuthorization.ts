@@ -1,4 +1,4 @@
-import { GLOBAL_OWNER_SCOPES } from "../authConfig";
+import { GLOBAL_OWNER_SCOPES } from "../authLayers";
 import { useSession, type SessionContextValue } from "../session/sessionContext";
 
 export type OwnerAuthorizationContext = {
