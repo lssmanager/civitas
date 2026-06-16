@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Alert, Badge, Button, Form } from "react-bootstrap";
 import { useOwnerApi } from "../../api/owner";
-import { ORGANIZATION_BOOTSTRAP_ADMIN_ROLE } from "../../authLayers";
+import { ORGANIZATION_BOOTSTRAP_ADMIN_ROLE, ORGANIZATION_JIT_DEFAULT_ROLE } from "../../authLayers";
 import { useStableResource } from "../../shared/hooks/useStableResource";
 import { ErrorState, LoadingState, PageCard, PageShell } from "../../shared/ui";
 
@@ -14,7 +14,8 @@ export function OwnerOrganizationsPage() {
   const [baseAdminName, setBaseAdminName] = useState("");
   const [baseAdminEmail, setBaseAdminEmail] = useState("");
   const [baseAdminLogtoUserId, setBaseAdminLogtoUserId] = useState("");
-  const [defaultRoleName, setDefaultRoleName] = useState<string>(ORGANIZATION_BOOTSTRAP_ADMIN_ROLE);
+  const [adminRoleName, setAdminRoleName] = useState<string>(ORGANIZATION_BOOTSTRAP_ADMIN_ROLE);
+  const [jitDefaultRoleName, setJitDefaultRoleName] = useState<string>(ORGANIZATION_JIT_DEFAULT_ROLE);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitWarning, setSubmitWarning] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -27,7 +28,9 @@ export function OwnerOrganizationsPage() {
   });
 
   const roles = templateResource.data?.roles.filter((role) => role.name) ?? [];
-  const selectedRole = roles.some((role) => role.name === defaultRoleName) ? defaultRoleName : roles[0]?.name ?? ORGANIZATION_BOOTSTRAP_ADMIN_ROLE;
+  const selectedAdminRole = roles.some((role) => role.name === adminRoleName) ? adminRoleName : ORGANIZATION_BOOTSTRAP_ADMIN_ROLE;
+  const selectedJitRole = roles.some((role) => role.name === jitDefaultRoleName) ? jitDefaultRoleName : ORGANIZATION_JIT_DEFAULT_ROLE;
+  const logtoUserIdLooksLikeRole = [ORGANIZATION_BOOTSTRAP_ADMIN_ROLE, ORGANIZATION_JIT_DEFAULT_ROLE].includes(baseAdminLogtoUserId.trim() as typeof ORGANIZATION_BOOTSTRAP_ADMIN_ROLE | typeof ORGANIZATION_JIT_DEFAULT_ROLE);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -41,11 +44,15 @@ export function OwnerOrganizationsPage() {
         slug,
         subdomain: appSubdomain,
         adminDomain: adminDomain || undefined,
-        defaultRoleNames: [selectedRole],
         baseAdmin: {
           name: baseAdminName || undefined,
           email: baseAdminEmail || undefined,
           logtoUserId: baseAdminLogtoUserId || undefined,
+          initialOrganizationRole: selectedAdminRole,
+        },
+        jitProvisioning: {
+          domain: adminDomain || undefined,
+          defaultRoleNames: [selectedJitRole],
         },
       });
 
@@ -95,14 +102,17 @@ export function OwnerOrganizationsPage() {
                   <Form.Group className="col-12 col-lg-6" controlId="ownerOrganizationBaseAdminName"><Form.Label>Nombre admin base</Form.Label><Form.Control value={baseAdminName} onChange={(event) => setBaseAdminName(event.target.value)} placeholder="María Admin" required /></Form.Group>
                   <Form.Group className="col-12 col-lg-6" controlId="ownerOrganizationBaseAdminEmail"><Form.Label>Correo admin base</Form.Label><Form.Control type="email" value={baseAdminEmail} onChange={(event) => setBaseAdminEmail(event.target.value)} placeholder="admin@colegio1.edu.co" required /></Form.Group>
                 </div>
-                <Form.Group controlId="ownerOrganizationBaseAdminLogtoId"><Form.Label>Logto user id admin base</Form.Label><Form.Control value={baseAdminLogtoUserId} onChange={(event) => setBaseAdminLogtoUserId(event.target.value)} placeholder="Opcional; requerido para agregar y asignar rol inmediatamente" /><Form.Text>Si se omite, la organización igual se crea en Logto; Civitas no crea un estado local pendiente ni usa el owner actual como sustituto.</Form.Text></Form.Group>
-                <Form.Group controlId="ownerOrganizationRoles"><Form.Label>Rol inicial desde plantilla Logto</Form.Label><Form.Select value={selectedRole} onChange={(event) => setDefaultRoleName(event.target.value)} disabled={roles.length === 0}>{roles.map((role) => <option value={role.name} key={role.id}>{role.name}</option>)}</Form.Select></Form.Group>
+                <Form.Group controlId="ownerOrganizationBaseAdminLogtoId"><Form.Label>Logto user id admin base existente</Form.Label><Form.Control isInvalid={logtoUserIdLooksLikeRole} value={baseAdminLogtoUserId} onChange={(event) => setBaseAdminLogtoUserId(event.target.value)} placeholder="Opcional: user id real de Logto, no un nombre de rol" /><Form.Control.Feedback type="invalid">Admin-org y Student-org son roles, no user ids de Logto.</Form.Control.Feedback><Form.Text>Si se omite, Civitas crea o resuelve el usuario por correo/nombre en Logto antes de agregarlo como miembro.</Form.Text></Form.Group>
+                <div className="row g-3">
+                  <Form.Group className="col-12 col-lg-6" controlId="ownerOrganizationAdminRole"><Form.Label>Rol organizacional del admin base</Form.Label><Form.Select value={selectedAdminRole} onChange={(event) => setAdminRoleName(event.target.value)} disabled={roles.length === 0}>{roles.filter((role) => role.name === ORGANIZATION_BOOTSTRAP_ADMIN_ROLE).map((role) => <option value={role.name} key={role.id}>{role.name}</option>)}</Form.Select><Form.Text>Se asigna al usuario admin base después de hacerlo miembro.</Form.Text></Form.Group>
+                  <Form.Group className="col-12 col-lg-6" controlId="ownerOrganizationJitDefaultRole"><Form.Label>Rol predeterminado para JIT</Form.Label><Form.Select value={selectedJitRole} onChange={(event) => setJitDefaultRoleName(event.target.value)} disabled={roles.length === 0}>{roles.filter((role) => role.name === ORGANIZATION_JIT_DEFAULT_ROLE).map((role) => <option value={role.name} key={role.id}>{role.name}</option>)}</Form.Select><Form.Text>Se configura en Logto para nuevos usuarios del dominio institucional.</Form.Text></Form.Group>
+                </div>
                 <Alert variant="info" className="mb-0">
-                  El alta crea o reconcilia la organización directamente en Logto y envía allí el customData derivado de slug, subdominio y dominio institucional. Si indicas un Logto user id existente, Civitas intenta agregarlo y asignarle el rol; si no, solo informa que esa asignación no se ejecutó.
+                  El alta crea o reconcilia la organización en Logto, crea o resuelve el admin base en Logto, lo agrega como miembro, le asigna Admin-org y configura en la API de Logto el dominio institucional con Student-org como rol JIT predeterminado. customData queda solo como metadata auxiliar.
                 </Alert>
                 {submitError && <Alert variant="danger" className="mb-0">{submitError}</Alert>}
                 {submitWarning && <Alert variant="warning" className="mb-0">{submitWarning}</Alert>}
-                <Button type="submit" disabled={isSubmitting || !name.trim() || !slug.trim() || !appSubdomain.trim() || !adminDomain.trim() || !baseAdminName.trim() || !baseAdminEmail.trim() || (Boolean(baseAdminLogtoUserId.trim()) && !templateResource.data?.ready)}>{isSubmitting ? "Creando..." : "Crear organización"}</Button>
+                <Button type="submit" disabled={isSubmitting || !name.trim() || !slug.trim() || !appSubdomain.trim() || !adminDomain.trim() || !baseAdminName.trim() || !baseAdminEmail.trim() || logtoUserIdLooksLikeRole || !templateResource.data?.ready}>{isSubmitting ? "Creando..." : "Crear organización"}</Button>
               </Form>
             )}
           </PageCard>
@@ -113,8 +123,9 @@ export function OwnerOrganizationsPage() {
               <li>Crear o reconciliar primero la organización canónica en Logto.</li>
               <li>Enviar <code>customData</code> derivado de slug/subdominio/dominio directamente a Logto.</li>
               <li>No insertar <code>organization_profiles</code> ni checkpoints locales como requisito del alta.</li>
-              <li>Si se proporcionó un Logto user id, validar plantilla/usuario y asignar el rol <code>{ORGANIZATION_BOOTSTRAP_ADMIN_ROLE}</code>.</li>
-              <li>Si no se proporcionó Logto user id, devolver una advertencia clara sin crear estado local pending.</li>
+              <li>Crear o resolver el admin base por <code>logtoUserId</code> o por correo/nombre.</li>
+              <li>Agregarlo como miembro y asignarle <code>{ORGANIZATION_BOOTSTRAP_ADMIN_ROLE}</code> sin usar al owner global como sustituto.</li>
+              <li>Configurar JIT real en Logto: dominio institucional y rol default <code>{ORGANIZATION_JIT_DEFAULT_ROLE}</code>.</li>
               <li>Enviar errores y soporte técnico a <strong>Observabilidad &gt; Logs</strong>.</li>
             </ol>
           </PageCard>

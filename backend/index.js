@@ -441,8 +441,16 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
       sourceOfTruth: "logto",
       customDataApplied: result.customDataApplied,
       reconciled: result.reconciled,
+      steps: {
+        logtoOrganization: { status: result.reconciled ? "reconciled" : "created", id: logtoOrganizationId },
+        baseAdminUser: { status: result.adminAssignment?.userCreated ? "created" : "resolved", logtoUserId: result.adminAssignment?.logtoUserId, source: result.adminAssignment?.userSource },
+        baseAdminMembership: { status: result.adminAssignment?.membershipAdded ? "added" : "not_added" },
+        baseAdminRole: { status: result.adminAssignment?.roleAssigned ? "assigned" : "not_assigned", roleName: result.adminAssignment?.roleName },
+        jitProvisioning: { status: result.jitProvisioning?.status, domainConfigured: result.jitProvisioning?.domainConfigured, domain: result.jitProvisioning?.domain },
+        jitDefaultRoles: { status: result.jitProvisioning?.defaultRolesConfigured ? "configured" : "not_configured", roleNames: result.jitProvisioning?.defaultRoleNames },
+      },
       adminAssignment: result.adminAssignment,
-      ...(result.adminAssignment?.status === "skipped_missing_logto_user_id" ? { warning: result.adminAssignment.message } : {}),
+      jitProvisioning: result.jitProvisioning,
     });
   } catch (error) {
     if (error.provisioningState) {
@@ -478,7 +486,7 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
         status: "created_in_logto_with_followup_failure",
         sourceOfTruth: "logto",
         warning: `Organization was created canonically in Logto, but a non-canonical follow-up step failed: ${errorMessage}`,
-        failedStep: error.code === "LOGTO_ORGANIZATION_TEMPLATE_MISSING_ROLES" ? "admin_role_template_validation" : "base_admin_assignment",
+        failedStep: error.request?.path?.includes("/jit/email-domains") ? "jit_email_domain_configuration" : error.request?.path?.includes("/jit/roles") ? "jit_default_roles_configuration" : error.request?.path?.includes("/users") ? "base_admin_user_resolution" : error.request?.path?.includes("/roles") ? "base_admin_role_assignment" : error.code === "LOGTO_ORGANIZATION_TEMPLATE_MISSING_ROLES" ? "organization_template_validation" : "base_admin_or_jit_followup",
         followUpError: { message: errorMessage, status: error.status || null, request: error.request || null, body: error.body || null },
       });
     }

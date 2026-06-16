@@ -15,3 +15,5 @@ export function assertNoOrganizationRolesInGlobalOwnerScopes() {
     );
   }
 }
+
+export const ORGANIZATION_JIT_DEFAULT_ROLE = "Student-org" as const;
