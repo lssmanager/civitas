@@ -5,11 +5,12 @@ const REQUIRED_ORGANIZATION_ROLE_NAMES = [ORGANIZATION_ADMIN_ROLE_NAME];
 let tokenCache = null;
 
 class LogtoManagementApiError extends Error {
-  constructor(message, { status, body } = {}) {
+  constructor(message, { status, body, request } = {}) {
     super(message);
     this.name = "LogtoManagementApiError";
     this.status = status;
     this.body = body;
+    this.request = request;
   }
 }
 
@@ -100,9 +101,20 @@ async function parseLogtoManagementApiResponse(response) {
   }
 }
 
+const parseRequestBodyForDiagnostics = (body) => {
+  if (!body) return undefined;
+  if (typeof body !== "string") return "[non-string body]";
+  try {
+    return JSON.parse(body);
+  } catch (error) {
+    return body;
+  }
+};
+
 async function callLogtoManagementApi(path, options = {}) {
   const accessToken = await fetchLogtoManagementApiAccessToken();
   const { endpoint } = getLogtoManagementConfig();
+  const request = { method: options.method || "GET", path, payload: parseRequestBodyForDiagnostics(options.body) };
   const response = await fetch(`${endpoint}/api${path}`, {
     ...options,
     headers: {
@@ -115,7 +127,7 @@ async function callLogtoManagementApi(path, options = {}) {
   const parsedBody = await parseLogtoManagementApiResponse(response);
 
   if (!response.ok) {
-    throw new LogtoManagementApiError("Logto Management API request failed", { status: response.status, body: parsedBody });
+    throw new LogtoManagementApiError("Logto Management API request failed", { status: response.status, body: parsedBody, request });
   }
 
   return parsedBody;
@@ -125,6 +137,13 @@ async function createLogtoOrganization({ name, description, customData }) {
   return callLogtoManagementApi("/organizations", {
     method: "POST",
     body: JSON.stringify({ name, description: description || undefined, customData: customData || undefined }),
+  });
+}
+
+async function updateLogtoOrganizationCustomData({ organizationId, customData }) {
+  return callLogtoManagementApi(`/organizations/${organizationId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ customData }),
   });
 }
 
@@ -198,10 +217,13 @@ async function findLogtoOrganizationByName(name) {
   return organizations.find((organization) => organization?.name === normalizedName || organization?.nameCache === normalizedName) || null;
 }
 
-async function assignOrganizationRoleToUser({ organizationId, userId, organizationRoleId }) {
+async function assignOrganizationRoleToUser({ organizationId, userId, organizationRoleId, organizationRoleName }) {
+  const rolePayload = organizationRoleId
+    ? { organizationRoleIds: [organizationRoleId] }
+    : { organizationRoleNames: [organizationRoleName] };
   return callLogtoManagementApi(`/organizations/${organizationId}/users/${userId}/roles`, {
     method: "POST",
-    body: JSON.stringify({ organizationRoleIds: [organizationRoleId] }),
+    body: JSON.stringify(rolePayload),
   });
 }
 
@@ -221,6 +243,7 @@ module.exports = {
   addUserToLogtoOrganization,
   assignOrganizationRoleToUser,
   createLogtoOrganization,
+  updateLogtoOrganizationCustomData,
   fetchLogtoManagementApiAccessToken,
   findLogtoOrganizationByName,
   ensureOrganizationTemplate,

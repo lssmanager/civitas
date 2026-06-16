@@ -6,6 +6,7 @@ const LOGTO_SYNC_STATUSES = Object.freeze({
   PENDING: "pending",
   LOGTO_CREATED: "logto_created",
   METADATA_LINKED: "metadata_linked",
+  BASE_ADMIN_INVITATION_PENDING: "base_admin_invitation_pending",
   BASE_MEMBER_PENDING: "base_member_pending",
   BASE_ROLE_PENDING: "base_role_pending",
   BOOTSTRAPPED: "bootstrapped",
@@ -88,7 +89,7 @@ async function createOrganizationProfile({ nameCache, type, subdomain, slug, adm
   return profile;
 }
 
-async function markOrganizationProfileProvisioningStage({ id, logtoOrganizationId, nameCache, status, errorMessage = null, synced = false }) {
+async function markOrganizationProfileProvisioningStage({ id, logtoOrganizationId, nameCache, status, errorMessage = null, synced = false, settings }) {
   const now = new Date();
   const update = {
     logtoSyncStatus: status,
@@ -98,6 +99,7 @@ async function markOrganizationProfileProvisioningStage({ id, logtoOrganizationI
 
   if (logtoOrganizationId !== undefined) update.logtoOrganizationId = logtoOrganizationId;
   if (nameCache !== undefined) update.nameCache = nameCache || null;
+  if (settings !== undefined) update.settings = settings;
   if (synced) update.logtoSyncedAt = now;
 
   const [profile] = await db.update(organizationProfiles).set(update).where(eq(organizationProfiles.id, id)).returning();
@@ -115,8 +117,8 @@ async function markOrganizationProfileLogtoSynced({ id, logtoOrganizationId, nam
   });
 }
 
-async function markOrganizationProfileLogtoSyncError({ id, errorMessage, status = LOGTO_SYNC_STATUSES.ERROR }) {
-  return markOrganizationProfileProvisioningStage({ id, status, errorMessage: errorMessage || "Logto synchronization failed" });
+async function markOrganizationProfileLogtoSyncError({ id, errorMessage, status = LOGTO_SYNC_STATUSES.ERROR, settings }) {
+  return markOrganizationProfileProvisioningStage({ id, status, errorMessage: errorMessage || "Logto synchronization failed", settings });
 }
 
 async function upsertOrganizationProfile({ logtoOrganizationId, nameCache, type, subdomain, slug, adminDomain, logoUrl, faviconUrl, primaryColor, primaryColorDark, organizationLoginExperienceEnabled = false, defaultRoleNames = [], oidcApplicationId = null, oidcInitialConfig = null, oidcApplicationSecretRef = null, emailDomainProvisioningStatus = "not_requested", settings = null, seatTotal, logtoSyncStatus = LOGTO_SYNC_STATUSES.BOOTSTRAPPED, logtoSyncError = null }) {

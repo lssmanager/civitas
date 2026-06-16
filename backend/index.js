@@ -27,8 +27,8 @@ const {
   listAuditLogs,
   recordAuditLogBestEffort,
 } = require("./services/auditLogs");
-const { normalizeCanonicalProvisioningInput, runCanonicalOrganizationBootstrap } = require("./services/organizationProvisioningCore");
-const { buildExtendedProfileFields, normalizeExtendedProvisioningInput } = require("./services/organizationProvisioningSettings");
+const { normalizeCanonicalProvisioningInput, resumeOrganizationBootstrap, runCanonicalOrganizationBootstrap } = require("./services/organizationProvisioningCore");
+const { buildExtendedProfileFields, buildLogtoOrganizationCustomData, normalizeExtendedProvisioningInput } = require("./services/organizationProvisioningSettings");
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -232,7 +232,8 @@ async function reconcileProfilesWithLogtoOrganizations({ logtoOrganizations, pro
 const getSafeErrorMessage = (error) => {
   if (!error) return "Logto synchronization failed";
   const status = error.status ? ` (${error.status})` : "";
-  return `${error.message || "Logto synchronization failed"}${status}`;
+  const requestPath = error.request?.path ? ` at ${error.request.method || "GET"} ${error.request.path}` : "";
+  return `${error.message || "Logto synchronization failed"}${status}${requestPath}`;
 };
 
 // Local base healthcheck. It intentionally does not depend on Logto or any external integration.
@@ -390,17 +391,21 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
     }
 
     const duplicateProfile = await findOrganizationProfileBySlugOrAdminDomain({ slug: extendedInput.value.slug, adminDomain: extendedInput.value.adminDomain });
-    if (duplicateProfile) {
+    const resumableStatuses = new Set([LOGTO_SYNC_STATUSES.LOGTO_CREATED, LOGTO_SYNC_STATUSES.BASE_ADMIN_INVITATION_PENDING, LOGTO_SYNC_STATUSES.BASE_MEMBER_PENDING, LOGTO_SYNC_STATUSES.BASE_ROLE_PENDING, LOGTO_SYNC_STATUSES.BOOTSTRAP_INCOMPLETE]);
+    if (duplicateProfile && !resumableStatuses.has(duplicateProfile.logtoSyncStatus)) {
       const duplicatedField = duplicateProfile.slug === extendedInput.value.slug ? "slug" : "adminDomain";
       return res.status(409).json({ error: "Conflict", message: `Organization ${duplicatedField} is already configured` });
     }
 
-    const result = await runCanonicalOrganizationBootstrap({
+    const bootstrapRunner = duplicateProfile ? resumeOrganizationBootstrap : runCanonicalOrganizationBootstrap;
+    const result = await bootstrapRunner({
       canonical: canonicalInput.value,
       extendedProfileFields: buildExtendedProfileFields(extendedInput.value, { baseAdmin: canonicalInput.value.baseAdmin }),
+      logtoCustomData: buildLogtoOrganizationCustomData(extendedInput.value),
       authUser: req.user,
       internalUser,
       auditContextBuilder: ({ organization }) => buildAuditContext({ authUser: req.user, internalUser, organization }),
+      existingProfile: duplicateProfile || null,
     });
 
     profile = result.profile;
@@ -408,7 +413,10 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
     logtoOrganizationId = result.logtoOrganizationId;
     bootstrapStage = result.bootstrapStage;
 
-    return res.status(201).json({ organization: serializeOwnerOrganization(profile, logtoOrganization) });
+    return res.status(201).json({
+      organization: serializeOwnerOrganization(profile, logtoOrganization),
+      ...(result.partial ? { warning: `Organización creada en Logto con customData; admin base pendiente porque falta logtoUserId para ${canonicalInput.value.baseAdmin.email}.` } : {}),
+    });
   } catch (error) {
     if (error.provisioningState) {
       profile = error.provisioningState.profile || profile;
@@ -420,13 +428,13 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
     const status = error.code === "LOGTO_ORGANIZATION_TEMPLATE_MISSING_ROLES" ? 424 : logtoOrganizationId ? 201 : 502;
 
     if (profile?.id) {
-      profile = await markOrganizationProfileLogtoSyncError({ id: profile.id, errorMessage, status: bootstrapStage }).catch((persistenceError) => {
+      profile = await markOrganizationProfileLogtoSyncError({ id: profile.id, errorMessage, status: LOGTO_SYNC_STATUSES.BOOTSTRAP_INCOMPLETE, settings: { ...(profile.settings || {}), provisioningState: { ...(profile.settings?.provisioningState || {}), status: "bootstrap_incomplete", failedStage: bootstrapStage, requiresResume: true, logtoOrganizationExists: Boolean(logtoOrganizationId), metadataLinked: Boolean(profile?.logtoOrganizationId || logtoOrganizationId) } } }).catch((persistenceError) => {
         console.error(`Failed to persist provisioning error for organization profile ${profile?.id}`, persistenceError);
         return profile;
       });
     }
 
-    await recordAuditLogBestEffort({ actorUserId: internalUser?.id ?? null, organizationId: logtoOrganizationId || profile?.id, action: error.code === "LOGTO_ORGANIZATION_TEMPLATE_MISSING_ROLES" ? AUDIT_ACTIONS.OWNER_ORGANIZATION_TEMPLATE_VALIDATE : AUDIT_ACTIONS.OWNER_ORGANIZATION_BOOTSTRAP_FAILED, result: AUDIT_RESULTS.ERROR, metadata: { ...buildAuditContext({ authUser: req.user, internalUser, organization: logtoOrganization }), profileId: profile?.id, name: value.name, logtoOrganizationId, stage: bootstrapStage, missingRoleNames: error.missingRoleNames, error: errorMessage } });
+    await recordAuditLogBestEffort({ actorUserId: internalUser?.id ?? null, organizationId: logtoOrganizationId || profile?.id, action: error.code === "LOGTO_ORGANIZATION_TEMPLATE_MISSING_ROLES" ? AUDIT_ACTIONS.OWNER_ORGANIZATION_TEMPLATE_VALIDATE : AUDIT_ACTIONS.OWNER_ORGANIZATION_BOOTSTRAP_FAILED, result: AUDIT_RESULTS.ERROR, metadata: { ...buildAuditContext({ authUser: req.user, internalUser, organization: logtoOrganization }), profileId: profile?.id, name: value.name, logtoOrganizationId, stage: bootstrapStage, missingRoleNames: error.missingRoleNames, error: errorMessage, logtoRequest: error.request, logtoErrorBody: error.body } });
 
     console.error("Organization provisioning failed", error);
     if (status === 201) {
