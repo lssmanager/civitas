@@ -3,6 +3,9 @@ services:
     build:
       context: ./backend
     restart: unless-stopped
+    networks:
+      - default
+      - loginet
     environment:
       NODE_ENV: production
       PORT: ${BACKEND_PORT:-3000}
@@ -67,3 +70,8 @@ services:
       timeout: 5s
       retries: 6
       start_period: 10s
+
+networks:
+  default:
+  loginet:
+    external: true
