@@ -3,6 +3,9 @@ services:
     build:
       context: ./backend
     restart: unless-stopped
+    networks:
+      - default
+      - loginet
     environment:
       NODE_ENV: production
       PORT: ${BACKEND_PORT:-3000}
@@ -11,6 +14,10 @@ services:
       LOGTO_JWKS_URL: ${LOGTO_JWKS_URL:-}
       LOGTO_ISSUER: ${LOGTO_ISSUER:-}
       LOGTO_API_RESOURCE_INDICATOR: ${LOGTO_API_RESOURCE_INDICATOR:-}
+      LOGTO_MANAGEMENT_API_TOKEN_ENDPOINT: ${LOGTO_MANAGEMENT_API_TOKEN_ENDPOINT:-}
+      LOGTO_MANAGEMENT_API_APPLICATION_ID: ${LOGTO_MANAGEMENT_API_APPLICATION_ID:-}
+      LOGTO_MANAGEMENT_API_APPLICATION_SECRET: ${LOGTO_MANAGEMENT_API_APPLICATION_SECRET:-}
+      LOGTO_MANAGEMENT_API_RESOURCE: ${LOGTO_MANAGEMENT_API_RESOURCE:-}
     ports:
       - "${BACKEND_PUBLIC_PORT:-3000}:${BACKEND_PORT:-3000}"
     healthcheck:
@@ -22,7 +29,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 6
-      start_period: 10s
+      start_period: 90s
 
   frontend:
     build:
@@ -60,3 +67,8 @@ services:
       timeout: 5s
       retries: 6
       start_period: 10s
+
+networks:
+  default:
+  loginet:
+    external: true
