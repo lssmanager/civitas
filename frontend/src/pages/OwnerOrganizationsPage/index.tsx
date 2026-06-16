@@ -97,7 +97,7 @@ export function OwnerOrganizationsPage() {
                 <Form.Group controlId="ownerOrganizationBaseAdminLogtoId"><Form.Label>Logto user id admin base</Form.Label><Form.Control value={baseAdminLogtoUserId} onChange={(event) => setBaseAdminLogtoUserId(event.target.value)} placeholder="Opcional; si se omite, se usa el owner actual para bootstrap" /><Form.Text>La invitación por correo queda preparada para fase posterior; la asignación inmediata requiere usuario Logto existente.</Form.Text></Form.Group>
                 <Form.Group controlId="ownerOrganizationRoles"><Form.Label>Rol inicial desde plantilla Logto</Form.Label><Form.Select value={selectedRole} onChange={(event) => setDefaultRoleName(event.target.value)} disabled={roles.length === 0}>{roles.map((role) => <option value={role.name} key={role.id}>{role.name}</option>)}</Form.Select></Form.Group>
                 <Alert variant="info" className="mb-0">
-                  No se solicita JSON manual de <code>customData</code>. Civitas construirá internamente <code>oidcRedirectUri</code> desde el subdominio app y gestionará <code>oidcApplicationId</code> / <code>oidcApplicationSecret</code> en el flujo de backend.
+                  El alta canónica se limita a Logto y al bootstrap del admin base. Subdominio, dominio y configuración OIDC quedan preparados como provisioning ampliado local, separado del núcleo.
                 </Alert>
                 {submitError && <Alert variant="danger" className="mb-0">{submitError}</Alert>}
                 {submitWarning && <Alert variant="warning" className="mb-0">{submitWarning}</Alert>}
@@ -112,8 +112,8 @@ export function OwnerOrganizationsPage() {
               <li>Validar plantilla de Logto y el rol <code>Admin-org</code>.</li>
               <li>Crear o reconciliar la organización canónica en Logto.</li>
               <li>Enlazar metadata operativa local con <code>logto_organization_id</code>.</li>
-              <li>Generar <code>customData</code> OIDC desde campos humanos, sin pedir JSON al owner.</li>
               <li>Agregar admin base a la organización y asignar rol inicial.</li>
+              <li>Preparar slug, dominio, settings y OIDC interno en la capa de provisioning ampliado.</li>
               <li>Enviar errores y soporte técnico a <strong>Observabilidad &gt; Logs</strong>.</li>
             </ol>
           </PageCard>
