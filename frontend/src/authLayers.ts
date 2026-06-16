@@ -5,6 +5,7 @@ export const GLOBAL_OWNER_SCOPES = [
 ] as const;
 
 export const ORGANIZATION_BOOTSTRAP_ADMIN_ROLE = "Admin-org" as const;
+export const ORGANIZATION_JIT_DEFAULT_ROLE = "Student-org" as const;
 
 const GLOBAL_SCOPE_SET = new Set<string>(GLOBAL_OWNER_SCOPES);
 

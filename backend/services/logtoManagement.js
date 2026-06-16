@@ -1,6 +1,7 @@
 const MANAGEMENT_TOKEN_SCOPE = "all";
 const ORGANIZATION_ADMIN_ROLE_NAME = "Admin-org";
-const REQUIRED_ORGANIZATION_ROLE_NAMES = [ORGANIZATION_ADMIN_ROLE_NAME];
+const ORGANIZATION_STUDENT_ROLE_NAME = "Student-org";
+const REQUIRED_ORGANIZATION_ROLE_NAMES = [ORGANIZATION_ADMIN_ROLE_NAME, ORGANIZATION_STUDENT_ROLE_NAME];
 
 let tokenCache = null;
 
@@ -17,7 +18,13 @@ class LogtoManagementApiError extends Error {
 const getRequiredEnv = (name) => {
   const value = process.env[name];
   if (!value) {
-    throw new Error(`${name} is required for Logto Management API`);
+    const error = new LogtoManagementApiError(`${name} is required for Logto Management API`, {
+      status: 500,
+      body: { reason: "missing_logto_management_configuration", env: name },
+    });
+    error.code = "LOGTO_MANAGEMENT_CONFIG_MISSING";
+    error.diagnostic = `Missing environment variable ${name}; configure Logto Management API credentials before calling Civitas owner organization endpoints.`;
+    throw error;
   }
   return value;
 };
@@ -147,6 +154,44 @@ async function updateLogtoOrganizationCustomData({ organizationId, customData })
   });
 }
 
+async function createLogtoUser({ primaryEmail, name }) {
+  return callLogtoManagementApi("/users", {
+    method: "POST",
+    body: JSON.stringify({ primaryEmail, name: name || undefined }),
+  });
+}
+
+async function listLogtoUsersByEmail(email) {
+  const params = new URLSearchParams([
+    ["search.primaryEmail", email],
+    ["mode.primaryEmail", "exact"],
+  ]);
+  const response = await callLogtoManagementApi(`/users?${params.toString()}`);
+  return Array.isArray(response) ? response : response?.data || response?.items || [];
+}
+
+async function findLogtoUserByEmail(email) {
+  const normalizedEmail = typeof email === "string" ? email.trim().toLowerCase() : "";
+  if (!normalizedEmail) return null;
+
+  const users = await listLogtoUsersByEmail(normalizedEmail);
+  return users.find((user) => (user.primaryEmail || user.email || user.profile?.email || "").toLowerCase() === normalizedEmail) || null;
+}
+
+async function replaceOrganizationJitEmailDomains({ organizationId, emailDomains }) {
+  return callLogtoManagementApi(`/organizations/${organizationId}/jit/email-domains`, {
+    method: "PUT",
+    body: JSON.stringify({ emailDomains }),
+  });
+}
+
+async function replaceOrganizationJitRoles({ organizationId, organizationRoleIds }) {
+  return callLogtoManagementApi(`/organizations/${organizationId}/jit/roles`, {
+    method: "PUT",
+    body: JSON.stringify({ organizationRoleIds }),
+  });
+}
+
 async function addUserToLogtoOrganization({ organizationId, userId }) {
   return callLogtoManagementApi(`/organizations/${organizationId}/users`, {
     method: "POST",
@@ -238,20 +283,25 @@ async function listLogtoOrganizations() {
 
 module.exports = {
   ORGANIZATION_ADMIN_ROLE_NAME,
+  ORGANIZATION_STUDENT_ROLE_NAME,
   REQUIRED_ORGANIZATION_ROLE_NAMES,
   LogtoManagementApiError,
   addUserToLogtoOrganization,
   assignOrganizationRoleToUser,
   createLogtoOrganization,
+  createLogtoUser,
   updateLogtoOrganizationCustomData,
   fetchLogtoManagementApiAccessToken,
   findLogtoOrganizationByName,
   ensureOrganizationTemplate,
+  findLogtoUserByEmail,
   findOrganizationRoleByName,
   getLogtoManagementConfig,
   getLogtoUserById,
   listLogtoOrganizationRoles,
   validateOrganizationTemplate,
   parseLogtoManagementApiResponse,
+  replaceOrganizationJitEmailDomains,
+  replaceOrganizationJitRoles,
   listLogtoOrganizations,
 };

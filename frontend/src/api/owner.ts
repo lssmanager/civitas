@@ -102,7 +102,8 @@ export type CreateOwnerOrganizationInput = {
   logoUrl?: string;
   faviconUrl?: string;
   defaultRoleNames?: string[];
-  baseAdmin?: { name?: string; email?: string; logtoUserId?: string };
+  baseAdmin?: { name?: string; email?: string; logtoUserId?: string; initialOrganizationRole?: string };
+  jitProvisioning?: { domain?: string; defaultRoleNames?: string[] };
   settings?: Record<string, unknown>;
 };
 
@@ -121,7 +122,7 @@ export const useOwnerApi = () => {
         const query = params.toString();
         return fetchWithToken(`/owner/audit${query ? `?${query}` : ""}`);
       },
-      createOrganization: async (data: CreateOwnerOrganizationInput): Promise<{ organization: OwnerOrganization; warning?: string }> =>
+      createOrganization: async (data: CreateOwnerOrganizationInput): Promise<{ organization: OwnerOrganization; status: string; sourceOfTruth: "logto"; adminAssignment?: { status: string; message?: string; logtoUserId?: string; roleName?: string; userCreated?: boolean; userResolution?: string }; jitProvisioning?: { status: string; domain: string; defaultRoleNames: string[]; organizationRoleIds?: string[] }; warning?: string }> =>
         fetchWithToken("/owner/organizations", { method: "POST", body: JSON.stringify(data) }),
     }),
     [fetchWithToken]

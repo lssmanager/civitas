@@ -4,8 +4,26 @@ import type { OwnerOrganization } from "./owner";
 
 export type OrganizationReconciliationStatus = "linked" | "name_matched_pending_link" | "metadata_missing" | "conflict" | string;
 
+export type CanonicalOrganizationFields = {
+  name: string | null;
+  customData: Record<string, unknown>;
+  oidcRedirectUri: string | null;
+  appSubdomain: string | null;
+  slug: string | null;
+  adminDomain: string | null;
+  visibleSource: "logto" | string;
+};
+
+export type OrganizationReconciliationIncident = {
+  type: string;
+  policy: string;
+  message: string;
+  profile: NonNullable<OwnerOrganization["profile"]>;
+};
+
 export type SelectableOrganization = OwnerOrganization & {
   logtoOrganizationId: string;
+  canonical: CanonicalOrganizationFields;
   syncStatus: "synced" | "pending" | "error" | "metadata_missing" | "conflict" | string;
   syncError: string | null;
   reconciliation: {
@@ -13,11 +31,14 @@ export type SelectableOrganization = OwnerOrganization & {
     profileCount: number;
     matchedBy: "logto_organization_id" | "name" | null | string;
     profileIds: string[];
+    canonicalProfileId: string | null;
+    duplicateProfileIds: string[];
   };
 };
 
 export type OrganizationSelectionResponse = {
   organizations: SelectableOrganization[];
+  reconciliationIncidents?: OrganizationReconciliationIncident[];
   unreconciledProfiles: NonNullable<OwnerOrganization["profile"]>[];
 };
 

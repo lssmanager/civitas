@@ -36,7 +36,8 @@ const formatLastSync = (value?: string | null) => value ? new Date(value).toLoca
 
 function OrganizationCard({ organization }: { organization: SelectableOrganization }) {
   const profile = organization.profile;
-  const subdomain = profile?.subdomain;
+  const canonical = organization.canonical;
+  const subdomain = canonical?.appSubdomain;
 
   return (
     <Card className="h-100 border-0 shadow-sm civitas-select-card">
@@ -55,8 +56,10 @@ function OrganizationCard({ organization }: { organization: SelectableOrganizati
         </div>
 
         <div className="small text-secondary d-flex flex-column gap-1">
-          <span>{subdomain ? `Subdominio: ${subdomain}` : "Sin subdominio local configurado"}</span>
-          <span>Último bootstrap completo: {formatLastSync(profile?.logtoSyncedAt)}</span>
+          <span>{subdomain ? `Subdominio app (Logto): ${subdomain}` : "Sin subdominio canónico en Logto"}</span>
+          {canonical?.oidcRedirectUri ? <span className="text-break">Redirect URI Logto: {canonical.oidcRedirectUri}</span> : null}
+          {profile?.subdomain && profile.subdomain !== subdomain ? <span>Subdominio local legacy: {profile.subdomain}</span> : null}
+          <span>Último bootstrap completo local: {formatLastSync(profile?.logtoSyncedAt)}</span>
           <span>{getReconciliationLabel(organization)}</span>
           {organization.reconciliation.profileIds.length > 0 ? (
             <span className="text-break">Perfiles internos asociados: {organization.reconciliation.profileIds.join(", ")}</span>
@@ -92,6 +95,7 @@ export function SelectOrganizationPage() {
   });
 
   const organizations = organizationsResource.data?.organizations ?? [];
+  const reconciliationIncidents = organizationsResource.data?.reconciliationIncidents ?? [];
   const unreconciledProfiles = organizationsResource.data?.unreconciledProfiles ?? [];
 
   return (
@@ -128,11 +132,25 @@ export function SelectOrganizationPage() {
         )}
       </PageCard>
 
-      {!organizationsResource.isLoading && !organizationsResource.error && unreconciledProfiles.length > 0 ? (
+      {!organizationsResource.isLoading && !organizationsResource.error && reconciliationIncidents.length > 0 ? (
         <Alert variant="warning" className="mb-0">
-          <Alert.Heading className="h6">Perfiles internos sin organización Logto reconciliada</Alert.Heading>
+          <Alert.Heading className="h6">Incidentes de reconciliación fuera del directorio operativo</Alert.Heading>
           <p className="mb-2">
-            Hay {unreconciledProfiles.length} perfil(es) local(es) que no se muestran como organizaciones separadas porque Logto es la fuente de identidad.
+            Hay {reconciliationIncidents.length} perfil(es) local(es) archivados o mantenidos solo para observabilidad; no contaminan el catálogo canónico porque Logto es la fuente real de identidad.
+          </p>
+          <div className="small text-break d-flex flex-column gap-1">
+            {reconciliationIncidents.map((incident) => (
+              <span key={incident.profile.id}>
+                {incident.profile.nameCache ?? incident.profile.id} · {incident.type} · {incident.policy}
+              </span>
+            ))}
+          </div>
+        </Alert>
+      ) : !organizationsResource.isLoading && !organizationsResource.error && unreconciledProfiles.length > 0 ? (
+        <Alert variant="warning" className="mb-0">
+          <Alert.Heading className="h6">Perfiles internos fuera del directorio operativo</Alert.Heading>
+          <p className="mb-2">
+            Hay {unreconciledProfiles.length} perfil(es) local(es) que se conservan para auditoría/compatibilidad, pero no se muestran como organizaciones canónicas.
           </p>
           <div className="small text-break">
             {unreconciledProfiles.map((profile) => profile.nameCache ?? profile.id).join(", ")}
