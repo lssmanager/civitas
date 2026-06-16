@@ -1,5 +1,7 @@
 export const GLOBAL_OWNER_SCOPES = [
   "owner:read",
+  "organizations:read",
+  "organizations:create",
 ] as const;
 
 export const ORGANIZATION_BOOTSTRAP_ADMIN_ROLE = "Admin-org" as const;

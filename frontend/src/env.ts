@@ -9,6 +9,8 @@ const LOCAL_APP_REDIRECT_URI = "http://localhost:5173/callback";
 const LOCAL_APP_SIGN_OUT_REDIRECT_URI = "http://localhost:5173/";
 
 const getViteEnv = (value: string | undefined, fallback: string) => value?.trim() || fallback;
+const trimTrailingSlashes = (value: string) => value.replace(/\/+$/, "");
+const getUrlEnv = (value: string | undefined, fallback: string) => trimTrailingSlashes(getViteEnv(value, fallback));
 
 const getApiBaseUrlFallback = () => (import.meta.env.PROD ? PRODUCTION_API_BASE_URL : LOCAL_API_BASE_URL);
 const getResourceIndicatorFallback = () => (import.meta.env.PROD ? PRODUCTION_API_BASE_URL : "");
@@ -35,8 +37,8 @@ export const APP_ENV = {
     appId: getViteEnv(import.meta.env.VITE_LOGTO_APP_ID, getLogtoAppIdFallback()),
   },
   api: {
-    baseUrl: getViteEnv(import.meta.env.VITE_API_BASE_URL, getApiBaseUrlFallback()),
-    resourceIndicator: getViteEnv(import.meta.env.VITE_API_RESOURCE_INDICATOR, getResourceIndicatorFallback()),
+    baseUrl: getUrlEnv(import.meta.env.VITE_API_BASE_URL, getApiBaseUrlFallback()),
+    resourceIndicator: getUrlEnv(import.meta.env.VITE_API_RESOURCE_INDICATOR, getResourceIndicatorFallback()),
   },
   app: {
     redirectUri: getViteEnv(import.meta.env.VITE_APP_REDIRECT_URI, getRedirectUriFallback()),
