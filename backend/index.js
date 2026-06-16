@@ -14,12 +14,8 @@ const {
 } = require("./services/logtoManagement");
 const {
   LOGTO_SYNC_STATUSES,
-  findOrganizationProfileBySlugOrAdminDomain,
   listOrganizationProfiles,
-  markOrganizationProfileLogtoSyncError,
-  markOrganizationProfileProvisioningStage,
   serializeOrganizationProfile,
-  upsertOrganizationProfile,
 } = require("./services/organizationProfiles");
 const {
   AUDIT_ACTIONS,
@@ -27,8 +23,8 @@ const {
   listAuditLogs,
   recordAuditLogBestEffort,
 } = require("./services/auditLogs");
-const { normalizeCanonicalProvisioningInput, resumeOrganizationBootstrap, runCanonicalOrganizationBootstrap } = require("./services/organizationProvisioningCore");
-const { buildExtendedProfileFields, buildLogtoOrganizationCustomData, normalizeExtendedProvisioningInput } = require("./services/organizationProvisioningSettings");
+const { normalizeCanonicalProvisioningInput, runCanonicalOrganizationBootstrap } = require("./services/organizationProvisioningCore");
+const { buildLogtoOrganizationCustomData, normalizeExtendedProvisioningInput } = require("./services/organizationProvisioningSettings");
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -39,12 +35,60 @@ app.use(express.json());
 
 const getLogtoOrganizationId = (organization) => organization.id || organization.organizationId || organization.logtoOrganizationId;
 const getLogtoOrganizationName = (organization) => organization.name || organization.nameCache || null;
+const LEARNSOCIALSTUDIES_APP_HOST = "learnsocialstudies.com";
+
+const getLogtoOrganizationCustomData = (organization = {}) => {
+  const customData = organization.customData || organization.custom_data || {};
+  return customData && typeof customData === "object" && !Array.isArray(customData) ? customData : {};
+};
+
+const deriveAppSubdomainFromOidcRedirectUri = (oidcRedirectUri) => {
+  if (!oidcRedirectUri || typeof oidcRedirectUri !== "string") return null;
+
+  try {
+    const url = new URL(oidcRedirectUri);
+    const hostname = url.hostname.toLowerCase();
+    const suffix = `.${LEARNSOCIALSTUDIES_APP_HOST}`;
+    if (!hostname.endsWith(suffix)) return null;
+
+    const subdomain = hostname.slice(0, -suffix.length);
+    return subdomain && !subdomain.includes(".") ? subdomain : null;
+  } catch (error) {
+    return null;
+  }
+};
+
+const buildCanonicalLogtoOrganizationFields = (logtoOrganization = {}) => {
+  const customData = getLogtoOrganizationCustomData(logtoOrganization);
+  const provisioning = customData.provisioning && typeof customData.provisioning === "object" ? customData.provisioning : {};
+  const oidcRedirectUri = typeof customData.oidcRedirectUri === "string" ? customData.oidcRedirectUri : null;
+  const appSubdomain = typeof provisioning.appSubdomain === "string" && provisioning.appSubdomain
+    ? provisioning.appSubdomain
+    : deriveAppSubdomainFromOidcRedirectUri(oidcRedirectUri);
+
+  return {
+    name: getCanonicalLogtoOrganizationName(logtoOrganization),
+    customData,
+    oidcRedirectUri,
+    appSubdomain,
+    slug: typeof provisioning.slug === "string" ? provisioning.slug : null,
+    adminDomain: typeof provisioning.institutionalDomain === "string" ? provisioning.institutionalDomain : null,
+    visibleSource: "logto",
+  };
+};
 
 const serializeOwnerOrganization = (profile, logtoOrganization = null) => ({
   logtoOrganizationId: profile?.logtoOrganizationId || (logtoOrganization ? getLogtoOrganizationId(logtoOrganization) : null),
   name: (logtoOrganization ? getLogtoOrganizationName(logtoOrganization) : null) || profile?.nameCache || null,
   logtoOrganization: logtoOrganization || null,
   profile: profile ? serializeOrganizationProfile(profile) : null,
+});
+
+const serializeLogtoOwnerOrganization = (logtoOrganization = null, fallbackLogtoOrganizationId = null) => ({
+  logtoOrganizationId: (logtoOrganization ? getLogtoOrganizationId(logtoOrganization) : null) || fallbackLogtoOrganizationId || null,
+  name: logtoOrganization ? getLogtoOrganizationName(logtoOrganization) : null,
+  logtoOrganization: logtoOrganization || null,
+  profile: null,
 });
 
 const toMillis = (value) => {
@@ -114,35 +158,50 @@ const buildOrganizationNamesById = (logtoOrganizations = []) =>
   );
 
 function buildLogtoOrganizationDirectory({ logtoOrganizations, profiles }) {
+  const logtoOrganizationIds = new Set(logtoOrganizations.map(getLogtoOrganizationId).filter(Boolean));
   const profilesByLogtoId = new Map();
-  const orphanProfiles = [];
+  const profilesWithoutLogtoId = [];
+  const orphanedProfiles = [];
 
   for (const profile of profiles) {
     if (profile.logtoOrganizationId) {
-      const existingProfiles = profilesByLogtoId.get(profile.logtoOrganizationId) || [];
-      existingProfiles.push(profile);
-      profilesByLogtoId.set(profile.logtoOrganizationId, existingProfiles);
+      if (logtoOrganizationIds.has(profile.logtoOrganizationId)) {
+        const existingProfiles = profilesByLogtoId.get(profile.logtoOrganizationId) || [];
+        existingProfiles.push(profile);
+        profilesByLogtoId.set(profile.logtoOrganizationId, existingProfiles);
+      } else {
+        orphanedProfiles.push(profile);
+      }
     } else {
-      orphanProfiles.push(profile);
+      profilesWithoutLogtoId.push(profile);
     }
   }
 
-  const matchedOrphanProfileIds = new Set();
+  const logtoNameCounts = logtoOrganizations.reduce((counts, organization) => {
+    const name = getCanonicalLogtoOrganizationName(organization);
+    if (name) counts.set(name, (counts.get(name) || 0) + 1);
+    return counts;
+  }, new Map());
+  const matchedLegacyProfileIds = new Set();
   const organizations = logtoOrganizations
     .map((logtoOrganization) => {
       const logtoOrganizationId = getLogtoOrganizationId(logtoOrganization);
       if (!logtoOrganizationId) return null;
 
-      const canonicalName = getCanonicalLogtoOrganizationName(logtoOrganization);
+      const canonical = buildCanonicalLogtoOrganizationFields(logtoOrganization);
       const linkedProfiles = profilesByLogtoId.get(logtoOrganizationId) || [];
-      const nameMatchedOrphans = orphanProfiles.filter((profile) => profile.nameCache && canonicalName && profile.nameCache === canonicalName);
+      const canSafelyMatchLegacyByName = Boolean(canonical.name) && logtoNameCounts.get(canonical.name) === 1;
+      const nameMatchedLegacyProfiles = canSafelyMatchLegacyByName
+        ? profilesWithoutLogtoId.filter((profile) => profile.nameCache === canonical.name && !matchedLegacyProfileIds.has(profile.id))
+        : [];
 
-      for (const profile of nameMatchedOrphans) {
-        matchedOrphanProfileIds.add(profile.id);
+      for (const profile of nameMatchedLegacyProfiles) {
+        matchedLegacyProfileIds.add(profile.id);
       }
 
-      const associatedProfiles = sortProfilesByNewest([...linkedProfiles, ...nameMatchedOrphans]);
+      const associatedProfiles = sortProfilesByNewest([...linkedProfiles, ...nameMatchedLegacyProfiles]);
       const profile = associatedProfiles[0] || null;
+      const duplicateProfileIds = associatedProfiles.slice(1).map((associatedProfile) => associatedProfile.id);
       const hasConflict = associatedProfiles.length > 1;
       const reconciliationStatus = hasConflict
         ? "conflict"
@@ -154,79 +213,55 @@ function buildLogtoOrganizationDirectory({ logtoOrganizations, profiles }) {
 
       return {
         logtoOrganizationId,
-        name: canonicalName,
+        name: canonical.name,
+        canonical,
         logtoOrganization,
         profile: profile ? serializeOrganizationProfile(profile) : null,
         syncStatus: hasConflict ? "conflict" : profile?.logtoSyncStatus || "metadata_missing",
         syncError: hasConflict
-          ? "Multiple internal profiles match this Logto organization and require reconciliation."
+          ? "Multiple internal profiles match this Logto organization; only the newest profile is used for operational state and the rest are reconciliation incidents."
           : profile?.logtoSyncError || null,
         reconciliation: {
           status: reconciliationStatus,
           profileCount: associatedProfiles.length,
-          matchedBy: linkedProfiles.length > 0 ? "logto_organization_id" : nameMatchedOrphans.length > 0 ? "name" : null,
+          matchedBy: linkedProfiles.length > 0 ? "logto_organization_id" : nameMatchedLegacyProfiles.length > 0 ? "name" : null,
           profileIds: associatedProfiles.map((associatedProfile) => associatedProfile.id),
+          canonicalProfileId: profile?.id || null,
+          duplicateProfileIds,
         },
       };
     })
     .filter(Boolean);
 
-  const unreconciledProfiles = orphanProfiles
-    .filter((profile) => !matchedOrphanProfileIds.has(profile.id))
-    .map(serializeOrganizationProfile);
+  const staleUnlinkedProfiles = profilesWithoutLogtoId.filter((profile) => !matchedLegacyProfileIds.has(profile.id));
+  const reconciliationIncidents = [
+    ...orphanedProfiles.map((profile) => ({
+      type: "orphaned_deleted_logto_organization",
+      policy: "archived_out_of_operational_directory",
+      profile: serializeOrganizationProfile(profile),
+      message: "Local profile references a Logto organization that no longer exists; it is retained only for audit/reconciliation.",
+    })),
+    ...staleUnlinkedProfiles.map((profile) => ({
+      type: "unlinked_legacy_profile",
+      policy: "observability_only",
+      profile: serializeOrganizationProfile(profile),
+      message: "Local profile has no Logto organization id and did not match any current Logto organization by name; it is not part of the operational directory.",
+    })),
+  ];
 
-  return { organizations, unreconciledProfiles };
+  return {
+    organizations,
+    reconciliationIncidents,
+    // Backwards-compatible alias for older clients; these are incidents, not operational organizations.
+    unreconciledProfiles: reconciliationIncidents.map((incident) => incident.profile),
+  };
 }
 
-
-async function reconcileProfilesWithLogtoOrganizations({ logtoOrganizations, profiles, auditActorUserId = null }) {
-  const profilesByLogtoId = new Map();
-  const orphanProfiles = [];
-
-  for (const profile of profiles) {
-    if (profile.logtoOrganizationId) {
-      const group = profilesByLogtoId.get(profile.logtoOrganizationId) || [];
-      group.push(profile);
-      profilesByLogtoId.set(profile.logtoOrganizationId, group);
-    } else {
-      orphanProfiles.push(profile);
-    }
-  }
-
-  let changed = false;
-  for (const logtoOrganization of logtoOrganizations) {
-    const logtoOrganizationId = getLogtoOrganizationId(logtoOrganization);
-    const canonicalName = getCanonicalLogtoOrganizationName(logtoOrganization);
-    if (!logtoOrganizationId || profilesByLogtoId.has(logtoOrganizationId) || !canonicalName) continue;
-
-    const nameMatches = orphanProfiles.filter((profile) => profile.nameCache === canonicalName);
-    if (nameMatches.length !== 1) continue;
-
-    const [profile] = nameMatches;
-    await markOrganizationProfileProvisioningStage({
-      id: profile.id,
-      logtoOrganizationId,
-      nameCache: canonicalName,
-      status: LOGTO_SYNC_STATUSES.METADATA_LINKED,
-      errorMessage: null,
-    });
-    await recordAuditLogBestEffort({
-      actorUserId: auditActorUserId,
-      organizationId: logtoOrganizationId,
-      action: AUDIT_ACTIONS.OWNER_ORGANIZATION_METADATA_RECONCILE,
-      result: AUDIT_RESULTS.SUCCESS,
-      metadata: {
-        stage: LOGTO_SYNC_STATUSES.METADATA_LINKED,
-        reconciliation: "auto_linked_single_name_match",
-        profileId: profile.id,
-        logtoOrganizationId,
-        organization: { id: logtoOrganizationId, name: canonicalName },
-      },
-    });
-    changed = true;
-  }
-
-  return changed ? listOrganizationProfiles() : profiles;
+function reconcileProfilesWithLogtoOrganizations({ profiles }) {
+  // Read-scoped directory requests must not mutate local reconciliation state.
+  // Orphaning/linking decisions are detected in buildLogtoOrganizationDirectory and
+  // should be persisted only by an explicit write-scoped reconciliation job/endpoint.
+  return profiles;
 }
 
 const getSafeErrorMessage = (error) => {
@@ -363,7 +398,7 @@ app.get("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organiz
     const rawProfiles = await listOrganizationProfiles();
     const profiles = await reconcileProfilesWithLogtoOrganizations({ logtoOrganizations, profiles: rawProfiles });
     const directory = buildLogtoOrganizationDirectory({ logtoOrganizations, profiles });
-    return res.json({ organizations: directory.organizations, unreconciledProfiles: directory.unreconciledProfiles });
+    return res.json({ organizations: directory.organizations, reconciliationIncidents: directory.reconciliationIncidents, unreconciledProfiles: directory.unreconciledProfiles });
   } catch (error) {
     console.error("Failed to list owner organizations from Logto", error);
     return res.status(502).json({ error: "Bad Gateway", message: "Failed to list canonical organizations from Logto" });
@@ -372,10 +407,9 @@ app.get("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organiz
 
 app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organizations:create"), async (req, res) => {
   let internalUser = null;
-  let profile = null;
   let logtoOrganization = null;
   let logtoOrganizationId = null;
-  let bootstrapStage = LOGTO_SYNC_STATUSES.PENDING;
+  let canonicalCreated = false;
 
   const canonicalInput = normalizeCanonicalProvisioningInput(req.body || {});
   const extendedInput = normalizeExtendedProvisioningInput(req.body || {});
@@ -390,58 +424,76 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
       return res.status(400).json({ error: "Bad Request", message: errors[0].message, details: errors });
     }
 
-    const duplicateProfile = await findOrganizationProfileBySlugOrAdminDomain({ slug: extendedInput.value.slug, adminDomain: extendedInput.value.adminDomain });
-    const resumableStatuses = new Set([LOGTO_SYNC_STATUSES.LOGTO_CREATED, LOGTO_SYNC_STATUSES.BASE_ADMIN_INVITATION_PENDING, LOGTO_SYNC_STATUSES.BASE_MEMBER_PENDING, LOGTO_SYNC_STATUSES.BASE_ROLE_PENDING, LOGTO_SYNC_STATUSES.BOOTSTRAP_INCOMPLETE]);
-    if (duplicateProfile && !resumableStatuses.has(duplicateProfile.logtoSyncStatus)) {
-      const duplicatedField = duplicateProfile.slug === extendedInput.value.slug ? "slug" : "adminDomain";
-      return res.status(409).json({ error: "Conflict", message: `Organization ${duplicatedField} is already configured` });
-    }
-
-    const bootstrapRunner = duplicateProfile ? resumeOrganizationBootstrap : runCanonicalOrganizationBootstrap;
-    const result = await bootstrapRunner({
+    const result = await runCanonicalOrganizationBootstrap({
       canonical: canonicalInput.value,
-      extendedProfileFields: buildExtendedProfileFields(extendedInput.value, { baseAdmin: canonicalInput.value.baseAdmin }),
       logtoCustomData: buildLogtoOrganizationCustomData(extendedInput.value),
-      authUser: req.user,
       internalUser,
       auditContextBuilder: ({ organization }) => buildAuditContext({ authUser: req.user, internalUser, organization }),
-      existingProfile: duplicateProfile || null,
     });
 
-    profile = result.profile;
     logtoOrganization = result.logtoOrganization;
     logtoOrganizationId = result.logtoOrganizationId;
-    bootstrapStage = result.bootstrapStage;
+    canonicalCreated = result.canonicalCreated;
 
     return res.status(201).json({
-      organization: serializeOwnerOrganization(profile, logtoOrganization),
-      ...(result.partial ? { warning: `Organización creada en Logto con customData; admin base pendiente porque falta logtoUserId para ${canonicalInput.value.baseAdmin.email}.` } : {}),
+      organization: serializeLogtoOwnerOrganization(logtoOrganization, logtoOrganizationId),
+      status: result.status,
+      sourceOfTruth: "logto",
+      customDataApplied: result.customDataApplied,
+      reconciled: result.reconciled,
+      adminAssignment: result.adminAssignment,
+      ...(result.adminAssignment?.status === "skipped_missing_logto_user_id" ? { warning: result.adminAssignment.message } : {}),
     });
   } catch (error) {
     if (error.provisioningState) {
-      profile = error.provisioningState.profile || profile;
       logtoOrganization = error.provisioningState.logtoOrganization || logtoOrganization;
       logtoOrganizationId = error.provisioningState.logtoOrganizationId || logtoOrganizationId;
-      bootstrapStage = error.provisioningState.bootstrapStage || bootstrapStage;
+      canonicalCreated = error.provisioningState.canonicalCreated || canonicalCreated;
     }
-    const errorMessage = getSafeErrorMessage(error);
-    const status = error.code === "LOGTO_ORGANIZATION_TEMPLATE_MISSING_ROLES" ? 424 : logtoOrganizationId ? 201 : 502;
 
-    if (profile?.id) {
-      profile = await markOrganizationProfileLogtoSyncError({ id: profile.id, errorMessage, status: LOGTO_SYNC_STATUSES.BOOTSTRAP_INCOMPLETE, settings: { ...(profile.settings || {}), provisioningState: { ...(profile.settings?.provisioningState || {}), status: "bootstrap_incomplete", failedStage: bootstrapStage, requiresResume: true, logtoOrganizationExists: Boolean(logtoOrganizationId), metadataLinked: Boolean(profile?.logtoOrganizationId || logtoOrganizationId) } } }).catch((persistenceError) => {
-        console.error(`Failed to persist provisioning error for organization profile ${profile?.id}`, persistenceError);
-        return profile;
+    const errorMessage = getSafeErrorMessage(error);
+    const logtoFailure = Boolean(error.request || error.status || error.code?.startsWith?.("LOGTO_"));
+
+    await recordAuditLogBestEffort({
+      actorUserId: internalUser?.id ?? null,
+      organizationId: logtoOrganizationId,
+      action: error.code === "LOGTO_ORGANIZATION_TEMPLATE_MISSING_ROLES" ? AUDIT_ACTIONS.OWNER_ORGANIZATION_TEMPLATE_VALIDATE : AUDIT_ACTIONS.OWNER_ORGANIZATION_BOOTSTRAP_FAILED,
+      result: AUDIT_RESULTS.ERROR,
+      metadata: {
+        ...buildAuditContext({ authUser: req.user, internalUser, organization: logtoOrganization }),
+        name: value.name,
+        logtoOrganizationId,
+        canonicalCreated,
+        error: errorMessage,
+        logtoRequest: error.request,
+        logtoErrorBody: error.body,
+        diagnostic: error.diagnostic,
+      },
+    });
+
+    console.error("Organization creation through Logto failed", error);
+    if (canonicalCreated && logtoOrganizationId) {
+      return res.status(201).json({
+        organization: serializeLogtoOwnerOrganization(logtoOrganization, logtoOrganizationId),
+        status: "created_in_logto_with_followup_failure",
+        sourceOfTruth: "logto",
+        warning: `Organization was created canonically in Logto, but a non-canonical follow-up step failed: ${errorMessage}`,
+        failedStep: error.code === "LOGTO_ORGANIZATION_TEMPLATE_MISSING_ROLES" ? "admin_role_template_validation" : "base_admin_assignment",
+        followUpError: { message: errorMessage, status: error.status || null, request: error.request || null, body: error.body || null },
       });
     }
 
-    await recordAuditLogBestEffort({ actorUserId: internalUser?.id ?? null, organizationId: logtoOrganizationId || profile?.id, action: error.code === "LOGTO_ORGANIZATION_TEMPLATE_MISSING_ROLES" ? AUDIT_ACTIONS.OWNER_ORGANIZATION_TEMPLATE_VALIDATE : AUDIT_ACTIONS.OWNER_ORGANIZATION_BOOTSTRAP_FAILED, result: AUDIT_RESULTS.ERROR, metadata: { ...buildAuditContext({ authUser: req.user, internalUser, organization: logtoOrganization }), profileId: profile?.id, name: value.name, logtoOrganizationId, stage: bootstrapStage, missingRoleNames: error.missingRoleNames, error: errorMessage, logtoRequest: error.request, logtoErrorBody: error.body } });
-
-    console.error("Organization provisioning failed", error);
-    if (status === 201) {
-      return res.status(201).json({ organization: serializeOwnerOrganization(profile, logtoOrganization), warning: `Organization exists in Logto, but bootstrap stopped at ${bootstrapStage}: ${errorMessage}` });
-    }
-
-    return res.status(status).json({ error: status === 424 ? "Failed Dependency" : "Bad Gateway", message: errorMessage, stage: bootstrapStage, missingRoleNames: error.missingRoleNames });
+    const status = error.code === "LOGTO_ORGANIZATION_TEMPLATE_MISSING_ROLES" ? 424 : error.status || 502;
+    return res.status(status).json({
+      error: status === 424 ? "Failed Dependency" : status === 500 ? "Internal Server Error" : "Bad Gateway",
+      message: errorMessage,
+      sourceOfTruth: "logto",
+      integration: logtoFailure ? "logto_management_api" : "unknown",
+      diagnostic: error.diagnostic || null,
+      logtoRequest: error.request || null,
+      logtoErrorBody: error.body || null,
+      missingRoleNames: error.missingRoleNames,
+    });
   }
 });
 

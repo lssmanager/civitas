@@ -10,7 +10,6 @@ const {
   getLogtoUserById,
 } = require("./logtoManagement");
 const { AUDIT_ACTIONS, AUDIT_RESULTS, recordAuditLogBestEffort } = require("./auditLogs");
-const { LOGTO_SYNC_STATUSES, markOrganizationProfileProvisioningStage, upsertOrganizationProfile } = require("./organizationProfiles");
 
 const DEFAULT_ROLE_NAMES = [ORGANIZATION_ADMIN_ROLE_NAME];
 
@@ -23,6 +22,8 @@ const normalizeRoleNames = (value) => {
 
 const getLogtoOrganizationId = (organization) => organization.id || organization.organizationId || organization.logtoOrganizationId;
 const getLogtoOrganizationName = (organization) => organization.name || organization.nameCache || null;
+const getOrganizationRoleId = (role = {}) => role.id || role.organizationRoleId || role.roleId || null;
+const getLogtoUserEmail = (user = {}) => user.primaryEmail || user.email || user.profile?.email || null;
 
 function normalizeCanonicalProvisioningInput(body = {}) {
   const name = typeof body.name === "string" ? body.name.trim() : "";
@@ -69,84 +70,100 @@ async function resolveLogtoOrganizationForSync({ name, description, customData }
   throw error;
 }
 
-async function runCanonicalOrganizationBootstrap({ canonical, extendedProfileFields = {}, logtoCustomData = {}, existingProfile = null, authUser, internalUser, auditContextBuilder }) {
-  let profile = null;
-  let logtoOrganization = null;
-  let logtoOrganizationId = null;
-  let bootstrapStage = LOGTO_SYNC_STATUSES.PENDING;
+async function assignBaseAdminBestEffort({ canonical, logtoOrganization, logtoOrganizationId, internalUser, auditContextBuilder }) {
+  const baseAdminLogtoUserId = canonical.baseAdmin.logtoUserId;
+  if (!baseAdminLogtoUserId) {
+    await recordAuditLogBestEffort({
+      actorUserId: internalUser.id,
+      organizationId: logtoOrganizationId,
+      action: AUDIT_ACTIONS.OWNER_ORGANIZATION_BASE_MEMBER,
+      result: AUDIT_RESULTS.SUCCESS,
+      metadata: {
+        ...auditContextBuilder({ organization: logtoOrganization }),
+        stage: "base_admin_skipped_missing_logto_user_id",
+        baseAdminLogtoUserIdProvided: false,
+        actionRequired: "provide_existing_logto_user_id_before_assigning_organization_admin",
+      },
+    });
 
-  try {
+    return {
+      status: "skipped_missing_logto_user_id",
+      message: "Organization was created canonically in Logto; base admin assignment was skipped because no existing Logto user id was provided.",
+    };
+  }
+
   const requestedRoleNames = Array.from(new Set([ORGANIZATION_ADMIN_ROLE_NAME, ...canonical.defaultRoleNames]));
   const template = await ensureOrganizationTemplate({ requiredRoleNames: requestedRoleNames });
-  await recordAuditLogBestEffort({ actorUserId: internalUser.id, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_TEMPLATE_VALIDATE, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "template_validated", requiredRoleNames: requestedRoleNames, availableRoleNames: template.roles.map((role) => role.name).filter(Boolean) } });
+  await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_TEMPLATE_VALIDATE, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "template_validated", requiredRoleNames: requestedRoleNames, availableRoleNames: template.roles.map((role) => role.name).filter(Boolean) } });
+
+  const baseAdminLogtoUser = await getLogtoUserById(baseAdminLogtoUserId);
+  const logtoUserEmail = getLogtoUserEmail(baseAdminLogtoUser)?.toLowerCase() || null;
+  if (logtoUserEmail !== canonical.baseAdmin.email) {
+    const error = new Error("Base admin Logto user email does not match the requested base admin email");
+    error.code = "BASE_ADMIN_EMAIL_MISMATCH";
+    error.status = 409;
+    error.diagnostic = "The provided baseAdmin.logtoUserId belongs to a different email than baseAdmin.email; admin assignment was stopped.";
+    throw error;
+  }
+  await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "base_admin_user_validated", baseAdminLogtoUserId, baseAdminEmailMatched: true } });
 
   const adminRole = await findOrganizationRoleByName(ORGANIZATION_ADMIN_ROLE_NAME);
-  const adminRoleId = adminRole?.id || adminRole?.organizationRoleId || adminRole?.roleId || null;
+  const adminRoleId = getOrganizationRoleId(adminRole);
   if (!adminRoleId) throw new Error(`Logto organization role ${ORGANIZATION_ADMIN_ROLE_NAME} exists but no role id was returned`);
 
-  const providedBaseAdminLogtoUserId = canonical.baseAdmin.logtoUserId;
-  if (providedBaseAdminLogtoUserId) {
-    await getLogtoUserById(providedBaseAdminLogtoUserId);
-    await recordAuditLogBestEffort({ actorUserId: internalUser.id, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "base_admin_user_validated", baseAdminLogtoUserId: providedBaseAdminLogtoUserId } });
-  }
-
-  const resolvedLogtoOrganization = await resolveLogtoOrganizationForSync({ name: canonical.name, description: canonical.description, customData: logtoCustomData });
-  logtoOrganization = resolvedLogtoOrganization.organization;
-  logtoOrganizationId = getLogtoOrganizationId(logtoOrganization);
-  bootstrapStage = LOGTO_SYNC_STATUSES.LOGTO_CREATED;
-  if (!logtoOrganizationId) throw new Error("Logto organization reconciliation did not include an organization id");
-
-  await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_LOGTO_CREATE, result: AUDIT_RESULTS.SUCCESS, metadata: { ...auditContextBuilder({ organization: logtoOrganization }), stage: bootstrapStage, name: canonical.name, logtoOrganizationId, customDataApplied: Boolean(resolvedLogtoOrganization.customDataApplied), customDataKeys: Object.keys(logtoCustomData || {}), reconciled: resolvedLogtoOrganization.reconciled, source: resolvedLogtoOrganization.source } });
-
-  const checkpointSettings = {
-    ...(extendedProfileFields.settings || {}),
-    provisioningState: {
-      status: "bootstrap_pending",
-      logtoOrganizationExists: true,
-      metadataLinked: true,
-      baseMemberAdded: false,
-      baseRoleAssigned: false,
-      requiresResume: true,
-    },
-  };
-
-  profile = await upsertOrganizationProfile({
-    ...extendedProfileFields,
-    settings: checkpointSettings,
-    logtoOrganizationId,
-    nameCache: getLogtoOrganizationName(logtoOrganization) || canonical.name,
-    defaultRoleNames: canonical.defaultRoleNames,
-    logtoSyncStatus: LOGTO_SYNC_STATUSES.LOGTO_CREATED,
-  });
-  bootstrapStage = LOGTO_SYNC_STATUSES.LOGTO_CREATED;
-
-  await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { ...auditContextBuilder({ organization: logtoOrganization }), stage: "local_checkpoint", profileId: profile.id, logtoOrganizationId, partial: true, requiresResume: true, localOnlyPreparedSettings: Object.keys(extendedProfileFields).filter((key) => extendedProfileFields[key] !== undefined && extendedProfileFields[key] !== null) } });
-
-  const baseAdminLogtoUserId = providedBaseAdminLogtoUserId;
-  if (!baseAdminLogtoUserId) {
-    profile = await markOrganizationProfileProvisioningStage({ id: profile.id, status: LOGTO_SYNC_STATUSES.BASE_ADMIN_INVITATION_PENDING, errorMessage: "Base admin name/email were captured, but no Logto user id was provided; Logto invitation is pending.", settings: { ...(profile.settings || checkpointSettings), provisioningState: { ...(profile.settings?.provisioningState || checkpointSettings.provisioningState), status: "base_admin_invitation_pending", requiresResume: true } } });
-    bootstrapStage = LOGTO_SYNC_STATUSES.BASE_ADMIN_INVITATION_PENDING;
-    await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_BASE_MEMBER, result: AUDIT_RESULTS.SUCCESS, metadata: { ...auditContextBuilder({ organization: logtoOrganization }), stage: bootstrapStage, baseAdmin: canonical.baseAdmin, actionRequired: "invite_or_create_logto_user" } });
-    return { profile, logtoOrganization, logtoOrganizationId, bootstrapStage, partial: true };
-  }
-
-  profile = await markOrganizationProfileProvisioningStage({ id: profile.id, status: LOGTO_SYNC_STATUSES.BASE_MEMBER_PENDING, errorMessage: null });
-  bootstrapStage = LOGTO_SYNC_STATUSES.BASE_MEMBER_PENDING;
   await addUserToLogtoOrganization({ organizationId: logtoOrganizationId, userId: baseAdminLogtoUserId });
-  profile = await markOrganizationProfileProvisioningStage({ id: profile.id, status: LOGTO_SYNC_STATUSES.BASE_ROLE_PENDING, errorMessage: null, settings: { ...(profile.settings || checkpointSettings), provisioningState: { ...(profile.settings?.provisioningState || checkpointSettings.provisioningState), status: "base_member_added", baseMemberAdded: true, requiresResume: true } } });
-  await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_BASE_MEMBER, result: AUDIT_RESULTS.SUCCESS, metadata: { ...auditContextBuilder({ organization: logtoOrganization }), stage: "base_member_added", baseAdmin: { ...canonical.baseAdmin, logtoUserId: baseAdminLogtoUserId } } });
+  await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_BASE_MEMBER, result: AUDIT_RESULTS.SUCCESS, metadata: { ...auditContextBuilder({ organization: logtoOrganization }), stage: "base_member_added", baseAdminLogtoUserId } });
 
-  bootstrapStage = LOGTO_SYNC_STATUSES.BASE_ROLE_PENDING;
   await assignOrganizationRoleToUser({ organizationId: logtoOrganizationId, userId: baseAdminLogtoUserId, organizationRoleId: adminRoleId, organizationRoleName: ORGANIZATION_ADMIN_ROLE_NAME });
   await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_BASE_ROLE, result: AUDIT_RESULTS.SUCCESS, metadata: { ...auditContextBuilder({ organization: logtoOrganization }), stage: "base_role_assigned", roleName: ORGANIZATION_ADMIN_ROLE_NAME, roleId: adminRoleId, baseAdminLogtoUserId } });
 
-  profile = await markOrganizationProfileProvisioningStage({ id: profile.id, logtoOrganizationId, nameCache: getLogtoOrganizationName(logtoOrganization) || canonical.name, status: LOGTO_SYNC_STATUSES.BOOTSTRAPPED, errorMessage: null, synced: true, settings: { ...(profile.settings || checkpointSettings), provisioningState: { ...(profile.settings?.provisioningState || checkpointSettings.provisioningState), status: "bootstrapped", baseMemberAdded: true, baseRoleAssigned: true, requiresResume: false } } });
-  await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_METADATA_RECONCILE, result: AUDIT_RESULTS.SUCCESS, metadata: { ...auditContextBuilder({ organization: logtoOrganization }), stage: LOGTO_SYNC_STATUSES.METADATA_LINKED, profileId: profile.id, logtoOrganizationId, bootstrapComplete: true } });
-  bootstrapStage = LOGTO_SYNC_STATUSES.BOOTSTRAPPED;
+  return {
+    status: "assigned",
+    logtoUserId: baseAdminLogtoUserId,
+    roleName: ORGANIZATION_ADMIN_ROLE_NAME,
+  };
+}
 
-  return { profile, logtoOrganization, logtoOrganizationId, bootstrapStage };
+async function runCanonicalOrganizationBootstrap({ canonical, logtoCustomData = {}, internalUser, auditContextBuilder }) {
+  let logtoOrganization = null;
+  let logtoOrganizationId = null;
+
+  try {
+    const resolvedLogtoOrganization = await resolveLogtoOrganizationForSync({ name: canonical.name, description: canonical.description, customData: logtoCustomData });
+    logtoOrganization = resolvedLogtoOrganization.organization;
+    logtoOrganizationId = getLogtoOrganizationId(logtoOrganization);
+    if (!logtoOrganizationId) throw new Error("Logto organization reconciliation did not include an organization id");
+
+    await recordAuditLogBestEffort({
+      actorUserId: internalUser.id,
+      organizationId: logtoOrganizationId,
+      action: AUDIT_ACTIONS.OWNER_ORGANIZATION_LOGTO_CREATE,
+      result: AUDIT_RESULTS.SUCCESS,
+      metadata: {
+        ...auditContextBuilder({ organization: logtoOrganization }),
+        stage: "logto_canonical_created",
+        name: canonical.name,
+        logtoOrganizationId,
+        customDataApplied: Boolean(resolvedLogtoOrganization.customDataApplied),
+        customDataKeys: Object.keys(logtoCustomData || {}),
+        reconciled: resolvedLogtoOrganization.reconciled,
+        source: resolvedLogtoOrganization.source,
+      },
+    });
+
+    const adminAssignment = await assignBaseAdminBestEffort({ canonical, logtoOrganization, logtoOrganizationId, internalUser, auditContextBuilder });
+
+    return {
+      logtoOrganization,
+      logtoOrganizationId,
+      canonicalCreated: true,
+      reconciled: resolvedLogtoOrganization.reconciled,
+      customDataApplied: Boolean(resolvedLogtoOrganization.customDataApplied),
+      adminAssignment,
+      status: adminAssignment.status === "assigned" ? "created_with_admin_assigned" : "created_admin_assignment_skipped",
+    };
   } catch (error) {
-    error.provisioningState = { profile, logtoOrganization, logtoOrganizationId, bootstrapStage };
+    error.provisioningState = { logtoOrganization, logtoOrganizationId, canonicalCreated: Boolean(logtoOrganizationId) };
     throw error;
   }
 }

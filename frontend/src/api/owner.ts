@@ -121,7 +121,7 @@ export const useOwnerApi = () => {
         const query = params.toString();
         return fetchWithToken(`/owner/audit${query ? `?${query}` : ""}`);
       },
-      createOrganization: async (data: CreateOwnerOrganizationInput): Promise<{ organization: OwnerOrganization; warning?: string }> =>
+      createOrganization: async (data: CreateOwnerOrganizationInput): Promise<{ organization: OwnerOrganization; status: string; sourceOfTruth: "logto"; adminAssignment?: { status: string; message?: string; logtoUserId?: string; roleName?: string }; warning?: string }> =>
         fetchWithToken("/owner/organizations", { method: "POST", body: JSON.stringify(data) }),
     }),
     [fetchWithToken]
