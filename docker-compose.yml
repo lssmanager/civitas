@@ -3,16 +3,36 @@ services:
     build:
       context: ./backend
     restart: unless-stopped
+    networks:
+      - default
+      - loginet
     environment:
       NODE_ENV: production
       PORT: ${BACKEND_PORT:-3000}
-      DATABASE_URL: ${DATABASE_URL:-postgres://user:password@your-postgres-host:5432/civitas}
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      DATABASE_WAIT_TIMEOUT_MS: ${DATABASE_WAIT_TIMEOUT_MS:-60000}
+      DATABASE_WAIT_INTERVAL_MS: ${DATABASE_WAIT_INTERVAL_MS:-2000}
+      DATABASE_CONNECT_TIMEOUT_MS: ${DATABASE_CONNECT_TIMEOUT_MS:-1500}
       LOGTO_ENDPOINT: ${LOGTO_ENDPOINT:-}
       LOGTO_JWKS_URL: ${LOGTO_JWKS_URL:-}
       LOGTO_ISSUER: ${LOGTO_ISSUER:-}
       LOGTO_API_RESOURCE_INDICATOR: ${LOGTO_API_RESOURCE_INDICATOR:-}
+      LOGTO_MANAGEMENT_API_TOKEN_ENDPOINT: ${LOGTO_MANAGEMENT_API_TOKEN_ENDPOINT:-}
+      LOGTO_MANAGEMENT_API_APPLICATION_ID: ${LOGTO_MANAGEMENT_API_APPLICATION_ID:-}
+      LOGTO_MANAGEMENT_API_APPLICATION_SECRET: ${LOGTO_MANAGEMENT_API_APPLICATION_SECRET:-}
+      LOGTO_MANAGEMENT_API_RESOURCE: ${LOGTO_MANAGEMENT_API_RESOURCE:-}
     ports:
       - "${BACKEND_PUBLIC_PORT:-3000}:${BACKEND_PORT:-3000}"
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.civitas-backend-api.rule=Host(`civitas.socialstudies.cloud`) && PathPrefix(`/api`)
+      - traefik.http.routers.civitas-backend-api.entrypoints=http,https
+      - traefik.http.routers.civitas-backend-api.tls=true
+      - traefik.http.routers.civitas-backend-api.tls.certresolver=letsencrypt
+      - traefik.http.routers.civitas-backend-api.middlewares=civitas-backend-api-strip
+      - traefik.http.routers.civitas-backend-api.priority=100
+      - traefik.http.middlewares.civitas-backend-api-strip.stripprefix.prefixes=/api
+      - traefik.http.services.civitas-backend-api.loadbalancer.server.port=3000
     healthcheck:
       test:
         [
@@ -22,7 +42,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 6
-      start_period: 10s
+      start_period: 75s
 
   frontend:
     build:
@@ -50,6 +70,14 @@ services:
       PREVIEW_ALLOWED_HOSTS: ${PREVIEW_ALLOWED_HOSTS:-civitas.socialstudies.cloud}
     ports:
       - "${FRONTEND_PUBLIC_PORT:-5173}:5173"
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.civitas-frontend.rule=Host(`civitas.socialstudies.cloud`)
+      - traefik.http.routers.civitas-frontend.entrypoints=http,https
+      - traefik.http.routers.civitas-frontend.tls=true
+      - traefik.http.routers.civitas-frontend.tls.certresolver=letsencrypt
+      - traefik.http.routers.civitas-frontend.priority=1
+      - traefik.http.services.civitas-frontend.loadbalancer.server.port=5173
     healthcheck:
       test:
         [
@@ -60,3 +88,8 @@ services:
       timeout: 5s
       retries: 6
       start_period: 10s
+
+networks:
+  default:
+  loginet:
+    external: true
