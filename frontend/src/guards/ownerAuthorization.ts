@@ -19,7 +19,7 @@ export const devOwnerMe: OwnerAuthorizationContext = {
     internalUserId: "dev-owner",
     authorizedBy: "logto_scope",
     requiredScope: OWNER_REQUIRED_SCOPE,
-    scopes: [OWNER_REQUIRED_SCOPE, "organizations:read", "organizations:create"],
+    scopes: [OWNER_REQUIRED_SCOPE],
   },
 };
 
