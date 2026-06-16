@@ -17,7 +17,13 @@ class LogtoManagementApiError extends Error {
 const getRequiredEnv = (name) => {
   const value = process.env[name];
   if (!value) {
-    throw new Error(`${name} is required for Logto Management API`);
+    const error = new LogtoManagementApiError(`${name} is required for Logto Management API`, {
+      status: 500,
+      body: { reason: "missing_logto_management_configuration", env: name },
+    });
+    error.code = "LOGTO_MANAGEMENT_CONFIG_MISSING";
+    error.diagnostic = `Missing environment variable ${name}; configure Logto Management API credentials before calling Civitas owner organization endpoints.`;
+    throw error;
   }
   return value;
 };

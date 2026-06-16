@@ -14,13 +14,10 @@ const {
 } = require("./services/logtoManagement");
 const {
   LOGTO_SYNC_STATUSES,
-  findOrganizationProfileBySlugOrAdminDomain,
   listOrganizationProfiles,
-  markOrganizationProfileLogtoSyncError,
   markOrganizationProfileOrphaned,
   markOrganizationProfileProvisioningStage,
   serializeOrganizationProfile,
-  upsertOrganizationProfile,
 } = require("./services/organizationProfiles");
 const {
   AUDIT_ACTIONS,
@@ -28,8 +25,8 @@ const {
   listAuditLogs,
   recordAuditLogBestEffort,
 } = require("./services/auditLogs");
-const { normalizeCanonicalProvisioningInput, resumeOrganizationBootstrap, runCanonicalOrganizationBootstrap } = require("./services/organizationProvisioningCore");
-const { buildExtendedProfileFields, buildLogtoOrganizationCustomData, normalizeExtendedProvisioningInput } = require("./services/organizationProvisioningSettings");
+const { normalizeCanonicalProvisioningInput, runCanonicalOrganizationBootstrap } = require("./services/organizationProvisioningCore");
+const { buildLogtoOrganizationCustomData, normalizeExtendedProvisioningInput } = require("./services/organizationProvisioningSettings");
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -470,10 +467,9 @@ app.get("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organiz
 
 app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organizations:create"), async (req, res) => {
   let internalUser = null;
-  let profile = null;
   let logtoOrganization = null;
   let logtoOrganizationId = null;
-  let bootstrapStage = LOGTO_SYNC_STATUSES.PENDING;
+  let canonicalCreated = false;
 
   const canonicalInput = normalizeCanonicalProvisioningInput(req.body || {});
   const extendedInput = normalizeExtendedProvisioningInput(req.body || {});
@@ -488,58 +484,76 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
       return res.status(400).json({ error: "Bad Request", message: errors[0].message, details: errors });
     }
 
-    const duplicateProfile = await findOrganizationProfileBySlugOrAdminDomain({ slug: extendedInput.value.slug, adminDomain: extendedInput.value.adminDomain });
-    const resumableStatuses = new Set([LOGTO_SYNC_STATUSES.LOGTO_CREATED, LOGTO_SYNC_STATUSES.BASE_ADMIN_INVITATION_PENDING, LOGTO_SYNC_STATUSES.BASE_MEMBER_PENDING, LOGTO_SYNC_STATUSES.BASE_ROLE_PENDING, LOGTO_SYNC_STATUSES.BOOTSTRAP_INCOMPLETE]);
-    if (duplicateProfile && !resumableStatuses.has(duplicateProfile.logtoSyncStatus)) {
-      const duplicatedField = duplicateProfile.slug === extendedInput.value.slug ? "slug" : "adminDomain";
-      return res.status(409).json({ error: "Conflict", message: `Organization ${duplicatedField} is already configured` });
-    }
-
-    const bootstrapRunner = duplicateProfile ? resumeOrganizationBootstrap : runCanonicalOrganizationBootstrap;
-    const result = await bootstrapRunner({
+    const result = await runCanonicalOrganizationBootstrap({
       canonical: canonicalInput.value,
-      extendedProfileFields: buildExtendedProfileFields(extendedInput.value, { baseAdmin: canonicalInput.value.baseAdmin }),
       logtoCustomData: buildLogtoOrganizationCustomData(extendedInput.value),
-      authUser: req.user,
       internalUser,
       auditContextBuilder: ({ organization }) => buildAuditContext({ authUser: req.user, internalUser, organization }),
-      existingProfile: duplicateProfile || null,
     });
 
-    profile = result.profile;
     logtoOrganization = result.logtoOrganization;
     logtoOrganizationId = result.logtoOrganizationId;
-    bootstrapStage = result.bootstrapStage;
+    canonicalCreated = result.canonicalCreated;
 
     return res.status(201).json({
-      organization: serializeOwnerOrganization(profile, logtoOrganization),
-      ...(result.partial ? { warning: `Organización creada en Logto con customData; admin base pendiente porque falta logtoUserId para ${canonicalInput.value.baseAdmin.email}.` } : {}),
+      organization: serializeOwnerOrganization(null, logtoOrganization),
+      status: result.status,
+      sourceOfTruth: "logto",
+      customDataApplied: result.customDataApplied,
+      reconciled: result.reconciled,
+      adminAssignment: result.adminAssignment,
+      ...(result.adminAssignment?.status === "skipped_missing_logto_user_id" ? { warning: result.adminAssignment.message } : {}),
     });
   } catch (error) {
     if (error.provisioningState) {
-      profile = error.provisioningState.profile || profile;
       logtoOrganization = error.provisioningState.logtoOrganization || logtoOrganization;
       logtoOrganizationId = error.provisioningState.logtoOrganizationId || logtoOrganizationId;
-      bootstrapStage = error.provisioningState.bootstrapStage || bootstrapStage;
+      canonicalCreated = error.provisioningState.canonicalCreated || canonicalCreated;
     }
-    const errorMessage = getSafeErrorMessage(error);
-    const status = error.code === "LOGTO_ORGANIZATION_TEMPLATE_MISSING_ROLES" ? 424 : logtoOrganizationId ? 201 : 502;
 
-    if (profile?.id) {
-      profile = await markOrganizationProfileLogtoSyncError({ id: profile.id, errorMessage, status: LOGTO_SYNC_STATUSES.BOOTSTRAP_INCOMPLETE, settings: { ...(profile.settings || {}), provisioningState: { ...(profile.settings?.provisioningState || {}), status: "bootstrap_incomplete", failedStage: bootstrapStage, requiresResume: true, logtoOrganizationExists: Boolean(logtoOrganizationId), metadataLinked: Boolean(profile?.logtoOrganizationId || logtoOrganizationId) } } }).catch((persistenceError) => {
-        console.error(`Failed to persist provisioning error for organization profile ${profile?.id}`, persistenceError);
-        return profile;
+    const errorMessage = getSafeErrorMessage(error);
+    const logtoFailure = Boolean(error.request || error.status || error.code?.startsWith?.("LOGTO_"));
+
+    await recordAuditLogBestEffort({
+      actorUserId: internalUser?.id ?? null,
+      organizationId: logtoOrganizationId,
+      action: error.code === "LOGTO_ORGANIZATION_TEMPLATE_MISSING_ROLES" ? AUDIT_ACTIONS.OWNER_ORGANIZATION_TEMPLATE_VALIDATE : AUDIT_ACTIONS.OWNER_ORGANIZATION_BOOTSTRAP_FAILED,
+      result: AUDIT_RESULTS.ERROR,
+      metadata: {
+        ...buildAuditContext({ authUser: req.user, internalUser, organization: logtoOrganization }),
+        name: value.name,
+        logtoOrganizationId,
+        canonicalCreated,
+        error: errorMessage,
+        logtoRequest: error.request,
+        logtoErrorBody: error.body,
+        diagnostic: error.diagnostic,
+      },
+    });
+
+    console.error("Organization creation through Logto failed", error);
+    if (canonicalCreated && logtoOrganizationId) {
+      return res.status(201).json({
+        organization: serializeOwnerOrganization(null, logtoOrganization),
+        status: "created_in_logto_with_followup_failure",
+        sourceOfTruth: "logto",
+        warning: `Organization was created canonically in Logto, but a non-canonical follow-up step failed: ${errorMessage}`,
+        failedStep: error.code === "LOGTO_ORGANIZATION_TEMPLATE_MISSING_ROLES" ? "admin_role_template_validation" : "base_admin_assignment",
+        followUpError: { message: errorMessage, status: error.status || null, request: error.request || null, body: error.body || null },
       });
     }
 
-    await recordAuditLogBestEffort({ actorUserId: internalUser?.id ?? null, organizationId: logtoOrganizationId || profile?.id, action: error.code === "LOGTO_ORGANIZATION_TEMPLATE_MISSING_ROLES" ? AUDIT_ACTIONS.OWNER_ORGANIZATION_TEMPLATE_VALIDATE : AUDIT_ACTIONS.OWNER_ORGANIZATION_BOOTSTRAP_FAILED, result: AUDIT_RESULTS.ERROR, metadata: { ...buildAuditContext({ authUser: req.user, internalUser, organization: logtoOrganization }), profileId: profile?.id, name: value.name, logtoOrganizationId, stage: bootstrapStage, missingRoleNames: error.missingRoleNames, error: errorMessage, logtoRequest: error.request, logtoErrorBody: error.body } });
-
-    console.error("Organization provisioning failed", error);
-    if (status === 201) {
-      return res.status(201).json({ organization: serializeOwnerOrganization(profile, logtoOrganization), warning: `Organization exists in Logto, but bootstrap stopped at ${bootstrapStage}: ${errorMessage}` });
-    }
-
-    return res.status(status).json({ error: status === 424 ? "Failed Dependency" : "Bad Gateway", message: errorMessage, stage: bootstrapStage, missingRoleNames: error.missingRoleNames });
+    const status = error.code === "LOGTO_ORGANIZATION_TEMPLATE_MISSING_ROLES" ? 424 : 502;
+    return res.status(status).json({
+      error: status === 424 ? "Failed Dependency" : "Bad Gateway",
+      message: errorMessage,
+      sourceOfTruth: "logto",
+      integration: logtoFailure ? "logto_management_api" : "unknown",
+      diagnostic: error.diagnostic || null,
+      logtoRequest: error.request || null,
+      logtoErrorBody: error.body || null,
+      missingRoleNames: error.missingRoleNames,
+    });
   }
 });
 

@@ -68,12 +68,12 @@ export function OwnerOrganizationsPage() {
     <PageShell
       eyebrow="Owner / Organizaciones"
       title="Crear organización"
-      description="Flujo enfocado en crear la organización canónica en Logto y ejecutar el bootstrap inicial por etapas. La observabilidad técnica vive en Logs."
+      description="Flujo Logto-first: la organización nace canónicamente en Logto; Civitas no crea una pre-organización local ni checkpoints pending para validar el alta."
       actions={<Badge bg="success">organizations:create</Badge>}
     >
       <div className="row g-4">
         <div className="col-12 col-xl-7">
-          <PageCard title="Nueva organización" subtitle="Logto es la fuente canónica; Civitas solo guarda metadata operativa, reconciliación y estado de bootstrap.">
+          <PageCard title="Nueva organización" subtitle="Logto es la fuente canónica; la base local queda fuera del camino obligatorio de creación.">
             {templateResource.isLoading ? (
               <LoadingState title="Cargando plantilla" description="Consultando roles de la organization template de Logto." />
             ) : templateResource.error ? (
@@ -95,14 +95,14 @@ export function OwnerOrganizationsPage() {
                   <Form.Group className="col-12 col-lg-6" controlId="ownerOrganizationBaseAdminName"><Form.Label>Nombre admin base</Form.Label><Form.Control value={baseAdminName} onChange={(event) => setBaseAdminName(event.target.value)} placeholder="María Admin" required /></Form.Group>
                   <Form.Group className="col-12 col-lg-6" controlId="ownerOrganizationBaseAdminEmail"><Form.Label>Correo admin base</Form.Label><Form.Control type="email" value={baseAdminEmail} onChange={(event) => setBaseAdminEmail(event.target.value)} placeholder="admin@colegio1.edu.co" required /></Form.Group>
                 </div>
-                <Form.Group controlId="ownerOrganizationBaseAdminLogtoId"><Form.Label>Logto user id admin base</Form.Label><Form.Control value={baseAdminLogtoUserId} onChange={(event) => setBaseAdminLogtoUserId(event.target.value)} placeholder="Opcional; requerido para agregar y asignar rol inmediatamente" /><Form.Text>Si se omite, no se usa el owner actual como sustituto: el admin queda como invitación pendiente hasta crear/enlazar un usuario Logto.</Form.Text></Form.Group>
+                <Form.Group controlId="ownerOrganizationBaseAdminLogtoId"><Form.Label>Logto user id admin base</Form.Label><Form.Control value={baseAdminLogtoUserId} onChange={(event) => setBaseAdminLogtoUserId(event.target.value)} placeholder="Opcional; requerido para agregar y asignar rol inmediatamente" /><Form.Text>Si se omite, la organización igual se crea en Logto; Civitas no crea un estado local pendiente ni usa el owner actual como sustituto.</Form.Text></Form.Group>
                 <Form.Group controlId="ownerOrganizationRoles"><Form.Label>Rol inicial desde plantilla Logto</Form.Label><Form.Select value={selectedRole} onChange={(event) => setDefaultRoleName(event.target.value)} disabled={roles.length === 0}>{roles.map((role) => <option value={role.name} key={role.id}>{role.name}</option>)}</Form.Select></Form.Group>
                 <Alert variant="info" className="mb-0">
-                  El alta crea la organización canónica en Logto y envía customData OIDC generado desde slug/subdominio/dominio. El dominio institucional queda guardado localmente como pending_logto_configuration para JIT/seats futuro; el admin solo se agrega si indicas un Logto user id existente.
+                  El alta crea o reconcilia la organización directamente en Logto y envía allí el customData derivado de slug, subdominio y dominio institucional. Si indicas un Logto user id existente, Civitas intenta agregarlo y asignarle el rol; si no, solo informa que esa asignación no se ejecutó.
                 </Alert>
                 {submitError && <Alert variant="danger" className="mb-0">{submitError}</Alert>}
                 {submitWarning && <Alert variant="warning" className="mb-0">{submitWarning}</Alert>}
-                <Button type="submit" disabled={isSubmitting || !name.trim() || !slug.trim() || !appSubdomain.trim() || !adminDomain.trim() || !baseAdminName.trim() || !baseAdminEmail.trim() || !templateResource.data?.ready}>{isSubmitting ? "Creando..." : "Crear organización"}</Button>
+                <Button type="submit" disabled={isSubmitting || !name.trim() || !slug.trim() || !appSubdomain.trim() || !adminDomain.trim() || !baseAdminName.trim() || !baseAdminEmail.trim() || (Boolean(baseAdminLogtoUserId.trim()) && !templateResource.data?.ready)}>{isSubmitting ? "Creando..." : "Crear organización"}</Button>
               </Form>
             )}
           </PageCard>
@@ -110,12 +110,11 @@ export function OwnerOrganizationsPage() {
         <div className="col-12 col-xl-5">
           <PageCard title="Qué ocurre al crear" subtitle="Las etapas quedan auditadas de forma separada.">
             <ol className="text-secondary mb-0 d-flex flex-column gap-2">
-              <li>Validar plantilla de Logto y el rol <code>{ORGANIZATION_BOOTSTRAP_ADMIN_ROLE}</code>.</li>
-              <li>Crear o reconciliar la organización canónica en Logto.</li>
-              <li>Enviar <code>customData</code> OIDC generado automáticamente a Logto durante la creación.</li>
-              <li>Enlazar metadata operativa local con <code>logto_organization_id</code>.</li>
-              <li>Guardar dominio institucional como <code>pending_logto_configuration</code> para JIT/seats futuro.</li>
-              <li>Agregar admin base y asignar rol solo si se proporcionó un Logto user id; si no, queda invitación pendiente.</li>
+              <li>Crear o reconciliar primero la organización canónica en Logto.</li>
+              <li>Enviar <code>customData</code> derivado de slug/subdominio/dominio directamente a Logto.</li>
+              <li>No insertar <code>organization_profiles</code> ni checkpoints locales como requisito del alta.</li>
+              <li>Si se proporcionó un Logto user id, validar plantilla/usuario y asignar el rol <code>{ORGANIZATION_BOOTSTRAP_ADMIN_ROLE}</code>.</li>
+              <li>Si no se proporcionó Logto user id, devolver una advertencia clara sin crear estado local pending.</li>
               <li>Enviar errores y soporte técnico a <strong>Observabilidad &gt; Logs</strong>.</li>
             </ol>
           </PageCard>
