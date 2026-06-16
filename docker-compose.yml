@@ -60,6 +60,13 @@ services:
       PREVIEW_ALLOWED_HOSTS: ${PREVIEW_ALLOWED_HOSTS:-civitas.socialstudies.cloud}
     ports:
       - "${FRONTEND_PUBLIC_PORT:-5173}:5173"
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.civitas-frontend.rule=Host(`civitas.socialstudies.cloud`)
+      - traefik.http.routers.civitas-frontend.entrypoints=http,https
+      - traefik.http.routers.civitas-frontend.tls=true
+      - traefik.http.routers.civitas-frontend.tls.certresolver=letsencrypt
+      - traefik.http.services.civitas-frontend.loadbalancer.server.port=5173
     healthcheck:
       test:
         [
