@@ -1,17 +1,12 @@
 import { UserScope, type LogtoConfig } from "@logto/react";
 import { APP_ENV } from "./env";
-
-export const GLOBAL_OWNER_SCOPES = [
-  "owner:read",
-  "owner:manage",
-  "organizations:read",
-  "organizations:create",
-  "organizations:manage",
-] as const;
+import { assertNoOrganizationRolesInGlobalOwnerScopes, GLOBAL_OWNER_SCOPES } from "./authLayers";
 
 // Global bootstrap must only target the Civitas API resource. Tenant-scoped
 // organization roles such as Admin-org are resolved in organization bootstrap,
 // not in the owner access token request.
+assertNoOrganizationRolesInGlobalOwnerScopes();
+
 const globalApiResources = APP_ENV.api.resourceIndicator ? [APP_ENV.api.resourceIndicator] : undefined;
 
 export const logtoConfig: LogtoConfig = {
