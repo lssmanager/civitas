@@ -1,5 +1,8 @@
 const {
   ORGANIZATION_ADMIN_ROLE_NAME,
+  JIT_DEFAULT_ORGANIZATION_ROLE_NAME,
+  replaceJitDefaultRolesForLogtoOrganization,
+  replaceJitEmailDomainsForLogtoOrganization,
   addUserToLogtoOrganization,
   assignOrganizationRoleToUser,
   createLogtoOrganization,
@@ -8,22 +11,24 @@ const {
   findLogtoOrganizationByName,
   findOrganizationRoleByName,
   getLogtoUserById,
+  createOrResolveLogtoUserByEmail,
 } = require("./logtoManagement");
 const { AUDIT_ACTIONS, AUDIT_RESULTS, recordAuditLogBestEffort } = require("./auditLogs");
 
-const DEFAULT_ROLE_NAMES = [ORGANIZATION_ADMIN_ROLE_NAME];
+const DEFAULT_JIT_ROLE_NAMES = [JIT_DEFAULT_ORGANIZATION_ROLE_NAME];
 
 const emptyToNull = (value) => (typeof value === "string" && value.trim() ? value.trim() : null);
-const normalizeRoleNames = (value) => {
-  const input = Array.isArray(value) ? value : DEFAULT_ROLE_NAMES;
-  const roles = input.map((role) => typeof role === "string" ? role.trim() : "").filter(Boolean);
-  return Array.from(new Set(roles.length > 0 ? roles : DEFAULT_ROLE_NAMES));
+const normalizeRoleNames = (value, fallback = DEFAULT_JIT_ROLE_NAMES) => {
+  const input = Array.isArray(value) ? value : fallback;
+  const roles = input.map((role) => (typeof role === "string" ? role.trim() : "")).filter(Boolean);
+  return Array.from(new Set(roles.length > 0 ? roles : fallback));
 };
+const looksLikeRoleName = (value) => [ORGANIZATION_ADMIN_ROLE_NAME, JIT_DEFAULT_ORGANIZATION_ROLE_NAME].includes(value);
 
 const getLogtoOrganizationId = (organization) => organization.id || organization.organizationId || organization.logtoOrganizationId;
-const getLogtoOrganizationName = (organization) => organization.name || organization.nameCache || null;
 const getOrganizationRoleId = (role = {}) => role.id || role.organizationRoleId || role.roleId || null;
 const getLogtoUserEmail = (user = {}) => user.primaryEmail || user.email || user.profile?.email || null;
+const getLogtoUserId = (user = {}) => user.id || user.userId || user.logtoUserId || null;
 
 function normalizeCanonicalProvisioningInput(body = {}) {
   const name = typeof body.name === "string" ? body.name.trim() : "";
@@ -31,19 +36,28 @@ function normalizeCanonicalProvisioningInput(body = {}) {
   const baseAdminName = emptyToNull(baseAdmin.name ?? body.baseAdminName);
   const baseAdminEmail = emptyToNull(baseAdmin.email ?? body.baseAdminEmail)?.toLowerCase() || null;
   const baseAdminLogtoUserId = emptyToNull(baseAdmin.logtoUserId ?? body.baseAdminLogtoUserId);
+  const baseAdminInitialOrganizationRole = emptyToNull(baseAdmin.initialOrganizationRole) || ORGANIZATION_ADMIN_ROLE_NAME;
+  const jitProvisioning = body.jitProvisioning && typeof body.jitProvisioning === "object" ? body.jitProvisioning : {};
+  const jitProvisioningDomain = emptyToNull(jitProvisioning.domain ?? body.adminDomain ?? body.institutionalProvisioningDomain)?.toLowerCase() || null;
+  const jitDefaultRoleNames = normalizeRoleNames(jitProvisioning.defaultRoleNames ?? body.defaultRoleNames, DEFAULT_JIT_ROLE_NAMES);
   const errors = [];
+
   if (!name) errors.push({ field: "name", message: "Organization name is required" });
   if (!baseAdminName) errors.push({ field: "baseAdmin.name", message: "Base admin name is required" });
   if (!baseAdminEmail) errors.push({ field: "baseAdmin.email", message: "Base admin email is required" });
   if (baseAdminEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(baseAdminEmail)) errors.push({ field: "baseAdmin.email", message: "Base admin email must be a valid email address" });
+  if (baseAdminLogtoUserId && looksLikeRoleName(baseAdminLogtoUserId)) errors.push({ field: "baseAdmin.logtoUserId", message: "Base admin Logto user id cannot be an organization role name" });
+  if (baseAdminInitialOrganizationRole !== ORGANIZATION_ADMIN_ROLE_NAME) errors.push({ field: "baseAdmin.initialOrganizationRole", message: `Base admin initial organization role must be ${ORGANIZATION_ADMIN_ROLE_NAME}` });
+  if (!jitProvisioningDomain) errors.push({ field: "jitProvisioning.domain", message: "JIT provisioning domain is required" });
+  if (!jitDefaultRoleNames.includes(JIT_DEFAULT_ORGANIZATION_ROLE_NAME)) errors.push({ field: "jitProvisioning.defaultRoleNames", message: `JIT default organization roles must include ${JIT_DEFAULT_ORGANIZATION_ROLE_NAME}` });
 
   return {
     errors,
     value: {
       name,
       description: typeof body.description === "string" ? body.description.trim() : undefined,
-      defaultRoleNames: normalizeRoleNames(body.defaultRoleNames),
-      baseAdmin: { name: baseAdminName, email: baseAdminEmail, logtoUserId: baseAdminLogtoUserId },
+      baseAdmin: { name: baseAdminName, email: baseAdminEmail, logtoUserId: baseAdminLogtoUserId, initialOrganizationRole: baseAdminInitialOrganizationRole },
+      jitProvisioning: { domain: jitProvisioningDomain, defaultRoleNames: jitDefaultRoleNames },
     },
   };
 }
@@ -70,58 +84,63 @@ async function resolveLogtoOrganizationForSync({ name, description, customData }
   throw error;
 }
 
-async function assignBaseAdminBestEffort({ canonical, logtoOrganization, logtoOrganizationId, internalUser, auditContextBuilder }) {
-  const baseAdminLogtoUserId = canonical.baseAdmin.logtoUserId;
-  if (!baseAdminLogtoUserId) {
-    await recordAuditLogBestEffort({
-      actorUserId: internalUser.id,
-      organizationId: logtoOrganizationId,
-      action: AUDIT_ACTIONS.OWNER_ORGANIZATION_BASE_MEMBER,
-      result: AUDIT_RESULTS.SUCCESS,
-      metadata: {
-        ...auditContextBuilder({ organization: logtoOrganization }),
-        stage: "base_admin_skipped_missing_logto_user_id",
-        baseAdminLogtoUserIdProvided: false,
-        actionRequired: "provide_existing_logto_user_id_before_assigning_organization_admin",
-      },
-    });
-
-    return {
-      status: "skipped_missing_logto_user_id",
-      message: "Organization was created canonically in Logto; base admin assignment was skipped because no existing Logto user id was provided.",
-    };
+async function resolveBaseAdminUser({ canonical, logtoOrganizationId, internalUser }) {
+  if (canonical.baseAdmin.logtoUserId) {
+    const user = await getLogtoUserById(canonical.baseAdmin.logtoUserId);
+    return { user, created: false, source: "provided_logto_user_id" };
   }
 
-  const requestedRoleNames = Array.from(new Set([ORGANIZATION_ADMIN_ROLE_NAME, ...canonical.defaultRoleNames]));
-  const template = await ensureOrganizationTemplate({ requiredRoleNames: requestedRoleNames });
-  await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_TEMPLATE_VALIDATE, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "template_validated", requiredRoleNames: requestedRoleNames, availableRoleNames: template.roles.map((role) => role.name).filter(Boolean) } });
+  const resolved = await createOrResolveLogtoUserByEmail({ email: canonical.baseAdmin.email, name: canonical.baseAdmin.name });
+  await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: resolved.created ? "base_admin_user_created" : "base_admin_user_resolved", baseAdminEmail: canonical.baseAdmin.email, source: resolved.source } });
+  return resolved;
+}
 
-  const baseAdminLogtoUser = await getLogtoUserById(baseAdminLogtoUserId);
+async function validateRequiredOrganizationRoles(roleNames, logtoOrganizationId, internalUser) {
+  const template = await ensureOrganizationTemplate({ requiredRoleNames: roleNames });
+  await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_TEMPLATE_VALIDATE, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "template_validated", requiredRoleNames: roleNames, availableRoleNames: template.roles.map((role) => role.name).filter(Boolean) } });
+  return template;
+}
+
+async function assignBaseAdminBestEffort({ canonical, logtoOrganization, logtoOrganizationId, internalUser, auditContextBuilder }) {
+  const resolvedUser = await resolveBaseAdminUser({ canonical, logtoOrganizationId, internalUser });
+  const baseAdminLogtoUser = resolvedUser.user;
+  const baseAdminLogtoUserId = getLogtoUserId(baseAdminLogtoUser);
+  if (!baseAdminLogtoUserId) throw new Error("Base admin user resolution did not return a Logto user id");
   const logtoUserEmail = getLogtoUserEmail(baseAdminLogtoUser)?.toLowerCase() || null;
   if (logtoUserEmail !== canonical.baseAdmin.email) {
     const error = new Error("Base admin Logto user email does not match the requested base admin email");
     error.code = "BASE_ADMIN_EMAIL_MISMATCH";
     error.status = 409;
-    error.diagnostic = "The provided baseAdmin.logtoUserId belongs to a different email than baseAdmin.email; admin assignment was stopped.";
+    error.diagnostic = "The resolved base admin Logto user belongs to a different email than baseAdmin.email; admin assignment was stopped.";
     throw error;
   }
-  await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "base_admin_user_validated", baseAdminLogtoUserId, baseAdminEmailMatched: true } });
 
-  const adminRole = await findOrganizationRoleByName(ORGANIZATION_ADMIN_ROLE_NAME);
+  const adminRole = await findOrganizationRoleByName(canonical.baseAdmin.initialOrganizationRole);
   const adminRoleId = getOrganizationRoleId(adminRole);
-  if (!adminRoleId) throw new Error(`Logto organization role ${ORGANIZATION_ADMIN_ROLE_NAME} exists but no role id was returned`);
+  if (!adminRoleId) throw new Error(`Logto organization role ${canonical.baseAdmin.initialOrganizationRole} exists but no role id was returned`);
 
   await addUserToLogtoOrganization({ organizationId: logtoOrganizationId, userId: baseAdminLogtoUserId });
   await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_BASE_MEMBER, result: AUDIT_RESULTS.SUCCESS, metadata: { ...auditContextBuilder({ organization: logtoOrganization }), stage: "base_member_added", baseAdminLogtoUserId } });
 
-  await assignOrganizationRoleToUser({ organizationId: logtoOrganizationId, userId: baseAdminLogtoUserId, organizationRoleId: adminRoleId, organizationRoleName: ORGANIZATION_ADMIN_ROLE_NAME });
-  await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_BASE_ROLE, result: AUDIT_RESULTS.SUCCESS, metadata: { ...auditContextBuilder({ organization: logtoOrganization }), stage: "base_role_assigned", roleName: ORGANIZATION_ADMIN_ROLE_NAME, roleId: adminRoleId, baseAdminLogtoUserId } });
+  await assignOrganizationRoleToUser({ organizationId: logtoOrganizationId, userId: baseAdminLogtoUserId, organizationRoleId: adminRoleId, organizationRoleName: canonical.baseAdmin.initialOrganizationRole });
+  await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_BASE_ROLE, result: AUDIT_RESULTS.SUCCESS, metadata: { ...auditContextBuilder({ organization: logtoOrganization }), stage: "base_role_assigned", roleName: canonical.baseAdmin.initialOrganizationRole, roleId: adminRoleId, baseAdminLogtoUserId } });
 
-  return {
-    status: "assigned",
-    logtoUserId: baseAdminLogtoUserId,
-    roleName: ORGANIZATION_ADMIN_ROLE_NAME,
-  };
+  return { status: "assigned", userCreated: Boolean(resolvedUser.created), userSource: resolvedUser.source, logtoUserId: baseAdminLogtoUserId, roleName: canonical.baseAdmin.initialOrganizationRole, membershipAdded: true, roleAssigned: true };
+}
+
+async function configureJitProvisioning({ canonical, logtoOrganizationId, internalUser }) {
+  const roleIds = [];
+  for (const roleName of canonical.jitProvisioning.defaultRoleNames) {
+    const role = await findOrganizationRoleByName(roleName);
+    const roleId = getOrganizationRoleId(role);
+    if (!roleId) throw new Error(`Logto organization role ${roleName} exists but no role id was returned`);
+    roleIds.push(roleId);
+  }
+
+  await replaceJitEmailDomainsForLogtoOrganization({ organizationId: logtoOrganizationId, emailDomains: [canonical.jitProvisioning.domain] });
+  await replaceJitDefaultRolesForLogtoOrganization({ organizationId: logtoOrganizationId, organizationRoleIds: roleIds });
+  await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "jit_provisioning_configured", domain: canonical.jitProvisioning.domain, defaultRoleNames: canonical.jitProvisioning.defaultRoleNames, defaultRoleIds: roleIds } });
+  return { status: "configured", domainConfigured: true, defaultRolesConfigured: true, domain: canonical.jitProvisioning.domain, defaultRoleNames: canonical.jitProvisioning.defaultRoleNames, defaultRoleIds: roleIds };
 }
 
 async function runCanonicalOrganizationBootstrap({ canonical, logtoCustomData = {}, internalUser, auditContextBuilder }) {
@@ -151,6 +170,9 @@ async function runCanonicalOrganizationBootstrap({ canonical, logtoCustomData = 
       },
     });
 
+    const requiredRoleNames = Array.from(new Set([canonical.baseAdmin.initialOrganizationRole, ...canonical.jitProvisioning.defaultRoleNames]));
+    await validateRequiredOrganizationRoles(requiredRoleNames, logtoOrganizationId, internalUser);
+    const jitProvisioning = await configureJitProvisioning({ canonical, logtoOrganizationId, internalUser });
     const adminAssignment = await assignBaseAdminBestEffort({ canonical, logtoOrganization, logtoOrganizationId, internalUser, auditContextBuilder });
 
     return {
@@ -160,7 +182,8 @@ async function runCanonicalOrganizationBootstrap({ canonical, logtoCustomData = 
       reconciled: resolvedLogtoOrganization.reconciled,
       customDataApplied: Boolean(resolvedLogtoOrganization.customDataApplied),
       adminAssignment,
-      status: adminAssignment.status === "assigned" ? "created_with_admin_assigned" : "created_admin_assignment_skipped",
+      jitProvisioning,
+      status: "created_with_admin_and_jit_configured",
     };
   } catch (error) {
     error.provisioningState = { logtoOrganization, logtoOrganizationId, canonicalCreated: Boolean(logtoOrganizationId) };

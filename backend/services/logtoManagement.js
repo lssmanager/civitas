@@ -1,6 +1,7 @@
 const MANAGEMENT_TOKEN_SCOPE = "all";
 const ORGANIZATION_ADMIN_ROLE_NAME = "Admin-org";
-const REQUIRED_ORGANIZATION_ROLE_NAMES = [ORGANIZATION_ADMIN_ROLE_NAME];
+const JIT_DEFAULT_ORGANIZATION_ROLE_NAME = "Student-org";
+const REQUIRED_ORGANIZATION_ROLE_NAMES = [ORGANIZATION_ADMIN_ROLE_NAME, JIT_DEFAULT_ORGANIZATION_ROLE_NAME];
 
 let tokenCache = null;
 
@@ -160,6 +161,20 @@ async function addUserToLogtoOrganization({ organizationId, userId }) {
   });
 }
 
+async function replaceJitEmailDomainsForLogtoOrganization({ organizationId, emailDomains }) {
+  return callLogtoManagementApi(`/organizations/${organizationId}/jit/email-domains`, {
+    method: "PUT",
+    body: JSON.stringify({ emailDomains }),
+  });
+}
+
+async function replaceJitDefaultRolesForLogtoOrganization({ organizationId, organizationRoleIds }) {
+  return callLogtoManagementApi(`/organizations/${organizationId}/jit/roles`, {
+    method: "PUT",
+    body: JSON.stringify({ organizationRoleIds }),
+  });
+}
+
 async function listLogtoOrganizationRoles() {
   const response = await callLogtoManagementApi("/organization-roles");
   return Array.isArray(response) ? response : response?.data || response?.items || [];
@@ -237,6 +252,42 @@ async function getLogtoUserById(userId) {
   return callLogtoManagementApi(`/users/${encodeURIComponent(userId)}`);
 }
 
+async function listLogtoUsers({ search } = {}) {
+  const params = new URLSearchParams();
+  if (search) params.set("search", search);
+  const response = await callLogtoManagementApi(`/users${params.toString() ? `?${params}` : ""}`);
+  return Array.isArray(response) ? response : response?.data || response?.items || [];
+}
+
+async function findLogtoUserByEmail(email) {
+  const normalizedEmail = typeof email === "string" ? email.trim().toLowerCase() : "";
+  if (!normalizedEmail) return null;
+  const users = await listLogtoUsers({ search: normalizedEmail });
+  return users.find((user) => (user.primaryEmail || user.email || user.profile?.email || "").toLowerCase() === normalizedEmail) || null;
+}
+
+async function createLogtoUser({ email, name }) {
+  return callLogtoManagementApi("/users", {
+    method: "POST",
+    body: JSON.stringify({ primaryEmail: email, name }),
+  });
+}
+
+async function createOrResolveLogtoUserByEmail({ email, name }) {
+  const existingUser = await findLogtoUserByEmail(email);
+  if (existingUser) return { user: existingUser, created: false, source: "email_lookup" };
+
+  try {
+    return { user: await createLogtoUser({ email, name }), created: true, source: "create_user" };
+  } catch (error) {
+    if (error instanceof LogtoManagementApiError && [400, 409, 422].includes(error.status)) {
+      const reconciledUser = await findLogtoUserByEmail(email);
+      if (reconciledUser) return { user: reconciledUser, created: false, source: "post_create_email_lookup" };
+    }
+    throw error;
+  }
+}
+
 async function listLogtoOrganizations() {
   const response = await callLogtoManagementApi("/organizations");
   return Array.isArray(response) ? response : response?.data || response?.items || [];
@@ -244,11 +295,16 @@ async function listLogtoOrganizations() {
 
 module.exports = {
   ORGANIZATION_ADMIN_ROLE_NAME,
+  JIT_DEFAULT_ORGANIZATION_ROLE_NAME,
   REQUIRED_ORGANIZATION_ROLE_NAMES,
   LogtoManagementApiError,
+  replaceJitDefaultRolesForLogtoOrganization,
+  replaceJitEmailDomainsForLogtoOrganization,
   addUserToLogtoOrganization,
   assignOrganizationRoleToUser,
   createLogtoOrganization,
+  createLogtoUser,
+  createOrResolveLogtoUserByEmail,
   updateLogtoOrganizationCustomData,
   fetchLogtoManagementApiAccessToken,
   findLogtoOrganizationByName,
@@ -256,7 +312,9 @@ module.exports = {
   findOrganizationRoleByName,
   getLogtoManagementConfig,
   getLogtoUserById,
+  findLogtoUserByEmail,
   listLogtoOrganizationRoles,
+  listLogtoUsers,
   validateOrganizationTemplate,
   parseLogtoManagementApiResponse,
   listLogtoOrganizations,
