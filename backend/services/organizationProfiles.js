@@ -6,6 +6,7 @@ const LOGTO_SYNC_STATUSES = Object.freeze({
   PENDING: "pending",
   LOGTO_CREATED: "logto_created",
   METADATA_LINKED: "metadata_linked",
+  BASE_ADMIN_INVITATION_PENDING: "base_admin_invitation_pending",
   BASE_MEMBER_PENDING: "base_member_pending",
   BASE_ROLE_PENDING: "base_role_pending",
   BOOTSTRAPPED: "bootstrapped",

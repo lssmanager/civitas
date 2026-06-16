@@ -95,10 +95,10 @@ export function OwnerOrganizationsPage() {
                   <Form.Group className="col-12 col-lg-6" controlId="ownerOrganizationBaseAdminName"><Form.Label>Nombre admin base</Form.Label><Form.Control value={baseAdminName} onChange={(event) => setBaseAdminName(event.target.value)} placeholder="María Admin" required /></Form.Group>
                   <Form.Group className="col-12 col-lg-6" controlId="ownerOrganizationBaseAdminEmail"><Form.Label>Correo admin base</Form.Label><Form.Control type="email" value={baseAdminEmail} onChange={(event) => setBaseAdminEmail(event.target.value)} placeholder="admin@colegio1.edu.co" required /></Form.Group>
                 </div>
-                <Form.Group controlId="ownerOrganizationBaseAdminLogtoId"><Form.Label>Logto user id admin base</Form.Label><Form.Control value={baseAdminLogtoUserId} onChange={(event) => setBaseAdminLogtoUserId(event.target.value)} placeholder="Opcional; si se omite, se usa el owner actual para bootstrap" /><Form.Text>La invitación por correo queda preparada para fase posterior; la asignación inmediata requiere usuario Logto existente.</Form.Text></Form.Group>
+                <Form.Group controlId="ownerOrganizationBaseAdminLogtoId"><Form.Label>Logto user id admin base</Form.Label><Form.Control value={baseAdminLogtoUserId} onChange={(event) => setBaseAdminLogtoUserId(event.target.value)} placeholder="Opcional; requerido para agregar y asignar rol inmediatamente" /><Form.Text>Si se omite, no se usa el owner actual como sustituto: el admin queda como invitación pendiente hasta crear/enlazar un usuario Logto.</Form.Text></Form.Group>
                 <Form.Group controlId="ownerOrganizationRoles"><Form.Label>Rol inicial desde plantilla Logto</Form.Label><Form.Select value={selectedRole} onChange={(event) => setDefaultRoleName(event.target.value)} disabled={roles.length === 0}>{roles.map((role) => <option value={role.name} key={role.id}>{role.name}</option>)}</Form.Select></Form.Group>
                 <Alert variant="info" className="mb-0">
-                  El alta canónica se limita a Logto y al bootstrap del admin base. Subdominio, dominio y configuración OIDC quedan preparados como provisioning ampliado local, separado del núcleo.
+                  El alta crea la organización canónica en Logto y envía customData OIDC generado desde slug/subdominio/dominio. El dominio institucional queda guardado localmente como pending_logto_configuration para JIT/seats futuro; el admin solo se agrega si indicas un Logto user id existente.
                 </Alert>
                 {submitError && <Alert variant="danger" className="mb-0">{submitError}</Alert>}
                 {submitWarning && <Alert variant="warning" className="mb-0">{submitWarning}</Alert>}
@@ -112,9 +112,10 @@ export function OwnerOrganizationsPage() {
             <ol className="text-secondary mb-0 d-flex flex-column gap-2">
               <li>Validar plantilla de Logto y el rol <code>{ORGANIZATION_BOOTSTRAP_ADMIN_ROLE}</code>.</li>
               <li>Crear o reconciliar la organización canónica en Logto.</li>
+              <li>Enviar <code>customData</code> OIDC generado automáticamente a Logto durante la creación.</li>
               <li>Enlazar metadata operativa local con <code>logto_organization_id</code>.</li>
-              <li>Agregar admin base a la organización y asignar rol inicial.</li>
-              <li>Preparar slug, dominio, settings y OIDC interno en la capa de provisioning ampliado.</li>
+              <li>Guardar dominio institucional como <code>pending_logto_configuration</code> para JIT/seats futuro.</li>
+              <li>Agregar admin base y asignar rol solo si se proporcionó un Logto user id; si no, queda invitación pendiente.</li>
               <li>Enviar errores y soporte técnico a <strong>Observabilidad &gt; Logs</strong>.</li>
             </ol>
           </PageCard>

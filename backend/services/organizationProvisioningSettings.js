@@ -26,6 +26,21 @@ const generateOidcCredentialSegment = (byteLength = 16) => crypto.randomBytes(by
 const buildInternalOidcSecretRef = () => `#internal:${crypto.randomBytes(30).toString("base64url")}`;
 const buildOidcRedirectUri = (appSubdomain) => `https://${appSubdomain}.learnsocialstudies.com/callback`;
 
+function buildLogtoOrganizationCustomData(settingsValue = {}) {
+  return {
+    provisioning: {
+      slug: settingsValue.slug,
+      appSubdomain: settingsValue.subdomain,
+      institutionalDomain: settingsValue.adminDomain,
+      emailDomainProvisioningStatus: settingsValue.adminDomain ? "pending_logto_configuration" : "not_requested",
+      defaultOrganizationRolesStatus: "template_validated",
+    },
+    oidcRedirectUri: settingsValue.oidcInitialConfig?.oidcRedirectUri || null,
+    oidcApplicationId: settingsValue.oidcApplicationId,
+    oidcApplicationSecret: settingsValue.oidcApplicationSecretRef,
+  };
+}
+
 function normalizeExtendedProvisioningInput(body = {}) {
   const slug = normalizeSlug(body.slug);
   const subdomain = normalizeAppSubdomain(body.subdomain ?? body.appSubdomain ?? body.app_subdomain);
@@ -64,8 +79,8 @@ function normalizeExtendedProvisioningInput(body = {}) {
       organizationLoginExperienceEnabled: Boolean(body.organizationLoginExperienceEnabled),
       oidcApplicationId,
       oidcApplicationSecretRef,
-      oidcInitialConfig: { oidcRedirectUri, oidcApplicationId, oidcApplicationSecretRef, status: "prepared_local_only" },
-      emailDomainProvisioningStatus: adminDomain ? "prepared" : "not_requested",
+      oidcInitialConfig: { oidcRedirectUri, oidcApplicationId, oidcApplicationSecretRef, status: "sent_to_logto_custom_data" },
+      emailDomainProvisioningStatus: adminDomain ? "pending_logto_configuration" : "not_requested",
       settings: { scaffoldVersion: 1, status: "prepared" },
       seatTotal: body.seatTotal,
     },
@@ -92,4 +107,4 @@ function buildExtendedProfileFields(settingsValue, { baseAdmin } = {}) {
   };
 }
 
-module.exports = { buildExtendedProfileFields, normalizeExtendedProvisioningInput };
+module.exports = { buildExtendedProfileFields, buildLogtoOrganizationCustomData, normalizeExtendedProvisioningInput };
