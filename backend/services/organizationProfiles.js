@@ -2,6 +2,12 @@ const { eq, inArray, or } = require("drizzle-orm");
 const { db } = require("../db/client");
 const { organizationProfiles } = require("../db/schema");
 
+const ORGANIZATION_PROFILE_STATUSES = Object.freeze({
+  ACTIVE: "active",
+  ORPHANED: "orphaned",
+  ARCHIVED: "archived",
+});
+
 const LOGTO_SYNC_STATUSES = Object.freeze({
   PENDING: "pending",
   LOGTO_CREATED: "logto_created",
@@ -121,6 +127,22 @@ async function markOrganizationProfileLogtoSyncError({ id, errorMessage, status 
   return markOrganizationProfileProvisioningStage({ id, status, errorMessage: errorMessage || "Logto synchronization failed", settings });
 }
 
+async function markOrganizationProfileOrphaned({ id, errorMessage, settings }) {
+  const now = new Date();
+  const [profile] = await db
+    .update(organizationProfiles)
+    .set({
+      status: ORGANIZATION_PROFILE_STATUSES.ORPHANED,
+      logtoSyncStatus: LOGTO_SYNC_STATUSES.RECONCILED,
+      logtoSyncError: errorMessage || "Logto organization no longer exists; profile retained for audit only",
+      settings,
+      updatedAt: now,
+    })
+    .where(eq(organizationProfiles.id, id))
+    .returning();
+  return profile;
+}
+
 async function upsertOrganizationProfile({ logtoOrganizationId, nameCache, type, subdomain, slug, adminDomain, logoUrl, faviconUrl, primaryColor, primaryColorDark, organizationLoginExperienceEnabled = false, defaultRoleNames = [], oidcApplicationId = null, oidcInitialConfig = null, oidcApplicationSecretRef = null, emailDomainProvisioningStatus = "not_requested", settings = null, seatTotal, logtoSyncStatus = LOGTO_SYNC_STATUSES.BOOTSTRAPPED, logtoSyncError = null }) {
   const now = new Date();
   const values = {
@@ -193,12 +215,14 @@ async function getOrganizationProfilesByLogtoIds(logtoOrganizationIds) {
 
 module.exports = {
   LOGTO_SYNC_STATUSES,
+  ORGANIZATION_PROFILE_STATUSES,
   createOrganizationProfile,
   findOrganizationProfileBySlugOrAdminDomain,
   getOrganizationProfilesByLogtoIds,
   listOrganizationProfiles,
   markOrganizationProfileLogtoSyncError,
   markOrganizationProfileLogtoSynced,
+  markOrganizationProfileOrphaned,
   markOrganizationProfileProvisioningStage,
   serializeOrganizationProfile,
   upsertOrganizationProfile,

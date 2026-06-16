@@ -17,6 +17,7 @@ const {
   findOrganizationProfileBySlugOrAdminDomain,
   listOrganizationProfiles,
   markOrganizationProfileLogtoSyncError,
+  markOrganizationProfileOrphaned,
   markOrganizationProfileProvisioningStage,
   serializeOrganizationProfile,
   upsertOrganizationProfile,
@@ -39,6 +40,47 @@ app.use(express.json());
 
 const getLogtoOrganizationId = (organization) => organization.id || organization.organizationId || organization.logtoOrganizationId;
 const getLogtoOrganizationName = (organization) => organization.name || organization.nameCache || null;
+const LEARNSOCIALSTUDIES_APP_HOST = "learnsocialstudies.com";
+
+const getLogtoOrganizationCustomData = (organization = {}) => {
+  const customData = organization.customData || organization.custom_data || {};
+  return customData && typeof customData === "object" && !Array.isArray(customData) ? customData : {};
+};
+
+const deriveAppSubdomainFromOidcRedirectUri = (oidcRedirectUri) => {
+  if (!oidcRedirectUri || typeof oidcRedirectUri !== "string") return null;
+
+  try {
+    const url = new URL(oidcRedirectUri);
+    const hostname = url.hostname.toLowerCase();
+    const suffix = `.${LEARNSOCIALSTUDIES_APP_HOST}`;
+    if (!hostname.endsWith(suffix)) return null;
+
+    const subdomain = hostname.slice(0, -suffix.length);
+    return subdomain && !subdomain.includes(".") ? subdomain : null;
+  } catch (error) {
+    return null;
+  }
+};
+
+const buildCanonicalLogtoOrganizationFields = (logtoOrganization = {}) => {
+  const customData = getLogtoOrganizationCustomData(logtoOrganization);
+  const provisioning = customData.provisioning && typeof customData.provisioning === "object" ? customData.provisioning : {};
+  const oidcRedirectUri = typeof customData.oidcRedirectUri === "string" ? customData.oidcRedirectUri : null;
+  const appSubdomain = typeof provisioning.appSubdomain === "string" && provisioning.appSubdomain
+    ? provisioning.appSubdomain
+    : deriveAppSubdomainFromOidcRedirectUri(oidcRedirectUri);
+
+  return {
+    name: getCanonicalLogtoOrganizationName(logtoOrganization),
+    customData,
+    oidcRedirectUri,
+    appSubdomain,
+    slug: typeof provisioning.slug === "string" ? provisioning.slug : null,
+    adminDomain: typeof provisioning.institutionalDomain === "string" ? provisioning.institutionalDomain : null,
+    visibleSource: "logto",
+  };
+};
 
 const serializeOwnerOrganization = (profile, logtoOrganization = null) => ({
   logtoOrganizationId: profile?.logtoOrganizationId || (logtoOrganization ? getLogtoOrganizationId(logtoOrganization) : null),
@@ -114,35 +156,42 @@ const buildOrganizationNamesById = (logtoOrganizations = []) =>
   );
 
 function buildLogtoOrganizationDirectory({ logtoOrganizations, profiles }) {
+  const logtoOrganizationIds = new Set(logtoOrganizations.map(getLogtoOrganizationId).filter(Boolean));
   const profilesByLogtoId = new Map();
-  const orphanProfiles = [];
+  const profilesWithoutLogtoId = [];
+  const orphanedProfiles = [];
 
   for (const profile of profiles) {
     if (profile.logtoOrganizationId) {
-      const existingProfiles = profilesByLogtoId.get(profile.logtoOrganizationId) || [];
-      existingProfiles.push(profile);
-      profilesByLogtoId.set(profile.logtoOrganizationId, existingProfiles);
+      if (logtoOrganizationIds.has(profile.logtoOrganizationId)) {
+        const existingProfiles = profilesByLogtoId.get(profile.logtoOrganizationId) || [];
+        existingProfiles.push(profile);
+        profilesByLogtoId.set(profile.logtoOrganizationId, existingProfiles);
+      } else {
+        orphanedProfiles.push(profile);
+      }
     } else {
-      orphanProfiles.push(profile);
+      profilesWithoutLogtoId.push(profile);
     }
   }
 
-  const matchedOrphanProfileIds = new Set();
+  const matchedLegacyProfileIds = new Set();
   const organizations = logtoOrganizations
     .map((logtoOrganization) => {
       const logtoOrganizationId = getLogtoOrganizationId(logtoOrganization);
       if (!logtoOrganizationId) return null;
 
-      const canonicalName = getCanonicalLogtoOrganizationName(logtoOrganization);
+      const canonical = buildCanonicalLogtoOrganizationFields(logtoOrganization);
       const linkedProfiles = profilesByLogtoId.get(logtoOrganizationId) || [];
-      const nameMatchedOrphans = orphanProfiles.filter((profile) => profile.nameCache && canonicalName && profile.nameCache === canonicalName);
+      const nameMatchedLegacyProfiles = profilesWithoutLogtoId.filter((profile) => profile.nameCache && canonical.name && profile.nameCache === canonical.name);
 
-      for (const profile of nameMatchedOrphans) {
-        matchedOrphanProfileIds.add(profile.id);
+      for (const profile of nameMatchedLegacyProfiles) {
+        matchedLegacyProfileIds.add(profile.id);
       }
 
-      const associatedProfiles = sortProfilesByNewest([...linkedProfiles, ...nameMatchedOrphans]);
+      const associatedProfiles = sortProfilesByNewest([...linkedProfiles, ...nameMatchedLegacyProfiles]);
       const profile = associatedProfiles[0] || null;
+      const duplicateProfileIds = associatedProfiles.slice(1).map((associatedProfile) => associatedProfile.id);
       const hasConflict = associatedProfiles.length > 1;
       const reconciliationStatus = hasConflict
         ? "conflict"
@@ -154,46 +203,95 @@ function buildLogtoOrganizationDirectory({ logtoOrganizations, profiles }) {
 
       return {
         logtoOrganizationId,
-        name: canonicalName,
+        name: canonical.name,
+        canonical,
         logtoOrganization,
         profile: profile ? serializeOrganizationProfile(profile) : null,
         syncStatus: hasConflict ? "conflict" : profile?.logtoSyncStatus || "metadata_missing",
         syncError: hasConflict
-          ? "Multiple internal profiles match this Logto organization and require reconciliation."
+          ? "Multiple internal profiles match this Logto organization; only the newest profile is used for operational state and the rest are reconciliation incidents."
           : profile?.logtoSyncError || null,
         reconciliation: {
           status: reconciliationStatus,
           profileCount: associatedProfiles.length,
-          matchedBy: linkedProfiles.length > 0 ? "logto_organization_id" : nameMatchedOrphans.length > 0 ? "name" : null,
+          matchedBy: linkedProfiles.length > 0 ? "logto_organization_id" : nameMatchedLegacyProfiles.length > 0 ? "name" : null,
           profileIds: associatedProfiles.map((associatedProfile) => associatedProfile.id),
+          canonicalProfileId: profile?.id || null,
+          duplicateProfileIds,
         },
       };
     })
     .filter(Boolean);
 
-  const unreconciledProfiles = orphanProfiles
-    .filter((profile) => !matchedOrphanProfileIds.has(profile.id))
-    .map(serializeOrganizationProfile);
+  const staleUnlinkedProfiles = profilesWithoutLogtoId.filter((profile) => !matchedLegacyProfileIds.has(profile.id));
+  const reconciliationIncidents = [
+    ...orphanedProfiles.map((profile) => ({
+      type: "orphaned_deleted_logto_organization",
+      policy: "archived_out_of_operational_directory",
+      profile: serializeOrganizationProfile(profile),
+      message: "Local profile references a Logto organization that no longer exists; it is retained only for audit/reconciliation.",
+    })),
+    ...staleUnlinkedProfiles.map((profile) => ({
+      type: "unlinked_legacy_profile",
+      policy: "observability_only",
+      profile: serializeOrganizationProfile(profile),
+      message: "Local profile has no Logto organization id and did not match any current Logto organization by name; it is not part of the operational directory.",
+    })),
+  ];
 
-  return { organizations, unreconciledProfiles };
+  return {
+    organizations,
+    reconciliationIncidents,
+    // Backwards-compatible alias for older clients; these are incidents, not operational organizations.
+    unreconciledProfiles: reconciliationIncidents.map((incident) => incident.profile),
+  };
 }
 
-
 async function reconcileProfilesWithLogtoOrganizations({ logtoOrganizations, profiles, auditActorUserId = null }) {
+  const logtoOrganizationIds = new Set(logtoOrganizations.map(getLogtoOrganizationId).filter(Boolean));
   const profilesByLogtoId = new Map();
   const orphanProfiles = [];
+  let changed = false;
 
   for (const profile of profiles) {
     if (profile.logtoOrganizationId) {
-      const group = profilesByLogtoId.get(profile.logtoOrganizationId) || [];
-      group.push(profile);
-      profilesByLogtoId.set(profile.logtoOrganizationId, group);
+      if (logtoOrganizationIds.has(profile.logtoOrganizationId)) {
+        const group = profilesByLogtoId.get(profile.logtoOrganizationId) || [];
+        group.push(profile);
+        profilesByLogtoId.set(profile.logtoOrganizationId, group);
+      } else if (profile.status !== "orphaned" && profile.status !== "archived") {
+        await markOrganizationProfileOrphaned({
+          id: profile.id,
+          errorMessage: `Logto organization ${profile.logtoOrganizationId} no longer exists; profile archived from operational directory`,
+          settings: {
+            ...(profile.settings || {}),
+            orphanPolicy: {
+              status: "orphaned",
+              reason: "logto_organization_missing",
+              archivedFromOperationalDirectoryAt: new Date().toISOString(),
+              previousLogtoOrganizationId: profile.logtoOrganizationId,
+            },
+          },
+        });
+        await recordAuditLogBestEffort({
+          actorUserId: auditActorUserId,
+          organizationId: profile.logtoOrganizationId,
+          action: AUDIT_ACTIONS.OWNER_ORGANIZATION_METADATA_RECONCILE,
+          result: AUDIT_RESULTS.SUCCESS,
+          metadata: {
+            stage: "orphaned_deleted_logto_organization",
+            policy: "archived_out_of_operational_directory",
+            profileId: profile.id,
+            logtoOrganizationId: profile.logtoOrganizationId,
+          },
+        });
+        changed = true;
+      }
     } else {
       orphanProfiles.push(profile);
     }
   }
 
-  let changed = false;
   for (const logtoOrganization of logtoOrganizations) {
     const logtoOrganizationId = getLogtoOrganizationId(logtoOrganization);
     const canonicalName = getCanonicalLogtoOrganizationName(logtoOrganization);
@@ -363,7 +461,7 @@ app.get("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organiz
     const rawProfiles = await listOrganizationProfiles();
     const profiles = await reconcileProfilesWithLogtoOrganizations({ logtoOrganizations, profiles: rawProfiles });
     const directory = buildLogtoOrganizationDirectory({ logtoOrganizations, profiles });
-    return res.json({ organizations: directory.organizations, unreconciledProfiles: directory.unreconciledProfiles });
+    return res.json({ organizations: directory.organizations, reconciliationIncidents: directory.reconciliationIncidents, unreconciledProfiles: directory.unreconciledProfiles });
   } catch (error) {
     console.error("Failed to list owner organizations from Logto", error);
     return res.status(502).json({ error: "Bad Gateway", message: "Failed to list canonical organizations from Logto" });
