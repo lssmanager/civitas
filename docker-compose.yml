@@ -23,6 +23,16 @@ services:
       LOGTO_MANAGEMENT_API_RESOURCE: ${LOGTO_MANAGEMENT_API_RESOURCE:-}
     ports:
       - "${BACKEND_PUBLIC_PORT:-3000}:${BACKEND_PORT:-3000}"
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.civitas-backend-api.rule=Host(`civitas.socialstudies.cloud`) && PathPrefix(`/api`)
+      - traefik.http.routers.civitas-backend-api.entrypoints=http,https
+      - traefik.http.routers.civitas-backend-api.tls=true
+      - traefik.http.routers.civitas-backend-api.tls.certresolver=letsencrypt
+      - traefik.http.routers.civitas-backend-api.middlewares=civitas-backend-api-strip
+      - traefik.http.routers.civitas-backend-api.priority=100
+      - traefik.http.middlewares.civitas-backend-api-strip.stripprefix.prefixes=/api
+      - traefik.http.services.civitas-backend-api.loadbalancer.server.port=3000
     healthcheck:
       test:
         [
@@ -66,6 +76,7 @@ services:
       - traefik.http.routers.civitas-frontend.entrypoints=http,https
       - traefik.http.routers.civitas-frontend.tls=true
       - traefik.http.routers.civitas-frontend.tls.certresolver=letsencrypt
+      - traefik.http.routers.civitas-frontend.priority=1
       - traefik.http.services.civitas-frontend.loadbalancer.server.port=5173
     healthcheck:
       test:
