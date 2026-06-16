@@ -1,4 +1,4 @@
-import { Alert, Badge, Button, Card } from "react-bootstrap";
+import { Badge, Button, Card } from "react-bootstrap";
 import { useOrganizationSelectionApi, type SelectableOrganization } from "../../api/organizationSelection";
 import { useStableResource } from "../../shared/hooks/useStableResource";
 import { EmptyState, ErrorState, LoadingState, PageCard, PageShell } from "../../shared/ui";
@@ -20,16 +20,6 @@ const getStatusBadge = (status?: string) => {
   return <Badge bg="secondary">{status}</Badge>;
 };
 
-const getReconciliationLabel = (organization: SelectableOrganization) => {
-  const { reconciliation } = organization;
-
-  if (reconciliation.status === "linked") return "Metadata enlazada por id Logto";
-  if (reconciliation.status === "name_matched_pending_link") return "Metadata local encontrada por nombre; pendiente de enlazar por id Logto";
-  if (reconciliation.status === "metadata_missing") return "Existe en Logto sin metadata local asociada";
-  if (reconciliation.status === "conflict") return "Varios perfiles internos coinciden con esta organización real";
-  return reconciliation.status;
-};
-
 const getOrganizationName = (organization: SelectableOrganization) => organization.name ?? "Organización sin nombre en Logto";
 
 const formatLastSync = (value?: string | null) => value ? new Date(value).toLocaleString() : "Sin sincronización exitosa";
@@ -45,7 +35,7 @@ function OrganizationCard({ organization }: { organization: SelectableOrganizati
           <div>
             <Card.Title className="mb-1">{getOrganizationName(organization)}</Card.Title>
             <Card.Subtitle className="text-secondary small text-break">
-              Organización Logto: {organization.logtoOrganizationId}
+              {subdomain ? `Subdominio: ${subdomain}` : "Pendiente de configuración operativa"}
             </Card.Subtitle>
           </div>
           <div className="d-flex flex-column align-items-end gap-2">
@@ -55,19 +45,10 @@ function OrganizationCard({ organization }: { organization: SelectableOrganizati
         </div>
 
         <div className="small text-secondary d-flex flex-column gap-1">
-          <span>{subdomain ? `Subdominio: ${subdomain}` : "Sin subdominio local configurado"}</span>
+          <span>Estado de disponibilidad: {organization.syncStatus ?? "pendiente"}</span>
           <span>Último bootstrap completo: {formatLastSync(profile?.logtoSyncedAt)}</span>
-          <span>{getReconciliationLabel(organization)}</span>
-          {organization.reconciliation.profileIds.length > 0 ? (
-            <span className="text-break">Perfiles internos asociados: {organization.reconciliation.profileIds.join(", ")}</span>
-          ) : null}
         </div>
 
-        {organization.syncError ? (
-          <Alert variant={organization.syncStatus === "conflict" ? "warning" : "danger"} className="small py-2 px-3 mb-0">
-            {organization.syncError}
-          </Alert>
-        ) : null}
 
         <div className="mt-auto d-flex flex-column gap-2">
           <Button variant="outline-primary" disabled>
@@ -92,17 +73,15 @@ export function SelectOrganizationPage() {
   });
 
   const organizations = organizationsResource.data?.organizations ?? [];
-  const unreconciledProfiles = organizationsResource.data?.unreconciledProfiles ?? [];
-
   return (
     <PageShell
       eyebrow="Organizaciones"
       title="Seleccionar organización"
-      description="Elige una organización real de Logto. La metadata local de Civitas se muestra como complemento operativo, no como identidad primaria."
+      description="Elige una organización disponible para preparar el cambio de contexto tenant. Los detalles técnicos viven en Observabilidad."
     >
       <PageCard
-        title="Organizaciones reales en Logto"
-        subtitle="Una card por organización canónica de Logto; los perfiles internos duplicados o incompletos se muestran como estados de reconciliación."
+        title="Organizaciones disponibles"
+        subtitle="Selector operativo para navegación tenant-scoped futura; no es una consola de reconciliación."
       >
         {organizationsResource.isLoading ? (
           <LoadingState title="Cargando organizaciones" description="Consultando organizaciones reales desde Logto y combinando metadata operativa de Civitas." />
@@ -115,7 +94,7 @@ export function SelectOrganizationPage() {
         ) : organizations.length === 0 ? (
           <EmptyState
             title="Sin organizaciones en Logto"
-            description="Cuando existan organizaciones reales en Logto, aparecerán aquí como identidad canónica para preparar la selección de contexto."
+            description="Cuando existan organizaciones disponibles, aparecerán aquí para preparar la selección de contexto."
           />
         ) : (
           <div className="row g-4">
@@ -127,18 +106,6 @@ export function SelectOrganizationPage() {
           </div>
         )}
       </PageCard>
-
-      {!organizationsResource.isLoading && !organizationsResource.error && unreconciledProfiles.length > 0 ? (
-        <Alert variant="warning" className="mb-0">
-          <Alert.Heading className="h6">Perfiles internos sin organización Logto reconciliada</Alert.Heading>
-          <p className="mb-2">
-            Hay {unreconciledProfiles.length} perfil(es) local(es) que no se muestran como organizaciones separadas porque Logto es la fuente de identidad.
-          </p>
-          <div className="small text-break">
-            {unreconciledProfiles.map((profile) => profile.nameCache ?? profile.id).join(", ")}
-          </div>
-        </Alert>
-      ) : null}
     </PageShell>
   );
 }

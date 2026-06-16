@@ -22,7 +22,7 @@ export const appRoutes = {
   ownerLogs: {
     path: "/owner/logs",
     label: "Logs",
-    description: "Eventos owner registrados por Civitas.",
+    description: "Logs y directorio técnico Logto/Civitas.",
   },
   ownerSettings: {
     path: "/owner/settings",
@@ -54,7 +54,7 @@ export const ownerNavigationTree: NavigationNode[] = [
   {
     path: "/owner/observability-section",
     label: "Observabilidad",
-    description: "Trazabilidad operativa del portal owner.",
+    description: "Estado real del sistema y soporte técnico.",
     children: [appRoutes.ownerLogs],
   },
   appRoutes.ownerSettings,
@@ -72,11 +72,13 @@ export type RouteMetadata = { label: string; parentPath?: string };
 
 export const routeMetadata: Record<string, RouteMetadata> = {
   "/owner": { label: "Owner" },
+  "/owner/organizations-section": { label: "Organizaciones", parentPath: appRoutes.owner.path },
+  "/owner/observability-section": { label: "Observabilidad", parentPath: appRoutes.owner.path },
   "/owner/organizations": { label: "Crear organización", parentPath: appRoutes.owner.path },
-  "/owner/logs": { label: appRoutes.ownerLogs.label, parentPath: appRoutes.owner.path },
+  "/owner/logs": { label: appRoutes.ownerLogs.label, parentPath: "/owner/observability-section" },
   "/owner/audit": { label: appRoutes.ownerLogs.label, parentPath: appRoutes.owner.path },
   "/owner/settings": { label: appRoutes.ownerSettings.label, parentPath: appRoutes.owner.path },
-  "/select-organization": { label: appRoutes.selectOrganization.label, parentPath: appRoutes.ownerOrganizations.path },
+  "/select-organization": { label: appRoutes.selectOrganization.label, parentPath: "/owner/organizations-section" },
   "/account": { label: appRoutes.account.label },
 };
 

@@ -33,7 +33,7 @@ function OwnerDashboard({ ownerMe }: OwnerDashboardProps) {
             <div className="d-flex flex-column gap-2">
               <Link to="/owner/organizations" className="btn btn-outline-primary text-start">Crear organización</Link>
               <Link to="/select-organization" className="btn btn-outline-secondary text-start">Select Organization</Link>
-              <Link to="/owner/logs" className="btn btn-outline-secondary text-start">Logs</Link>
+              <Link to="/owner/logs" className="btn btn-outline-secondary text-start">Observabilidad / Logs</Link>
               <Link to="/owner/settings" className="btn btn-outline-secondary text-start">Settings</Link>
             </div>
           </PageCard>

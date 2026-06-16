@@ -33,8 +33,9 @@ export function AppBreadcrumbs() {
       {trail.length > 0 ? (
         trail.map((item, index) => {
           const isLast = index === trail.length - 1;
-          return isLast ? (
-            <Breadcrumb.Item active key={item.path}>{item.label}</Breadcrumb.Item>
+          const isVirtualSection = item.path.endsWith("-section");
+          return isLast || isVirtualSection ? (
+            <Breadcrumb.Item active={isLast} key={item.path}>{item.label}</Breadcrumb.Item>
           ) : (
             <Breadcrumb.Item linkAs={Link} linkProps={{ to: item.path }} key={item.path}>{item.label}</Breadcrumb.Item>
           );
