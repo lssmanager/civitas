@@ -8,7 +8,7 @@ Incluido en esta base:
 
 - Frontend React con Vite (`frontend/`).
 - Backend Node/Express (`backend/`).
-- PostgreSQL mediante Docker Compose.
+- PostgreSQL externo conectado por `DATABASE_URL`.
 - Drizzle ORM configurado en el backend.
 - Primera migración SQL mínima para validar el flujo.
 - `GET /health` para verificar API y conectividad básica con PostgreSQL.
@@ -37,7 +37,7 @@ La infraestructura base de Express, PostgreSQL, Drizzle, Docker y validación JW
 │   └── drizzle/          # Migraciones iniciales
 ├── frontend/             # Aplicación React/Vite
 │   └── Dockerfile        # Build Vite y servicio de dist con vite preview
-└── docker-compose.yml    # Stack postgres + backend + frontend
+└── docker-compose.yml    # Stack backend + frontend conectado a PostgreSQL externo
 ```
 
 ## Requisitos
@@ -45,6 +45,7 @@ La infraestructura base de Express, PostgreSQL, Drizzle, Docker y validación JW
 - Node.js 20 o superior para desarrollo local sin contenedores.
 - npm.
 - Docker con Docker Compose.
+- Una base PostgreSQL ya desplegada y accesible desde el backend.
 
 ## Qué hacía Nixpacks y cómo se migró a Docker
 
@@ -66,31 +67,20 @@ Con Docker Compose esa lógica ya no se infiere. Ahora está declarada explícit
 
 - `backend/Dockerfile`: instala dependencias de producción con `npm ci --omit=dev`, copia el código, expone `3000` y ejecuta `npm start`.
 - `frontend/Dockerfile`: instala dependencias, recibe las variables `VITE_*` como build args, ejecuta `npm run build`, expone `5173` y sirve `dist` con `vite preview`.
-- `docker-compose.yml`: define `postgres`, `backend` y `frontend`, sus puertos, variables, healthchecks y dependencias.
+- `docker-compose.yml`: define `backend` y `frontend`; la base de datos se conecta externamente mediante `DATABASE_URL`.
 
 ## Variables de entorno
-
-### PostgreSQL / Compose
-
-Estas variables pueden configurarse en un `.env` en la raíz o directamente en Coolify:
-
-| Variable | Valor local por defecto | Descripción |
-| --- | --- | --- |
-| `POSTGRES_DB` | `civitas` | Base creada por la imagen oficial de Postgres. |
-| `POSTGRES_USER` | `civitas` | Usuario de Postgres. |
-| `POSTGRES_PASSWORD` | `civitas` | Contraseña de Postgres. Cambiar en producción. |
-| `POSTGRES_PORT` | `5432` | Puerto publicado en el host para desarrollo local. |
 
 ### Backend
 
 Ver `backend/.env.example`.
 
-| Variable | Valor local por defecto | Descripción |
+| Variable | Valor de ejemplo | Descripción |
 | --- | --- | --- |
 | `BACKEND_PORT` | `3000` | Puerto interno que usa Express dentro del contenedor Compose. |
 | `BACKEND_PUBLIC_PORT` | `3000` | Puerto publicado en el host/Coolify para la API. |
 | `PORT` | `3000` | Puerto usado cuando se ejecuta el backend fuera de Compose. |
-| `DATABASE_URL` | `postgres://civitas:civitas@postgres:5432/civitas` en Compose | URL PostgreSQL usada por Drizzle y `/health`. Dentro de Docker debe apuntar al servicio `postgres`, no a `localhost`. |
+| `DATABASE_URL` | `postgres://user:password@your-postgres-host:5432/civitas` | URL PostgreSQL usada por Drizzle y `/health`. Debe apuntar a una base ya desplegada y accesible desde el backend. |
 | `LOGTO_ISSUER` | vacío | Issuer esperado para access tokens de Logto usados por `/auth/test`. |
 | `LOGTO_JWKS_URL` | vacío | Endpoint JWKS remoto usado por `requireAuth` para validar JWT de Logto. |
 | `LOGTO_API_RESOURCE_INDICATOR` | vacío | Audience/API resource indicator configurado para el API de Civitas en Logto. Debe coincidir con `VITE_API_RESOURCE_INDICATOR`. |
@@ -109,7 +99,9 @@ Ver `frontend/.env.example`.
 
 > Importante: las variables `VITE_*` se incrustan en el bundle durante `npm run build`. En Docker/Coolify deben configurarse antes de construir/redeployar la imagen del frontend. `PREVIEW_ALLOWED_HOSTS` se lee en runtime por `vite preview`, por lo que sirve para parametrizar dominios públicos sin cambiar código.
 
-## Ejecutar todo con Docker Compose
+## Ejecutar backend y frontend con Docker Compose
+
+Antes de levantar el stack, completa `DATABASE_URL` en el `.env` raíz o configúrala directamente en Coolify con la URL real de tu PostgreSQL desplegado.
 
 Desde la raíz del repositorio:
 
@@ -121,7 +113,6 @@ Servicios locales por defecto:
 
 - Frontend: `http://localhost:5173`
 - Backend: `http://localhost:3000`
-- PostgreSQL: `localhost:5432`
 
 Verifica el backend y la conexión a PostgreSQL:
 
@@ -138,7 +129,7 @@ Respuesta esperada cuando PostgreSQL está accesible:
   "timestamp": "2026-06-12T00:00:00.000Z",
   "database": {
     "status": "connected",
-    "host": "postgres",
+    "host": "your-postgres-host",
     "port": 5432,
     "name": "civitas"
   }
@@ -153,21 +144,9 @@ Para detener el stack:
 docker compose down
 ```
 
-Para detener el stack y borrar el volumen de datos local:
+## Desarrollo híbrido
 
-```bash
-docker compose down -v
-```
-
-## Levantar solo PostgreSQL para desarrollo híbrido
-
-Si quieres ejecutar backend y frontend en tu host con los scripts npm, levanta únicamente PostgreSQL:
-
-```bash
-docker compose up -d postgres
-```
-
-Luego instala dependencias y crea archivos `.env` locales:
+Si quieres ejecutar backend y frontend en tu host con los scripts npm, instala dependencias y crea archivos `.env` locales:
 
 ```bash
 cd backend
@@ -178,6 +157,8 @@ cd ../frontend
 npm install
 cp .env.example .env
 ```
+
+Luego define en `backend/.env` la URL real de tu PostgreSQL desplegado o una URL local si tu base corre fuera de Docker.
 
 Ejecuta migraciones si estás trabajando con el schema Drizzle:
 
@@ -200,18 +181,13 @@ cd frontend
 npm run dev
 ```
 
-En desarrollo híbrido, `backend/.env` debe usar `DATABASE_URL=postgres://civitas:civitas@localhost:5432/civitas`, porque el backend corre en el host. En Compose, el backend usa `postgres://civitas:civitas@postgres:5432/civitas`, porque corre dentro de la red Docker.
-
 ## Despliegue en Coolify con Docker Compose
 
 Configura Coolify para desplegar desde `docker-compose.yml` en la raíz del repositorio. El despliegue ya no depende de Nixpacks: Coolify solo necesita construir los Dockerfiles definidos por Compose.
 
 Variables recomendadas en Coolify:
 
-- `POSTGRES_DB`
-- `POSTGRES_USER`
-- `POSTGRES_PASSWORD`
-- `DATABASE_URL=postgres://<POSTGRES_USER>:<POSTGRES_PASSWORD>@postgres:5432/<POSTGRES_DB>`
+- `DATABASE_URL=postgres://<DB_USER>:<DB_PASSWORD>@<DB_HOST>:5432/<DB_NAME>`
 - `BACKEND_PORT=3000`
 - `BACKEND_PUBLIC_PORT=3000` o el puerto/ruta que Coolify asigne al servicio backend
 - `FRONTEND_PUBLIC_PORT=5173` o el puerto/ruta que Coolify asigne al servicio frontend
