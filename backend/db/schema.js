@@ -1,4 +1,4 @@
-const { boolean, index, integer, jsonb, pgTable, text, timestamp, uuid, varchar } = require("drizzle-orm/pg-core");
+const { boolean, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid, varchar } = require("drizzle-orm/pg-core");
 
 const healthChecks = pgTable("health_checks", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -69,6 +69,36 @@ const organizationProfiles = pgTable(
   })
 );
 
+const commercialEvents = pgTable(
+  "commercial_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    eventId: varchar("event_id", { length: 255 }).notNull(),
+    idempotencyKey: varchar("idempotency_key", { length: 255 }).notNull(),
+    payloadHash: varchar("payload_hash", { length: 64 }).notNull(),
+    source: varchar("source", { length: 64 }).notNull().default("wordpress_fluentcrm"),
+    eventType: varchar("event_type", { length: 64 }).notNull(),
+    status: varchar("status", { length: 32 }).notNull().default("received"),
+    organizationProfileId: uuid("organization_profile_id").references(() => organizationProfiles.id, { onDelete: "set null" }),
+    logtoOrganizationId: varchar("logto_organization_id", { length: 255 }),
+    seatDelta: integer("seat_delta"),
+    commercialStatusAfter: varchar("commercial_status_after", { length: 32 }),
+    logtoChangeSummary: jsonb("logto_change_summary"),
+    sanitizedPayload: jsonb("sanitized_payload"),
+    errorSummary: text("error_summary"),
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }),
+    appliedAt: timestamp("applied_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    eventIdUniqueIdx: uniqueIndex("commercial_events_event_id_unique").on(table.eventId),
+    idempotencyIdx: index("commercial_events_idempotency_idx").on(table.idempotencyKey),
+    statusIdx: index("commercial_events_status_idx").on(table.status),
+    logtoOrganizationIdx: index("commercial_events_logto_org_idx").on(table.logtoOrganizationId),
+  })
+);
+
 const auditLogs = pgTable(
   "audit_logs",
   {
@@ -90,6 +120,7 @@ const auditLogs = pgTable(
 
 module.exports = {
   auditLogs,
+  commercialEvents,
   healthChecks,
   organizationProfiles,
   users,

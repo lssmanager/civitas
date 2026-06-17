@@ -86,6 +86,15 @@ export type OwnerAuditPagination = {
   offset?: number;
 };
 
+export type OwnerCommercialStatus = {
+  organizationId: string | null;
+  profileId: string;
+  seatTotal: number;
+  seatsConsumed: number;
+  seatsAvailable: number;
+  commercial: Record<string, unknown> | null;
+};
+
 export type OwnerOrganizationTemplateRole = { id: string; name: string };
 
 export type OwnerOrganizationTemplate = {
@@ -147,6 +156,8 @@ export const useOwnerApi = () => {
         fetchWithToken(`/owner/organizations/${encodeURIComponent(organizationId)}/fluentcrm/sync-contacts`, { method: "POST" }),
       getOrganizationFluentCrmSyncStatus: async (organizationId: string): Promise<{ contactSync: Record<string, unknown> | null; syncStatus: string; syncError: string | null; syncedAt: string | null }> =>
         fetchWithToken(`/owner/organizations/${encodeURIComponent(organizationId)}/fluentcrm/sync-status`),
+      getOrganizationCommercialStatus: async (organizationId: string): Promise<OwnerCommercialStatus> =>
+        fetchWithToken(`/owner/organizations/${encodeURIComponent(organizationId)}/commercial-status`),
     }),
     [fetchWithToken]
   );

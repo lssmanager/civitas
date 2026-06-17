@@ -26,6 +26,10 @@ const AUDIT_ACTIONS = Object.freeze({
   OWNER_ORGANIZATION_FLUENTCRM_ERROR: "owner.organization.fluentcrm_error",
   OWNER_ORGANIZATION_DIRECTORY_ACCESS: "owner.organization.directory_access",
   OWNER_ORGANIZATION_FLUENTCRM_CONTACT_SYNC: "owner.organization.fluentcrm_contact_sync",
+  COMMERCIAL_EVENT_RECEIVED: "commercial.event.received",
+  COMMERCIAL_EVENT_APPLIED: "commercial.event.applied",
+  COMMERCIAL_EVENT_FAILED: "commercial.event.failed",
+  COMMERCIAL_EVENT_IGNORED: "commercial.event.ignored",
 });
 
 const DEFAULT_LIMIT = 25;
