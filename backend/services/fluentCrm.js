@@ -13,6 +13,14 @@ class FluentCrmError extends Error {
 
 const SENSITIVE_KEY_PATTERN = /(authorization|password|app[_-]?password|secret|token|credential|cookie|api[_-]?key)/i;
 const PROHIBITED_ROLE_NAMES = new Set(["owner_global"]);
+const CRM_CLEANUP_STRATEGIES = Object.freeze({
+  HARD_DELETE: "hard_delete",
+  DISSOCIATE_ONLY: "dissociate_only",
+  NO_CONTACT_FOUND: "no_contact_found",
+  DUPLICATE_CONFLICT: "duplicate_conflict",
+  PARTIAL: "partial",
+  FAILED: "failed",
+});
 const DEFAULT_ROLE_SYNC_MAPPING = Object.freeze({
   "Admin-org": { tags: ["civitas-role-admin-org"], lists: ["Civitas Admins"], roleType: "organizational" },
   "Student-org": { tags: ["civitas-role-student-org"], lists: ["Civitas Students"], roleType: "organizational" },
@@ -279,11 +287,95 @@ async function searchContacts({ email, externalId } = {}) {
 }
 
 const contactId = (contact = {}) => contact.id ?? contact.ID ?? contact.subscriber_id ?? null;
+const contactCompanyId = (contact = {}) => contact.company_id ?? contact.companyId ?? contact.company?.id ?? contact.company?.ID ?? null;
+const collectionNames = (items) => Array.isArray(items) ? items.map((item) => itemName(item) || item.title || item.name || item).filter(Boolean) : [];
+
+async function deleteContact(contactIdentifier) {
+  const id = typeof contactIdentifier === "object" ? contactId(contactIdentifier) : contactIdentifier;
+  if (!id) throw new FluentCrmError("Cannot delete FluentCRM contact without an id", { code: "FLUENTCRM_CONTACT_ID_MISSING" });
+  return requestFluentCrm(`/subscribers/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
 
 async function updateContact(contactIdentifier, fields = {}) {
   const id = typeof contactIdentifier === "object" ? contactId(contactIdentifier) : contactIdentifier;
   if (!id) throw new FluentCrmError("Cannot update FluentCRM contact without an id", { code: "FLUENTCRM_CONTACT_ID_MISSING" });
   return requestFluentCrm(`/subscribers/${encodeURIComponent(id)}`, { method: "PUT", body: fields });
+}
+
+function getConfiguredCleanupMode() {
+  const mode = (process.env.FLUENTCRM_CONTACT_CLEANUP_STRATEGY || "dissociate_only").trim().toLowerCase();
+  return mode === "hard_delete" ? "hard_delete" : "dissociate_only";
+}
+
+function buildCleanupPolicy({ sharedOrganizationCount = 0 } = {}) {
+  const configuredMode = getConfiguredCleanupMode();
+  const isShared = Number(sharedOrganizationCount) > 0;
+  return {
+    configuredMode,
+    strategy: configuredMode === "hard_delete" && !isShared ? CRM_CLEANUP_STRATEGIES.HARD_DELETE : CRM_CLEANUP_STRATEGIES.DISSOCIATE_ONLY,
+    reason: isShared
+      ? "contact_may_belong_to_other_logto_organizations"
+      : configuredMode === "hard_delete"
+        ? "hard_delete_enabled_and_no_other_logto_memberships_detected"
+        : "default_conservative_policy_preserves_crm_identity_but_removes_organization_associations",
+    tradeoff: "Civitas never treats CRM cleanup as permission authority; Logto remains canonical for identity, roles, and memberships. Dissociation avoids deleting data that may belong to another organization.",
+  };
+}
+
+async function cleanupContactInFluentCrm({
+  identity = {},
+  profile = {},
+  organization = {},
+  remainingOrganizationIds = [],
+} = {}) {
+  const logtoUserId = identity.logtoUserId || identity.id || identity.userId || identity.sub || null;
+  const email = normalizeEmail(identity.email || identity.primaryEmail || identity.profile?.email);
+  const contacts = await searchContacts({ email, externalId: logtoUserId });
+  const taxonomy = buildOrganizationCrmTaxonomy({ logtoOrganizationId: profile.logtoOrganizationId || organization.logtoOrganizationId, slug: profile.slug || organization.slug, name: profile.nameCache || organization.name });
+  const policy = buildCleanupPolicy({ sharedOrganizationCount: remainingOrganizationIds.length });
+  const base = {
+    logtoUserId,
+    contactMatched: contacts.length,
+    fluentcrmCompanyId: profile.fluentcrmCompanyId || null,
+    policy,
+    organizationTaxonomy: taxonomy,
+    remainingOrganizationIds,
+    persistencePolicy: "audit_and_summary_only_no_contact_profile_replication",
+  };
+
+  if (contacts.length === 0) return { ...base, status: "completed", strategy: CRM_CLEANUP_STRATEGIES.NO_CONTACT_FOUND, message: "No FluentCRM contact matched the Logto user id or Logto email." };
+  if (contacts.length > 1) return { ...base, status: "failed", strategy: CRM_CLEANUP_STRATEGIES.DUPLICATE_CONFLICT, candidateCount: contacts.length, message: "Multiple FluentCRM contacts matched; Civitas did not delete or mutate any contact." };
+
+  const contact = contacts[0];
+  const operations = [];
+  if (policy.strategy === CRM_CLEANUP_STRATEGIES.HARD_DELETE) {
+    await deleteContact(contact);
+    return { ...base, status: "completed", strategy: CRM_CLEANUP_STRATEGIES.HARD_DELETE, contactId: contactId(contact), operations: [{ type: "hard_delete", status: "success" }], message: "Contact deleted in FluentCRM because hard delete is explicitly enabled and no other Logto organization memberships were detected." };
+  }
+
+  const currentTagNames = collectionNames(contact.tags);
+  const currentListNames = collectionNames(contact.lists);
+  const nextTags = currentTagNames.filter((name) => name !== taxonomy.tag.title && name !== taxonomy.tag.slug);
+  const nextLists = currentListNames.filter((name) => name !== taxonomy.list.title && name !== taxonomy.list.slug);
+  const ownsCompany = profile.fluentcrmCompanyId && String(contactCompanyId(contact)) === String(profile.fluentcrmCompanyId);
+  const payload = {
+    ...(ownsCompany ? { company_id: null } : {}),
+    tags: nextTags,
+    lists: nextLists,
+    status: "unsubscribed",
+  };
+
+  try {
+    const updated = await updateContact(contact, payload);
+    operations.push({ type: "dissociate_company", status: ownsCompany ? "success" : "skipped", reason: ownsCompany ? "matched_organization_company" : "contact_not_linked_to_this_company" });
+    operations.push({ type: "remove_organization_tags", status: "success", removed: currentTagNames.filter((name) => !nextTags.includes(name)) });
+    operations.push({ type: "remove_organization_lists", status: "success", removed: currentListNames.filter((name) => !nextLists.includes(name)) });
+    operations.push({ type: "unsubscribe", status: "success" });
+    return { ...base, status: "completed", strategy: CRM_CLEANUP_STRATEGIES.DISSOCIATE_ONLY, contactId: contactId(contact), operations, updated, message: "Contact was not claimed as deleted; Civitas removed only this organization's CRM associations and unsubscribed the contact." };
+  } catch (error) {
+    operations.push({ type: "dissociate_only", status: "failed", message: error.message });
+    return { ...base, status: "failed", strategy: CRM_CLEANUP_STRATEGIES.FAILED, contactId: contactId(contact), operations, message: error.message, error };
+  }
 }
 
 async function updateContactEmailAfterLogtoChange({ previousEmail, newEmail, logtoUserId, organizationId, logtoOrganizationId, profile = {} } = {}) {
@@ -421,4 +513,4 @@ async function getOrCreateCompanyForOrganization(profile, organization = {}, { a
   }
 }
 
-module.exports = { FluentCrmError, buildOrganizationCrmTaxonomy, createCompany, createContact, ensureOrganizationTagsAndLists, findCompanyCandidates, findReliableCompanyMatch, getFluentCrmConfig, getFluentCrmRoleSyncMapping, getOrCreateCompanyForOrganization, mapOrganizationRolesToCrmTaxonomy, normalizeBaseUrl, normalizeCrmCompanyInput, sanitizeForDiagnostics, searchCompanies, searchContacts, syncOrganizationContactsToFluentCrm, updateContact, updateContactEmailAfterLogtoChange, upsertContactFromLogtoIdentity };
+module.exports = { CRM_CLEANUP_STRATEGIES, FluentCrmError, buildCleanupPolicy, buildOrganizationCrmTaxonomy, cleanupContactInFluentCrm, createCompany, createContact, deleteContact, ensureOrganizationTagsAndLists, findCompanyCandidates, findReliableCompanyMatch, getFluentCrmConfig, getFluentCrmRoleSyncMapping, getOrCreateCompanyForOrganization, mapOrganizationRolesToCrmTaxonomy, normalizeBaseUrl, normalizeCrmCompanyInput, sanitizeForDiagnostics, searchCompanies, searchContacts, syncOrganizationContactsToFluentCrm, updateContact, updateContactEmailAfterLogtoChange, upsertContactFromLogtoIdentity };

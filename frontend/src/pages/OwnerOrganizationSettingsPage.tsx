@@ -22,6 +22,9 @@ export function OwnerOrganizationSettingsPage() {
   const [crmSubmitError, setCrmSubmitError] = useState<string | null>(null);
   const [contactSyncStatus, setContactSyncStatus] = useState<string | null>(null);
   const [contactSyncError, setContactSyncError] = useState<string | null>(null);
+  const [deprovisionUserId, setDeprovisionUserId] = useState("");
+  const [deprovisionStatus, setDeprovisionStatus] = useState<string | null>(null);
+  const [deprovisionError, setDeprovisionError] = useState<string | null>(null);
   const organizationsResource = useStableResource({
     initialParams: {},
     load: ownerApi.getOrganizations,
@@ -67,6 +70,27 @@ export function OwnerOrganizationSettingsPage() {
       organizationsResource.retry();
     } catch (error) {
       setCrmSubmitError(error instanceof Error ? error.message : "No se pudo sincronizar FluentCRM.");
+    }
+  };
+  const handleDeprovisionSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const targetOrganizationId = profile?.id || organization?.logtoOrganizationId || "";
+    if (!targetOrganizationId || !deprovisionUserId.trim()) return;
+    setDeprovisionStatus(null);
+    setDeprovisionError(null);
+    try {
+      const result = await ownerApi.deprovisionOrganizationMember(targetOrganizationId, deprovisionUserId.trim());
+      const cleanupLabel = result.fluentcrm.strategy === "hard_delete"
+        ? "cleanup completed: contacto eliminado en FluentCRM"
+        : result.fluentcrm.strategy === "no_contact_found"
+          ? "no CRM contact found"
+          : result.fluentcrm.strategy === "dissociate_only"
+            ? "dissociated only: se removieron asociaciones/listas/tags de esta organización"
+            : result.fluentcrm.strategy;
+      setDeprovisionStatus(`${result.status}; Logto membership: ${result.logto.membership}; CRM: ${cleanupLabel}. Roles globales mutados: ${result.logto.globalRolesMutated ? "sí" : "no"}.`);
+      organizationsResource.retry();
+    } catch (error) {
+      setDeprovisionError(error instanceof Error ? error.message : "No se pudo dar de baja al usuario.");
     }
   };
 
@@ -172,6 +196,21 @@ export function OwnerOrganizationSettingsPage() {
                   <dt>Último error</dt><dd className="text-break text-danger">{String(commercialResource.data?.commercial?.lastError ?? "Sin errores")}</dd>
                 </dl>
               )}
+            </PageCard>
+          </div>
+          <div className="col-12 col-lg-6">
+            <PageCard title="Baja de usuario y limpieza CRM" subtitle="Acción explícita y auditable: Logto baja la membresía; FluentCRM recibe limpieza downstream sin convertirse en autoridad de permisos.">
+              <Form onSubmit={handleDeprovisionSubmit} className="d-flex flex-column gap-2">
+                <Form.Group controlId="settingsDeprovisionLogtoUserId">
+                  <Form.Label>Logto user id</Form.Label>
+                  <Form.Control value={deprovisionUserId} onChange={(event) => setDeprovisionUserId(event.target.value)} placeholder="user_..." />
+                  <Form.Text>La baja no muta roles globales como owner_global. Si FluentCRM solo permite disociar, Civitas no mostrará “datos eliminados”.</Form.Text>
+                </Form.Group>
+                <Button type="submit" variant="outline-danger" disabled={!deprovisionUserId.trim()}>Dar de baja y limpiar CRM</Button>
+                {deprovisionStatus ? <Alert variant="success" className="mb-0">{deprovisionStatus}</Alert> : null}
+                {deprovisionError ? <Alert variant="danger" className="mb-0">cleanup failed: {deprovisionError}</Alert> : null}
+              </Form>
+              <small className="text-secondary d-block mt-2">Estados posibles: cleanup completed, cleanup partial, cleanup failed, no CRM contact found, dissociated only.</small>
             </PageCard>
           </div>
           <div className="col-12 col-lg-6">

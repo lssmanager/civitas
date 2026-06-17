@@ -320,3 +320,94 @@ test("syncOrganizationContactsToFluentCrm handles missing email and duplicate co
   assert.equal(audits.filter((event) => event.result === "success").length, 1);
   assert.equal(audits.filter((event) => event.result === "error").length, 2);
 });
+
+test("cleanupContactInFluentCrm returns no_contact_found without claiming deletion", async () => {
+  const { cleanupContactInFluentCrm } = require("../services/fluentCrm");
+  configureFluentCrmEnv();
+  global.fetch = async () => jsonResponse({ subscribers: [] });
+
+  const result = await cleanupContactInFluentCrm({
+    identity: { logtoUserId: "user-1", email: "missing@school.edu" },
+    profile: { logtoOrganizationId: "org-1", fluentcrmCompanyId: "company-1", slug: "school", nameCache: "School" },
+  });
+
+  assert.equal(result.status, "completed");
+  assert.equal(result.strategy, "no_contact_found");
+  assert.match(result.message, /No FluentCRM contact/);
+});
+
+test("cleanupContactInFluentCrm refuses duplicate FluentCRM contacts", async () => {
+  const { cleanupContactInFluentCrm } = require("../services/fluentCrm");
+  configureFluentCrmEnv();
+  global.fetch = async () => jsonResponse({ subscribers: [{ id: 1 }, { id: 2 }] });
+
+  const result = await cleanupContactInFluentCrm({
+    identity: { logtoUserId: "user-1", email: "duplicate@school.edu" },
+    profile: { logtoOrganizationId: "org-1", fluentcrmCompanyId: "company-1" },
+  });
+
+  assert.equal(result.status, "failed");
+  assert.equal(result.strategy, "duplicate_conflict");
+  assert.equal(result.candidateCount, 2);
+});
+
+test("cleanupContactInFluentCrm conservatively dissociates organization data and keeps other tags/lists", async () => {
+  const { cleanupContactInFluentCrm } = require("../services/fluentCrm");
+  configureFluentCrmEnv();
+  const requests = [];
+  global.fetch = async (url, options = {}) => {
+    requests.push({ url: String(url), options });
+    if (options.method === "PUT") return jsonResponse({ id: 9, status: "unsubscribed" });
+    return jsonResponse({ subscribers: [{ id: 9, company_id: "company-1", tags: [{ title: "Civitas Organization: School" }, { title: "Other Org" }, { title: "civitas-role-student-org" }], lists: [{ title: "Civitas School" }, { title: "Global Newsletter" }] }] });
+  };
+
+  const result = await cleanupContactInFluentCrm({
+    identity: { logtoUserId: "user-1", email: "student@school.edu" },
+    profile: { logtoOrganizationId: "org-1", fluentcrmCompanyId: "company-1", slug: "school", nameCache: "School" },
+  });
+
+  assert.equal(result.status, "completed");
+  assert.equal(result.strategy, "dissociate_only");
+  const payload = JSON.parse(requests.find((request) => request.options.method === "PUT").options.body);
+  assert.deepEqual(payload, { company_id: null, tags: ["Other Org", "civitas-role-student-org"], lists: ["Global Newsletter"], status: "unsubscribed" });
+  assert.match(result.message, /not claimed as deleted/);
+});
+
+test("cleanupContactInFluentCrm does not hard delete multi-organization users", async () => {
+  const { cleanupContactInFluentCrm } = require("../services/fluentCrm");
+  configureFluentCrmEnv({ FLUENTCRM_CONTACT_CLEANUP_STRATEGY: "hard_delete" });
+  const methods = [];
+  global.fetch = async (url, options = {}) => {
+    methods.push(options.method || "GET");
+    if (options.method === "PUT") return jsonResponse({ id: 9 });
+    return jsonResponse({ subscribers: [{ id: 9, company_id: "company-1", tags: [], lists: [] }] });
+  };
+
+  const result = await cleanupContactInFluentCrm({
+    identity: { logtoUserId: "user-1", email: "shared@school.edu" },
+    profile: { logtoOrganizationId: "org-1", fluentcrmCompanyId: "company-1" },
+    remainingOrganizationIds: ["org-2"],
+  });
+
+  assert.equal(result.strategy, "dissociate_only");
+  assert.equal(methods.includes("DELETE"), false);
+});
+
+test("cleanupContactInFluentCrm supports explicit hard delete when not shared", async () => {
+  const { cleanupContactInFluentCrm } = require("../services/fluentCrm");
+  configureFluentCrmEnv({ FLUENTCRM_CONTACT_CLEANUP_STRATEGY: "hard_delete" });
+  const methods = [];
+  global.fetch = async (url, options = {}) => {
+    methods.push(options.method || "GET");
+    if (options.method === "DELETE") return jsonResponse({ deleted: true });
+    return jsonResponse({ subscribers: [{ id: 9, company_id: "company-1" }] });
+  };
+
+  const result = await cleanupContactInFluentCrm({
+    identity: { logtoUserId: "user-1", email: "single@school.edu" },
+    profile: { logtoOrganizationId: "org-1", fluentcrmCompanyId: "company-1" },
+  });
+
+  assert.equal(result.strategy, "hard_delete");
+  assert.equal(methods.includes("DELETE"), true);
+});

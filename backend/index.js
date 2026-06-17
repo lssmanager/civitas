@@ -9,6 +9,7 @@ const {
   ORGANIZATION_ADMIN_ROLE_NAME,
   ensureOrganizationTemplate,
   getLogtoUserById,
+  removeUserFromLogtoOrganization,
   updateLogtoUser,
   listLogtoOrganizationRoles,
   listLogtoOrganizationUserRoles,
@@ -30,7 +31,7 @@ const {
 } = require("./services/auditLogs");
 const { normalizeCanonicalProvisioningInput, runCanonicalOrganizationBootstrap } = require("./services/organizationProvisioningCore");
 const { buildLogtoOrganizationCustomData, normalizeExtendedProvisioningInput } = require("./services/organizationProvisioningSettings");
-const { FluentCrmError, ensureOrganizationTagsAndLists, getOrCreateCompanyForOrganization, normalizeCrmCompanyInput, searchContacts, syncOrganizationContactsToFluentCrm, updateContactEmailAfterLogtoChange } = require("./services/fluentCrm");
+const { FluentCrmError, cleanupContactInFluentCrm, ensureOrganizationTagsAndLists, getOrCreateCompanyForOrganization, normalizeCrmCompanyInput, searchContacts, syncOrganizationContactsToFluentCrm, updateContactEmailAfterLogtoChange } = require("./services/fluentCrm");
 const { getCommercialStatusForOrganization, getLatestCommercialEventsForOrganization, processCommercialEvent, verifyCommercialWebhookSignature } = require("./services/commercialEvents");
 
 const app = express();
@@ -753,6 +754,101 @@ app.patch("/owner/organizations/:organizationId/members/:logtoUserId/identity", 
     return res.json({ status: fluentcrm?.status === "error" ? "logto_updated_fluentcrm_failed" : "updated", logtoUser, fluentcrm, futureSelfServiceRoute: "PATCH /me/identity" });
   } catch (error) {
     return res.status(error.status || 502).json({ error: "Bad Gateway", message: getSafeErrorMessage(error), integration: "logto_management_api", logtoRequest: error.request || null, logtoErrorBody: error.body || null });
+  }
+});
+
+app.post("/owner/organizations/:organizationId/members/:logtoUserId/deprovision", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  let internalUser = null;
+  let profile = null;
+  const requestedAt = new Date().toISOString();
+  try {
+    internalUser = await getOrCreateInternalUser(req.user);
+    profile = await resolveOrganizationProfileForRequest(req.params.organizationId);
+    if (!profile?.logtoOrganizationId) return res.status(404).json({ error: "Not Found", message: "Organization profile not found or not linked to Logto" });
+
+    await recordAuditLogBestEffort({
+      actorUserId: internalUser.id,
+      organizationId: profile.logtoOrganizationId,
+      action: AUDIT_ACTIONS.OWNER_ORGANIZATION_MEMBER_DEPROVISION_REQUEST,
+      result: AUDIT_RESULTS.SUCCESS,
+      metadata: { requestedAt, logtoUserId: req.params.logtoUserId, policy: "remove_logto_membership_then_downstream_fluentcrm_cleanup_without_global_role_mutation" },
+    });
+
+    const logtoUser = await getLogtoUserById(req.params.logtoUserId);
+    const beforeMembers = await listLogtoOrganizationUsers({ organizationId: profile.logtoOrganizationId });
+    const wasMember = beforeMembers.some((member) => (member.id || member.userId || member.logtoUserId || member.sub) === req.params.logtoUserId);
+    if (wasMember) {
+      await removeUserFromLogtoOrganization({ organizationId: profile.logtoOrganizationId, userId: req.params.logtoUserId });
+    }
+    await recordAuditLogBestEffort({
+      actorUserId: internalUser.id,
+      organizationId: profile.logtoOrganizationId,
+      action: AUDIT_ACTIONS.OWNER_ORGANIZATION_MEMBER_DEPROVISION_LOGTO,
+      result: AUDIT_RESULTS.SUCCESS,
+      metadata: { logtoUserId: req.params.logtoUserId, membership: wasMember ? "removed" : "already_absent", globalRolesMutated: false, protectedRoles: ["owner_global"] },
+    });
+
+    const allOrganizations = await listLogtoOrganizations().catch(() => []);
+    const remainingMemberships = [];
+    for (const organization of allOrganizations) {
+      const id = getLogtoOrganizationId(organization);
+      if (!id || id === profile.logtoOrganizationId) continue;
+      try {
+        const members = await listLogtoOrganizationUsers({ organizationId: id });
+        if (members.some((member) => (member.id || member.userId || member.logtoUserId || member.sub) === req.params.logtoUserId)) remainingMemberships.push(id);
+      } catch (error) {
+        remainingMemberships.push(`unknown:${id}`);
+      }
+    }
+
+    const identity = {
+      logtoUserId: req.params.logtoUserId,
+      email: logtoUser.primaryEmail || logtoUser.email || logtoUser.profile?.email || null,
+      name: logtoUser.name || logtoUser.profile?.name || null,
+    };
+    const cleanup = await cleanupContactInFluentCrm({ identity, profile, organization: { logtoOrganizationId: profile.logtoOrganizationId, name: profile.nameCache }, remainingOrganizationIds: remainingMemberships });
+    const cleanupResult = cleanup.status === "completed" ? AUDIT_RESULTS.SUCCESS : AUDIT_RESULTS.ERROR;
+    await recordAuditLogBestEffort({
+      actorUserId: internalUser.id,
+      organizationId: profile.logtoOrganizationId,
+      action: AUDIT_ACTIONS.OWNER_ORGANIZATION_MEMBER_DEPROVISION_FLUENTCRM,
+      result: cleanupResult,
+      metadata: { stage: "fluentcrm_member_cleanup", logtoUserId: req.params.logtoUserId, strategy: cleanup.strategy, cleanupStatus: cleanup.status, message: cleanup.message, operations: cleanup.operations, remainingOrganizationCount: remainingMemberships.length },
+    });
+    await markOrganizationProfileFluentCrmSync({
+      id: profile.id,
+      companyId: profile.fluentcrmCompanyId,
+      status: cleanup.status === "completed" ? "linked" : "error",
+      errorMessage: cleanup.status === "completed" ? null : cleanup.message,
+      synced: cleanup.status === "completed",
+      settings: {
+        ...(profile.settings || {}),
+        fluentcrmMemberCleanup: {
+          status: cleanup.status === "completed" ? (cleanup.strategy === "no_contact_found" ? "no_crm_contact_found" : cleanup.strategy === "dissociate_only" ? "dissociated_only" : "cleanup_completed") : "cleanup_failed",
+          strategy: cleanup.strategy,
+          logtoUserId: req.params.logtoUserId,
+          message: cleanup.message,
+          updatedAt: new Date().toISOString(),
+          persistencePolicy: "summary_only_no_contact_profile_replication",
+        },
+      },
+    });
+
+    return res.json({
+      status: cleanup.status === "completed" ? "deprovisioned" : "deprovisioned_fluentcrm_failed",
+      logto: { membership: wasMember ? "removed" : "already_absent", globalRolesMutated: false },
+      fluentcrm: cleanup,
+      audit: { requestedAt, policy: "explicit_deprovision_audited" },
+    });
+  } catch (error) {
+    await recordAuditLogBestEffort({
+      actorUserId: internalUser?.id ?? null,
+      organizationId: profile?.logtoOrganizationId || req.params.organizationId,
+      action: AUDIT_ACTIONS.OWNER_ORGANIZATION_MEMBER_DEPROVISION_FLUENTCRM,
+      result: AUDIT_RESULTS.ERROR,
+      metadata: { stage: "member_deprovision_failed", logtoUserId: req.params.logtoUserId, error },
+    });
+    return res.status(error.status || 502).json({ error: "Bad Gateway", message: getSafeErrorMessage(error), integration: error instanceof FluentCrmError ? "fluentcrm" : "logto_management_api", logtoRequest: error.request || null, logtoErrorBody: error.body || null });
   }
 });
 

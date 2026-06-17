@@ -290,6 +290,12 @@ async function listLogtoOrganizationUserRoles({ organizationId, userId }) {
   return normalizeRoleListResponse(response).map((role) => ({ ...role, id: getOrganizationRoleId(role), name: getOrganizationRoleName(role) }));
 }
 
+async function removeUserFromLogtoOrganization({ organizationId, userId }) {
+  return callLogtoManagementApi(`/organizations/${encodeURIComponent(organizationId)}/users/${encodeURIComponent(userId)}`, {
+    method: "DELETE",
+  });
+}
+
 async function listLogtoUserGlobalRoles({ userId }) {
   return normalizeRoleListResponse(await callLogtoManagementApi(`/users/${encodeURIComponent(userId)}/roles`))
     .map((role) => ({ ...role, id: getGlobalRoleId(role), name: getGlobalRoleName(role) }));
@@ -419,6 +425,7 @@ module.exports = {
   getAllowedOrganizationUserGlobalRoleNames,
   listLogtoUserGlobalRoles,
   removeLogtoUserGlobalRole,
+  removeUserFromLogtoOrganization,
   removeProhibitedLogtoUserGlobalRoles,
   updateLogtoOrganizationCustomData,
   updateLogtoUser,

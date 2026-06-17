@@ -95,6 +95,17 @@ export type OwnerCommercialStatus = {
   commercial: Record<string, unknown> | null;
 };
 
+export type OwnerMemberDeprovisionResponse = {
+  status: "deprovisioned" | "deprovisioned_fluentcrm_failed" | string;
+  logto: { membership: "removed" | "already_absent" | string; globalRolesMutated: boolean };
+  fluentcrm: {
+    status: "completed" | "failed" | string;
+    strategy: "hard_delete" | "dissociate_only" | "no_contact_found" | "duplicate_conflict" | string;
+    message?: string;
+    operations?: unknown[];
+  };
+};
+
 export type OwnerOrganizationTemplateRole = { id: string; name: string };
 
 export type OwnerOrganizationTemplate = {
@@ -158,6 +169,8 @@ export const useOwnerApi = () => {
         fetchWithToken(`/owner/organizations/${encodeURIComponent(organizationId)}/fluentcrm/sync-status`),
       getOrganizationCommercialStatus: async (organizationId: string): Promise<OwnerCommercialStatus> =>
         fetchWithToken(`/owner/organizations/${encodeURIComponent(organizationId)}/commercial-status`),
+      deprovisionOrganizationMember: async (organizationId: string, logtoUserId: string): Promise<OwnerMemberDeprovisionResponse> =>
+        fetchWithToken(`/owner/organizations/${encodeURIComponent(organizationId)}/members/${encodeURIComponent(logtoUserId)}/deprovision`, { method: "POST" }),
     }),
     [fetchWithToken]
   );
