@@ -71,6 +71,13 @@
       "when": 1791841380000,
       "tag": "0009_add_fluentcrm_sync_to_organization_profiles",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791841440000,
+      "tag": "0010_create_commercial_events",
+      "breakpoints": true
     }
   ]
 }

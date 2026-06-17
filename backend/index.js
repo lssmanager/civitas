@@ -31,13 +31,18 @@ const {
 const { normalizeCanonicalProvisioningInput, runCanonicalOrganizationBootstrap } = require("./services/organizationProvisioningCore");
 const { buildLogtoOrganizationCustomData, normalizeExtendedProvisioningInput } = require("./services/organizationProvisioningSettings");
 const { FluentCrmError, ensureOrganizationTagsAndLists, getOrCreateCompanyForOrganization, normalizeCrmCompanyInput, searchContacts, syncOrganizationContactsToFluentCrm, updateContactEmailAfterLogtoChange } = require("./services/fluentCrm");
+const { getCommercialStatusForOrganization, getLatestCommercialEventsForOrganization, processCommercialEvent, verifyCommercialWebhookSignature } = require("./services/commercialEvents");
 
 const app = express();
 const port = process.env.PORT || 3000;
 const API_RESOURCE = process.env.LOGTO_API_RESOURCE_INDICATOR;
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({
+  verify: (req, _res, buffer) => {
+    req.rawBody = buffer.toString("utf8");
+  },
+}));
 
 const getLogtoOrganizationId = (organization) => organization.id || organization.organizationId || organization.logtoOrganizationId;
 const getLogtoOrganizationName = (organization) => organization.name || organization.nameCache || null;
@@ -688,6 +693,39 @@ app.patch("/owner/organizations/:organizationId/fluentcrm", requireAuth(API_RESO
     const status = error instanceof FluentCrmError ? (error.status || 502) : error.status || 500;
     return res.status(status).json({ error: status === 409 ? "Conflict" : status >= 500 ? "Bad Gateway" : "Bad Request", message: getSafeErrorMessage(error), integration: "fluentcrm", code: error.code || null });
   }
+});
+
+app.post(["/webhooks/fluentcrm/commercial-events", "/webhooks/wordpress/commercial-events"], async (req, res) => {
+  const signature = req.get("x-civitas-signature") || req.get("x-fluentcrm-signature");
+  const auth = verifyCommercialWebhookSignature({
+    rawBody: req.rawBody || JSON.stringify(req.body || {}),
+    signature,
+    secret: process.env.COMMERCIAL_WEBHOOK_SECRET,
+  });
+  if (!auth.ok) {
+    await recordAuditLogBestEffort({ action: AUDIT_ACTIONS.COMMERCIAL_EVENT_FAILED, result: AUDIT_RESULTS.DENIED, metadata: { stage: "webhook_authentication", reason: auth.reason } });
+    return res.status(401).json({ error: "Unauthorized", message: "Invalid commercial webhook signature" });
+  }
+
+  const result = await processCommercialEvent(req.body || {});
+  if (result.status === "invalid") return res.status(400).json({ error: "Bad Request", message: result.errors[0]?.message || "Invalid commercial event payload", details: result.errors });
+  if (result.status === "ignored") {
+    await recordAuditLogBestEffort({ action: AUDIT_ACTIONS.COMMERCIAL_EVENT_IGNORED, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "idempotency_duplicate", previousStatus: result.previousStatus } });
+    return res.status(200).json({ status: "ignored", idempotent: true, previousStatus: result.previousStatus });
+  }
+  if (result.status === "failed") return res.status(result.code?.includes("ORG") ? 409 : 502).json({ error: "Commercial Event Failed", message: result.error || result.reason, code: result.code || result.reason || null });
+  return res.status(202).json({ status: "applied", organizationId: result.organizationId, commercial: result.commercial });
+});
+
+app.get("/owner/organizations/:organizationId/commercial-status", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  const status = await getCommercialStatusForOrganization(req.params.organizationId);
+  if (!status) return res.status(404).json({ error: "Not Found", message: "Organization profile not found" });
+  return res.json(status);
+});
+
+app.get("/owner/organizations/:organizationId/commercial-events/latest", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  const events = await getLatestCommercialEventsForOrganization(req.params.organizationId);
+  return res.json({ events });
 });
 
 app.patch("/owner/organizations/:organizationId/members/:logtoUserId/identity", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {

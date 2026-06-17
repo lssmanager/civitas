@@ -28,6 +28,12 @@ export function OwnerOrganizationSettingsPage() {
     getKey: () => `owner-organization-settings-${organizationId}`,
     getErrorMessage: (error) => error instanceof Error ? error.message : "No se pudo cargar la configuración preparada.",
   });
+  const commercialResource = useStableResource({
+    initialParams: {},
+    load: () => ownerApi.getOrganizationCommercialStatus(organizationId),
+    getKey: () => `owner-organization-commercial-${organizationId}`,
+    getErrorMessage: (error) => error instanceof Error ? error.message : "No se pudo cargar estado comercial.",
+  });
 
   const organization = organizationsResource.data?.organizations.find((item) => item.profile?.id === organizationId || item.logtoOrganizationId === organizationId);
   const profile = organization?.profile;
@@ -146,6 +152,26 @@ export function OwnerOrganizationSettingsPage() {
                 {contactSyncError ? <Alert variant="danger" className="mb-0">{contactSyncError}</Alert> : null}
               </div>
 
+            </PageCard>
+          </div>
+          <div className="col-12 col-lg-6">
+            <PageCard title="Estado comercial y seats" subtitle="Estado operativo mínimo en Civitas: seats contratados, consumo y último evento aplicado. No replica el CRM completo.">
+              {commercialResource.isLoading ? (
+                <LoadingState title="Cargando estado comercial" description="Consultando seats Civitas y consumo de membresías Logto." />
+              ) : commercialResource.error ? (
+                <Alert variant="warning">{commercialResource.error}</Alert>
+              ) : (
+                <dl className="mb-0 small">
+                  <dt>Plan / producto</dt><dd>{String(commercialResource.data?.commercial?.plan ?? commercialResource.data?.commercial?.product ?? "Sin evento comercial")}</dd>
+                  <dt>Estado comercial</dt><dd><Badge bg={commercialResource.data?.commercial?.status === "active" ? "success" : commercialResource.data?.commercial?.status === "action_required" ? "warning" : "secondary"}>{String(commercialResource.data?.commercial?.status ?? "unknown")}</Badge></dd>
+                  <dt>Acceso organizacional</dt><dd>{String(commercialResource.data?.commercial?.accessStatus ?? "unknown")}</dd>
+                  <dt>Seats contratados</dt><dd>{commercialResource.data?.seatTotal ?? profile?.seatTotal ?? 0}</dd>
+                  <dt>Seats consumidos</dt><dd>{commercialResource.data?.seatsConsumed ?? String(commercialResource.data?.commercial?.seatsConsumed ?? "No calculado")}</dd>
+                  <dt>Seats disponibles</dt><dd>{commercialResource.data?.seatsAvailable ?? String(commercialResource.data?.commercial?.seatsAvailable ?? "No calculado")}</dd>
+                  <dt>Último evento</dt><dd>{String(commercialResource.data?.commercial?.lastEventType ?? "Sin eventos")} / {String(commercialResource.data?.commercial?.lastEventId ?? "n/a")}</dd>
+                  <dt>Último error</dt><dd className="text-break text-danger">{String(commercialResource.data?.commercial?.lastError ?? "Sin errores")}</dd>
+                </dl>
+              )}
             </PageCard>
           </div>
           <div className="col-12 col-lg-6">
