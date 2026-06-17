@@ -15,6 +15,7 @@ const AUDIT_ACTIONS = Object.freeze({
   OWNER_ORGANIZATION_METADATA_RECONCILE: "owner.organization.metadata_reconcile",
   OWNER_ORGANIZATION_BASE_MEMBER: "owner.organization.base_member",
   OWNER_ORGANIZATION_BASE_ROLE: "owner.organization.base_role",
+  OWNER_ORGANIZATION_BASE_GLOBAL_ROLES: "owner.organization.base_global_roles",
   OWNER_ORGANIZATION_CREATOR_MEMBERSHIP: "owner.organization.creator_membership",
   OWNER_ORGANIZATION_CREATOR_ROLE: "owner.organization.creator_role",
   OWNER_ORGANIZATION_BOOTSTRAP_FAILED: "owner.organization.bootstrap_failed",
