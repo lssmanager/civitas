@@ -18,6 +18,17 @@ export function OwnerOrganizationsPage() {
   const [jitDefaultRoleName, setJitDefaultRoleName] = useState<string>(ORGANIZATION_JIT_DEFAULT_ROLE);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitWarning, setSubmitWarning] = useState<string | null>(null);
+  const [createdCrmStatus, setCreatedCrmStatus] = useState<string | null>(null);
+  const [crmCompanyName, setCrmCompanyName] = useState("");
+  const [crmCompanyEmail, setCrmCompanyEmail] = useState("");
+  const [crmCompanyPhone, setCrmCompanyPhone] = useState("");
+  const [crmAbout, setCrmAbout] = useState("");
+  const [crmWebsite, setCrmWebsite] = useState("");
+  const [crmEmployees, setCrmEmployees] = useState("");
+  const [crmIndustry, setCrmIndustry] = useState("");
+  const [crmType, setCrmType] = useState("");
+  const [crmOwner, setCrmOwner] = useState("");
+  const [crmDescription, setCrmDescription] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const templateResource = useStableResource({
@@ -36,6 +47,7 @@ export function OwnerOrganizationsPage() {
     event.preventDefault();
     setSubmitError(null);
     setSubmitWarning(null);
+    setCreatedCrmStatus(null);
     setIsSubmitting(true);
 
     try {
@@ -54,6 +66,18 @@ export function OwnerOrganizationsPage() {
           domain: adminDomain || undefined,
           defaultRoleNames: [selectedJitRole],
         },
+        crm: {
+          companyName: crmCompanyName || name,
+          companyEmail: crmCompanyEmail || baseAdminEmail || undefined,
+          companyPhone: crmCompanyPhone || undefined,
+          about: crmAbout || undefined,
+          website: crmWebsite || adminDomain || undefined,
+          numberOfEmployees: crmEmployees ? Number(crmEmployees) : undefined,
+          industry: crmIndustry || undefined,
+          type: crmType || undefined,
+          companyOwner: crmOwner || undefined,
+          description: crmDescription || undefined,
+        },
       });
 
       setName("");
@@ -63,7 +87,18 @@ export function OwnerOrganizationsPage() {
       setBaseAdminName("");
       setBaseAdminEmail("");
       setBaseAdminLogtoUserId("");
+      setCrmCompanyName("");
+      setCrmCompanyEmail("");
+      setCrmCompanyPhone("");
+      setCrmAbout("");
+      setCrmWebsite("");
+      setCrmEmployees("");
+      setCrmIndustry("");
+      setCrmType("");
+      setCrmOwner("");
+      setCrmDescription("");
       if (result.warning) setSubmitWarning(result.warning);
+      setCreatedCrmStatus(typeof result.fluentcrm?.status === "string" ? result.fluentcrm.status : null);
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : "No se pudo crear la organización.");
     } finally {
@@ -107,11 +142,33 @@ export function OwnerOrganizationsPage() {
                   <Form.Group className="col-12 col-lg-6" controlId="ownerOrganizationAdminRole"><Form.Label>Rol organizacional del admin base</Form.Label><Form.Select value={selectedAdminRole} onChange={(event) => setAdminRoleName(event.target.value)} disabled={roles.length === 0}>{roles.filter((role) => role.name === ORGANIZATION_BOOTSTRAP_ADMIN_ROLE).map((role) => <option value={role.name} key={role.id}>{role.name}</option>)}</Form.Select><Form.Text>Se asigna al usuario admin base después de hacerlo miembro.</Form.Text></Form.Group>
                   <Form.Group className="col-12 col-lg-6" controlId="ownerOrganizationJitDefaultRole"><Form.Label>Rol predeterminado para JIT</Form.Label><Form.Select value={selectedJitRole} onChange={(event) => setJitDefaultRoleName(event.target.value)} disabled={roles.length === 0}>{roles.filter((role) => role.name === ORGANIZATION_JIT_DEFAULT_ROLE).map((role) => <option value={role.name} key={role.id}>{role.name}</option>)}</Form.Select><Form.Text>Se configura en Logto para nuevos usuarios del dominio institucional.</Form.Text></Form.Group>
                 </div>
+
+                <PageCard title="Paso FluentCRM" subtitle="Datos comerciales downstream; no reemplazan identidad, membresías ni permisos en Logto.">
+                  <div className="d-flex flex-column gap-3">
+                    <Form.Group controlId="ownerOrganizationCrmCompanyName"><Form.Label>Company Name</Form.Label><Form.Control value={crmCompanyName} onChange={(event) => setCrmCompanyName(event.target.value)} placeholder={name || "Colegio San José"} /></Form.Group>
+                    <div className="row g-3">
+                      <Form.Group className="col-12 col-lg-6" controlId="ownerOrganizationCrmCompanyEmail"><Form.Label>Company Email</Form.Label><Form.Control type="email" value={crmCompanyEmail} onChange={(event) => setCrmCompanyEmail(event.target.value)} placeholder={baseAdminEmail || "contacto@colegio.edu"} /></Form.Group>
+                      <Form.Group className="col-12 col-lg-6" controlId="ownerOrganizationCrmCompanyPhone"><Form.Label>Company Phone Number</Form.Label><Form.Control value={crmCompanyPhone} onChange={(event) => setCrmCompanyPhone(event.target.value)} placeholder="+1 555 555 5555" /></Form.Group>
+                    </div>
+                    <Form.Group controlId="ownerOrganizationCrmAbout"><Form.Label>About this company</Form.Label><Form.Control as="textarea" rows={2} value={crmAbout} onChange={(event) => setCrmAbout(event.target.value)} /></Form.Group>
+                    <div className="row g-3">
+                      <Form.Group className="col-12 col-lg-6" controlId="ownerOrganizationCrmWebsite"><Form.Label>Website</Form.Label><Form.Control value={crmWebsite} onChange={(event) => setCrmWebsite(event.target.value)} placeholder={adminDomain || "colegio.edu"} /></Form.Group>
+                      <Form.Group className="col-12 col-lg-6" controlId="ownerOrganizationCrmEmployees"><Form.Label>Number of Employees</Form.Label><Form.Control type="number" min="0" value={crmEmployees} onChange={(event) => setCrmEmployees(event.target.value)} /></Form.Group>
+                    </div>
+                    <div className="row g-3">
+                      <Form.Group className="col-12 col-lg-4" controlId="ownerOrganizationCrmIndustry"><Form.Label>Industry</Form.Label><Form.Control value={crmIndustry} onChange={(event) => setCrmIndustry(event.target.value)} placeholder="Education" /></Form.Group>
+                      <Form.Group className="col-12 col-lg-4" controlId="ownerOrganizationCrmType"><Form.Label>Type</Form.Label><Form.Control value={crmType} onChange={(event) => setCrmType(event.target.value)} placeholder="School" /></Form.Group>
+                      <Form.Group className="col-12 col-lg-4" controlId="ownerOrganizationCrmOwner"><Form.Label>Company Owner</Form.Label><Form.Control value={crmOwner} onChange={(event) => setCrmOwner(event.target.value)} /></Form.Group>
+                    </div>
+                    <Form.Group controlId="ownerOrganizationCrmDescription"><Form.Label>Description</Form.Label><Form.Control as="textarea" rows={2} value={crmDescription} onChange={(event) => setCrmDescription(event.target.value)} /></Form.Group>
+                  </div>
+                </PageCard>
                 <Alert variant="info" className="mb-0">
                   El alta crea o reconcilia la organización en Logto, crea o resuelve el admin base en Logto, lo agrega como miembro, le asigna Admin-org y configura en la API de Logto el dominio institucional con Student-org como rol JIT predeterminado. customData queda solo como metadata auxiliar.
                 </Alert>
                 {submitError && <Alert variant="danger" className="mb-0">{submitError}</Alert>}
                 {submitWarning && <Alert variant="warning" className="mb-0">{submitWarning}</Alert>}
+                {createdCrmStatus && <Alert variant="success" className="mb-0">Estado FluentCRM: {createdCrmStatus}. La organización canónica y permisos siguen en Logto.</Alert>}
                 <Button type="submit" disabled={isSubmitting || !name.trim() || !slug.trim() || !appSubdomain.trim() || !adminDomain.trim() || !baseAdminName.trim() || !baseAdminEmail.trim() || logtoUserIdLooksLikeRole || !templateResource.data?.ready}>{isSubmitting ? "Creando..." : "Crear organización"}</Button>
               </Form>
             )}
@@ -122,7 +179,7 @@ export function OwnerOrganizationsPage() {
             <ol className="text-secondary mb-0 d-flex flex-column gap-2">
               <li>Crear o reconciliar primero la organización canónica en Logto.</li>
               <li>Enviar <code>customData</code> derivado de slug/subdominio/dominio directamente a Logto.</li>
-              <li>No insertar <code>organization_profiles</code> ni checkpoints locales como requisito del alta.</li>
+              <li>Persistir <code>organization_profiles</code> solo después de Logto para referencias externas, sync y auditoría; no reemplaza la organización canónica.</li>
               <li>Crear o resolver el admin base por <code>logtoUserId</code> o por correo/nombre.</li>
               <li>Agregarlo como miembro y asignarle <code>{ORGANIZATION_BOOTSTRAP_ADMIN_ROLE}</code> sin usar al owner global como sustituto.</li>
               <li>Configurar JIT real en Logto: dominio institucional y rol default <code>{ORGANIZATION_JIT_DEFAULT_ROLE}</code>.</li>

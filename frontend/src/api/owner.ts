@@ -95,6 +95,19 @@ export type OwnerOrganizationTemplate = {
   ready: boolean;
 };
 
+export type FluentCrmCompanyInput = {
+  companyName?: string;
+  companyEmail?: string;
+  companyPhone?: string;
+  about?: string;
+  website?: string;
+  numberOfEmployees?: number;
+  industry?: string;
+  type?: string;
+  companyOwner?: string;
+  description?: string;
+};
+
 export type CreateOwnerOrganizationInput = {
   name: string;
   description?: string;
@@ -108,6 +121,7 @@ export type CreateOwnerOrganizationInput = {
   baseAdmin?: { name?: string; email?: string; logtoUserId?: string; initialOrganizationRole?: string };
   jitProvisioning?: { domain?: string; defaultRoleNames?: string[] };
   settings?: Record<string, unknown>;
+  crm?: FluentCrmCompanyInput;
 };
 
 export const useOwnerApi = () => {
@@ -125,8 +139,10 @@ export const useOwnerApi = () => {
         const query = params.toString();
         return fetchWithToken(`/owner/audit${query ? `?${query}` : ""}`);
       },
-      createOrganization: async (data: CreateOwnerOrganizationInput): Promise<{ organization: OwnerOrganization; status: string; sourceOfTruth: "logto"; adminAssignment?: { status: string; message?: string; logtoUserId?: string; roleName?: string }; jitProvisioning?: { status: string; domain?: string; defaultRoleNames?: string[] }; steps?: Record<string, unknown>; warning?: string }> =>
+      createOrganization: async (data: CreateOwnerOrganizationInput): Promise<{ organization: OwnerOrganization; status: string; sourceOfTruth: "logto"; adminAssignment?: { status: string; message?: string; logtoUserId?: string; roleName?: string }; jitProvisioning?: { status: string; domain?: string; defaultRoleNames?: string[] }; steps?: Record<string, unknown>; fluentcrm?: Record<string, unknown>; warning?: string }> =>
         fetchWithToken("/owner/organizations", { method: "POST", body: JSON.stringify(data) }),
+      updateOrganizationFluentCrm: async (organizationId: string, crm: FluentCrmCompanyInput): Promise<{ status: string; fluentcrm?: Record<string, unknown> }> =>
+        fetchWithToken(`/owner/organizations/${encodeURIComponent(organizationId)}/fluentcrm`, { method: "PATCH", body: JSON.stringify({ crm }) }),
     }),
     [fetchWithToken]
   );

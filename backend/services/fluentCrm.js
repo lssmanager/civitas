@@ -76,6 +76,45 @@ function normalizeName(value) {
   return value ? String(value).normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim() || null : null;
 }
 
+
+const normalizeString = (value) => (typeof value === "string" && value.trim() ? value.trim() : null);
+const normalizeInteger = (value) => {
+  if (value === undefined || value === null || value === "") return null;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
+};
+
+function normalizeCrmCompanyInput(input = {}, fallback = {}) {
+  const companyName = normalizeString(input.companyName ?? input.name) || normalizeString(fallback.name ?? fallback.nameCache);
+  return {
+    companyName,
+    companyEmail: normalizeEmail(input.companyEmail ?? input.email),
+    companyPhone: normalizeString(input.companyPhone ?? input.phone),
+    website: normalizeString(input.website ?? fallback.website ?? fallback.adminDomain),
+    numberOfEmployees: normalizeInteger(input.numberOfEmployees),
+    industry: normalizeString(input.industry),
+    type: normalizeString(input.type),
+    companyOwner: normalizeString(input.companyOwner),
+    about: normalizeString(input.about ?? input.description ?? input.companyDescription),
+    description: normalizeString(input.description ?? input.about ?? input.companyDescription),
+  };
+}
+
+function buildFluentCrmCompanyPayload(company = {}) {
+  return {
+    name: company.companyName || company.name || company.nameCache,
+    email: company.companyEmail || company.email || company.billingEmail || company.contactEmail || undefined,
+    phone: company.companyPhone || company.phone || undefined,
+    website: company.website || company.adminDomain || undefined,
+    number_of_employees: company.numberOfEmployees ?? undefined,
+    industry: company.industry || undefined,
+    type: company.type || undefined,
+    owner: company.companyOwner || undefined,
+    description: company.description || company.about || undefined,
+    about: company.about || company.description || undefined,
+  };
+}
+
 function companyId(company) {
   return company?.id ?? company?.ID ?? company?.company_id ?? null;
 }
@@ -139,10 +178,10 @@ async function findCompanyCandidates(organization = {}) {
   if (organization.fluentcrmCompanyId) (await searchCompanies({ companyId: organization.fluentcrmCompanyId })).forEach((c) => add(c, "fluentcrm_company_id"));
   const domain = normalizeDomain(organization.website || organization.adminDomain || organization.domain);
   if (domain) (await searchCompanies({ website: domain })).forEach((c) => add(c, "domain"));
-  const email = normalizeEmail(organization.email || organization.billingEmail || organization.contactEmail);
+  const email = normalizeEmail(organization.companyEmail || organization.email || organization.billingEmail || organization.contactEmail);
   if (email) (await searchCompanies({ email })).forEach((c) => add(c, "email"));
-  const name = normalizeName(organization.name || organization.nameCache);
-  if (name) (await searchCompanies({ search: organization.name || organization.nameCache })).forEach((c) => add(c, "name"));
+  const name = normalizeName(organization.companyName || organization.name || organization.nameCache);
+  if (name) (await searchCompanies({ search: organization.companyName || organization.name || organization.nameCache })).forEach((c) => add(c, "name"));
   return [...seen.values()].map(({ company, sources }) => ({ company, sources }));
 }
 
@@ -152,8 +191,8 @@ function findReliableCompanyMatch(organization = {}, candidates = []) {
     if (matches.length === 1) return { status: "matched", company: matches[0].company, reason: "fluentcrm_company_id" };
   }
   const domain = normalizeDomain(organization.website || organization.adminDomain || organization.domain);
-  const email = normalizeEmail(organization.email || organization.billingEmail || organization.contactEmail);
-  const name = normalizeName(organization.name || organization.nameCache);
+  const email = normalizeEmail(organization.companyEmail || organization.email || organization.billingEmail || organization.contactEmail);
+  const name = normalizeName(organization.companyName || organization.name || organization.nameCache);
   const byDomain = domain ? candidates.filter(({ company }) => normalizeDomain(companyWebsite(company)) === domain) : [];
   if (byDomain.length === 1) return { status: "matched", company: byDomain[0].company, reason: "domain" };
   if (byDomain.length > 1) return { status: "conflict", reason: "duplicate_domain", candidates: byDomain.map(({ company }) => company) };
@@ -167,13 +206,92 @@ function findReliableCompanyMatch(organization = {}, candidates = []) {
 }
 
 async function createCompany(organization = {}) {
-  const payload = { name: organization.name || organization.nameCache, website: organization.website || organization.adminDomain || undefined, email: organization.email || organization.billingEmail || organization.contactEmail || undefined };
+  const payload = { name: organization.companyName || organization.name || organization.nameCache, website: organization.website || organization.adminDomain || undefined, email: organization.companyEmail || organization.email || organization.billingEmail || organization.contactEmail || undefined };
   const body = await requestFluentCrm("/companies", { method: "POST", body: payload });
   return extractCompanies(body)[0] || body;
 }
 
+
+async function searchFluentCrmCollection(path, { search } = {}) {
+  const body = await requestFluentCrm(path, { query: { search, per_page: 50 } });
+  if (Array.isArray(body)) return body;
+  if (Array.isArray(body?.data)) return body.data;
+  if (Array.isArray(body?.items)) return body.items;
+  if (Array.isArray(body?.tags)) return body.tags;
+  if (Array.isArray(body?.lists)) return body.lists;
+  return [];
+}
+
+const itemName = (item = {}) => item.title || item.name || item.label || null;
+const itemId = (item = {}) => item.id ?? item.ID ?? item.term_id ?? null;
+
+async function ensureFluentCrmCollectionItem(path, { title, slug }) {
+  const existing = await searchFluentCrmCollection(path, { search: title });
+  const match = existing.find((item) => itemName(item) === title || item.slug === slug);
+  if (match) return { item: match, created: false };
+  const item = await requestFluentCrm(path, { method: "POST", body: { title, name: title, slug } });
+  return { item, created: true };
+}
+
+function buildOrganizationCrmTaxonomy({ logtoOrganizationId, slug, name }) {
+  const safeSlug = normalizeName(slug || name || logtoOrganizationId || "organization")?.replace(/\s+/g, "-") || "organization";
+  return {
+    tag: { title: `Civitas Organization: ${name || safeSlug}`, slug: `civitas-org-${safeSlug}` },
+    list: { title: `Civitas ${name || safeSlug}`, slug: `civitas-${safeSlug}` },
+  };
+}
+
+async function ensureOrganizationTagsAndLists({ logtoOrganizationId, slug, name }) {
+  const taxonomy = buildOrganizationCrmTaxonomy({ logtoOrganizationId, slug, name });
+  const [tag, list] = await Promise.all([
+    ensureFluentCrmCollectionItem("/tags", taxonomy.tag),
+    ensureFluentCrmCollectionItem("/lists", taxonomy.list),
+  ]);
+  return {
+    tag: { ...tag, id: itemId(tag.item), title: itemName(tag.item) || taxonomy.tag.title, slug: tag.item?.slug || taxonomy.tag.slug },
+    list: { ...list, id: itemId(list.item), title: itemName(list.item) || taxonomy.list.title, slug: list.item?.slug || taxonomy.list.slug },
+    persistence: "not_persisted_locally_recomputed_from_logto_organization_id_slug_or_name",
+  };
+}
+
+async function searchContacts({ email, externalId } = {}) {
+  const query = externalId || normalizeEmail(email);
+  if (!query) return [];
+  const body = await requestFluentCrm("/subscribers", { query: { search: query, per_page: 20 } });
+  if (Array.isArray(body)) return body;
+  if (Array.isArray(body?.subscribers)) return body.subscribers;
+  if (Array.isArray(body?.contacts)) return body.contacts;
+  if (Array.isArray(body?.data)) return body.data;
+  return [];
+}
+
+const contactId = (contact = {}) => contact.id ?? contact.ID ?? contact.subscriber_id ?? null;
+
+async function updateContact(contactIdentifier, fields = {}) {
+  const id = typeof contactIdentifier === "object" ? contactId(contactIdentifier) : contactIdentifier;
+  if (!id) throw new FluentCrmError("Cannot update FluentCRM contact without an id", { code: "FLUENTCRM_CONTACT_ID_MISSING" });
+  return requestFluentCrm(`/subscribers/${encodeURIComponent(id)}`, { method: "PUT", body: fields });
+}
+
+async function updateContactEmailAfterLogtoChange({ previousEmail, newEmail, logtoUserId, organizationId, logtoOrganizationId, profile = {} } = {}) {
+  const contacts = await searchContacts({ email: previousEmail, externalId: logtoUserId });
+  if (contacts.length > 1) throw new FluentCrmError("Ambiguous FluentCRM contact match for identity update", { code: "FLUENTCRM_CONTACT_CONFLICT", body: { candidateCount: contacts.length, logtoUserId, organizationId, logtoOrganizationId } });
+  const contact = contacts[0];
+  if (!contact) return { status: "not_found", previousEmail, newEmail, logtoUserId, organizationId, logtoOrganizationId };
+  const customValues = {};
+  if (process.env.FLUENTCRM_PREVIOUS_EMAIL_FIELD_KEY) customValues[process.env.FLUENTCRM_PREVIOUS_EMAIL_FIELD_KEY] = previousEmail;
+  const updated = await updateContact(contact, {
+    email: normalizeEmail(newEmail),
+    full_name: normalizeString(profile.name),
+    phone: normalizeString(profile.phone),
+    custom_values: Object.keys(customValues).length ? customValues : undefined,
+  });
+  return { status: "updated", contact: updated, previousEmailAuditedOnly: !process.env.FLUENTCRM_PREVIOUS_EMAIL_FIELD_KEY };
+}
+
 async function getOrCreateCompanyForOrganization(profile, organization = {}, { actorUserId = null, auditMetadata = null, markSync = markOrganizationProfileFluentCrmSync, audit = recordAuditLogBestEffort } = {}) {
-  const merged = { ...organization, ...profile, name: organization.name || profile.nameCache };
+  const crmCompany = normalizeCrmCompanyInput(organization.crm || organization, { ...profile, name: organization.name });
+  const merged = { ...profile, ...organization, ...crmCompany, name: organization.name || profile.nameCache };
   await markSync({ id: profile.id, companyId: profile.fluentcrmCompanyId, status: FLUENTCRM_SYNC_STATUSES.PENDING });
   try {
     const candidates = await findCompanyCandidates(merged);
@@ -195,4 +313,4 @@ async function getOrCreateCompanyForOrganization(profile, organization = {}, { a
   }
 }
 
-module.exports = { FluentCrmError, createCompany, findCompanyCandidates, findReliableCompanyMatch, getFluentCrmConfig, getOrCreateCompanyForOrganization, normalizeBaseUrl, sanitizeForDiagnostics, searchCompanies };
+module.exports = { FluentCrmError, buildOrganizationCrmTaxonomy, createCompany, ensureOrganizationTagsAndLists, findCompanyCandidates, findReliableCompanyMatch, getFluentCrmConfig, getOrCreateCompanyForOrganization, normalizeBaseUrl, normalizeCrmCompanyInput, sanitizeForDiagnostics, searchCompanies, searchContacts, updateContact, updateContactEmailAfterLogtoChange };

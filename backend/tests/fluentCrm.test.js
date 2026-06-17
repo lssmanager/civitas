@@ -216,3 +216,48 @@ test("sanitizeForDiagnostics redacts secrets recursively", () => {
 
   assert.deepEqual(sanitized, { Authorization: "[Redacted]", nested: { appPassword: "[Redacted]", safe: "ok" }, token: "[Redacted]" });
 });
+
+test("normalizeCrmCompanyInput maps minimal FluentCRM company fields without identity canon changes", () => {
+  const { normalizeCrmCompanyInput } = require("../services/fluentCrm");
+  const normalized = normalizeCrmCompanyInput({ companyName: " School ", companyEmail: "INFO@SCHOOL.EDU ", companyPhone: " +1555 ", website: "https://school.edu", numberOfEmployees: "42", industry: "Education", type: "School", companyOwner: "Owner", about: "About", description: "Description" }, { name: "Fallback" });
+
+  assert.deepEqual(normalized, {
+    companyName: "School",
+    companyEmail: "info@school.edu",
+    companyPhone: "+1555",
+    website: "https://school.edu",
+    numberOfEmployees: 42,
+    industry: "Education",
+    type: "School",
+    companyOwner: "Owner",
+    about: "About",
+    description: "Description",
+  });
+});
+
+test("buildOrganizationCrmTaxonomy is deterministic so tags/lists need not be stored locally", () => {
+  const { buildOrganizationCrmTaxonomy } = require("../services/fluentCrm");
+  assert.deepEqual(buildOrganizationCrmTaxonomy({ logtoOrganizationId: "org-1", slug: "school-one", name: "School One" }), {
+    tag: { title: "Civitas Organization: School One", slug: "civitas-org-school-one" },
+    list: { title: "Civitas School One", slug: "civitas-school-one" },
+  });
+});
+
+test("updateContactEmailAfterLogtoChange updates email and writes previous email only when configured", async () => {
+  const { updateContactEmailAfterLogtoChange } = require("../services/fluentCrm");
+  configureFluentCrmEnv({ FLUENTCRM_PREVIOUS_EMAIL_FIELD_KEY: "previous_email" });
+  const requests = [];
+  global.fetch = async (url, options = {}) => {
+    requests.push({ url: String(url), options });
+    if (String(url).includes("/subscribers?") || String(url).endsWith("/subscribers?search=user-1&per_page=20")) return jsonResponse({ subscribers: [{ id: 9, email: "old@school.edu" }] });
+    if (String(url).endsWith("/subscribers/9")) return jsonResponse({ id: 9, email: "new@school.edu" });
+    return jsonResponse({ subscribers: [{ id: 9, email: "old@school.edu" }] });
+  };
+
+  const result = await updateContactEmailAfterLogtoChange({ previousEmail: "old@school.edu", newEmail: "new@school.edu", logtoUserId: "user-1", logtoOrganizationId: "org-1", profile: { name: "User One", phone: "+1555" } });
+
+  assert.equal(result.status, "updated");
+  const updateRequest = requests.find((request) => request.options.method === "PUT");
+  assert.equal(new URL(updateRequest.url).pathname, "/wp-json/fluent-crm/v2/subscribers/9");
+  assert.deepEqual(JSON.parse(updateRequest.options.body), { email: "new@school.edu", full_name: "User One", phone: "+1555", custom_values: { previous_email: "old@school.edu" } });
+});

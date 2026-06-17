@@ -9,6 +9,7 @@ const {
   ORGANIZATION_ADMIN_ROLE_NAME,
   ensureOrganizationTemplate,
   getLogtoUserById,
+  updateLogtoUser,
   listLogtoOrganizationRoles,
   listLogtoOrganizations,
 } = require("./services/logtoManagement");
@@ -16,6 +17,7 @@ const {
   LOGTO_SYNC_STATUSES,
   listOrganizationProfiles,
   serializeOrganizationProfile,
+  upsertOrganizationProfile,
 } = require("./services/organizationProfiles");
 const {
   AUDIT_ACTIONS,
@@ -25,6 +27,7 @@ const {
 } = require("./services/auditLogs");
 const { normalizeCanonicalProvisioningInput, runCanonicalOrganizationBootstrap } = require("./services/organizationProvisioningCore");
 const { buildLogtoOrganizationCustomData, normalizeExtendedProvisioningInput } = require("./services/organizationProvisioningSettings");
+const { FluentCrmError, ensureOrganizationTagsAndLists, getOrCreateCompanyForOrganization, normalizeCrmCompanyInput, updateContactEmailAfterLogtoChange } = require("./services/fluentCrm");
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -264,6 +267,55 @@ function reconcileProfilesWithLogtoOrganizations({ profiles }) {
   return profiles;
 }
 
+
+async function runFluentCrmOrganizationStep({ logtoOrganization, logtoOrganizationId, canonical, extended, crmInput, internalUser, authUser }) {
+  const profile = await upsertOrganizationProfile({
+    logtoOrganizationId,
+    nameCache: getLogtoOrganizationName(logtoOrganization) || canonical.name,
+    type: extended.type || null,
+    subdomain: extended.subdomain,
+    slug: extended.slug,
+    adminDomain: extended.adminDomain,
+    seatTotal: extended.seatTotal,
+    logtoSyncStatus: LOGTO_SYNC_STATUSES.BOOTSTRAPPED,
+    logtoSyncError: null,
+  });
+
+  const normalizedCrm = normalizeCrmCompanyInput(crmInput, {
+    name: canonical.name,
+    nameCache: profile.nameCache,
+    adminDomain: profile.adminDomain,
+  });
+
+  const companyResult = await getOrCreateCompanyForOrganization(
+    profile,
+    { ...normalizedCrm, name: canonical.name, slug: extended.slug, adminDomain: extended.adminDomain },
+    { actorUserId: internalUser.id, auditMetadata: buildAuditContext({ authUser, internalUser, organization: logtoOrganization }) }
+  );
+
+  if (companyResult.status === "conflict") {
+    return {
+      status: "conflict",
+      message: `FluentCRM company match is ambiguous (${companyResult.reason}); Civitas did not link a Company automatically.`,
+      reason: companyResult.reason,
+    };
+  }
+
+  const taxonomy = await ensureOrganizationTagsAndLists({
+    logtoOrganizationId,
+    slug: extended.slug,
+    name: canonical.name,
+  });
+
+  return {
+    profile,
+    status: companyResult.status,
+    companyId: companyResult.company?.id ?? companyResult.company?.ID ?? companyResult.company?.company_id ?? null,
+    reason: companyResult.reason,
+    taxonomy,
+  };
+}
+
 const getSafeErrorMessage = (error) => {
   if (!error) return "Logto synchronization failed";
   const status = error.status ? ` (${error.status})` : "";
@@ -435,9 +487,28 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
     logtoOrganizationId = result.logtoOrganizationId;
     canonicalCreated = result.canonicalCreated;
 
+    let fluentCrmStep = { status: "not_requested" };
+    let crmWarning = null;
+    try {
+      fluentCrmStep = await runFluentCrmOrganizationStep({
+        logtoOrganization,
+        logtoOrganizationId,
+        canonical: canonicalInput.value,
+        extended: extendedInput.value,
+        crmInput: req.body?.crm || req.body?.fluentcrm || {},
+        internalUser,
+        authUser: req.user,
+      });
+      if (fluentCrmStep.status === "conflict") crmWarning = fluentCrmStep.message;
+    } catch (crmError) {
+      const crmMessage = getSafeErrorMessage(crmError);
+      crmWarning = `Organization was created in Logto, but FluentCRM sync failed: ${crmMessage}`;
+      fluentCrmStep = { status: "error", message: crmMessage, code: crmError.code || null };
+    }
+
     return res.status(201).json({
-      organization: serializeLogtoOwnerOrganization(logtoOrganization, logtoOrganizationId),
-      status: result.status,
+      organization: fluentCrmStep.profile ? serializeOwnerOrganization(fluentCrmStep.profile, logtoOrganization) : serializeLogtoOwnerOrganization(logtoOrganization, logtoOrganizationId),
+      status: crmWarning ? "created_in_logto_with_fluentcrm_followup" : result.status,
       sourceOfTruth: "logto",
       customDataApplied: result.customDataApplied,
       reconciled: result.reconciled,
@@ -448,7 +519,10 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
         baseAdminRole: { status: result.adminAssignment?.roleAssigned ? "assigned" : "not_assigned", roleName: result.adminAssignment?.roleName },
         jitProvisioning: { status: result.jitProvisioning?.status, domainConfigured: result.jitProvisioning?.domainConfigured, domain: result.jitProvisioning?.domain },
         jitDefaultRoles: { status: result.jitProvisioning?.defaultRolesConfigured ? "configured" : "not_configured", roleNames: result.jitProvisioning?.defaultRoleNames },
+        fluentcrm: fluentCrmStep,
       },
+      fluentcrm: fluentCrmStep,
+      warning: crmWarning || undefined,
       adminAssignment: result.adminAssignment,
       jitProvisioning: result.jitProvisioning,
     });
@@ -502,6 +576,56 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
       logtoErrorBody: error.body || null,
       missingRoleNames: error.missingRoleNames,
     });
+  }
+});
+
+
+app.patch("/owner/organizations/:organizationId/fluentcrm", requireAuth(API_RESOURCE), requireScope("organizations:create"), async (req, res) => {
+  let internalUser = null;
+  try {
+    internalUser = await getOrCreateInternalUser(req.user);
+    const profiles = await listOrganizationProfiles();
+    const profile = profiles.find((item) => item.id === req.params.organizationId || item.logtoOrganizationId === req.params.organizationId);
+    if (!profile) return res.status(404).json({ error: "Not Found", message: "Organization profile not found for FluentCRM sync" });
+
+    const result = await getOrCreateCompanyForOrganization(
+      profile,
+      { crm: req.body?.crm || req.body || {}, name: profile.nameCache, adminDomain: profile.adminDomain, slug: profile.slug },
+      { actorUserId: internalUser.id, auditMetadata: buildAuditContext({ authUser: req.user, internalUser, organization: { id: profile.logtoOrganizationId, name: profile.nameCache } }) }
+    );
+    const taxonomy = result.status === "conflict" ? null : await ensureOrganizationTagsAndLists({ logtoOrganizationId: profile.logtoOrganizationId, slug: profile.slug, name: profile.nameCache });
+    return res.json({ status: result.status, fluentcrm: { ...result, taxonomy } });
+  } catch (error) {
+    const status = error instanceof FluentCrmError ? (error.status || 502) : error.status || 500;
+    return res.status(status).json({ error: status === 409 ? "Conflict" : status >= 500 ? "Bad Gateway" : "Bad Request", message: getSafeErrorMessage(error), integration: "fluentcrm", code: error.code || null });
+  }
+});
+
+app.patch("/owner/organizations/:organizationId/members/:logtoUserId/identity", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  let internalUser = null;
+  try {
+    internalUser = await getOrCreateInternalUser(req.user);
+    const previousEmail = typeof req.body?.previousEmail === "string" ? req.body.previousEmail.trim().toLowerCase() : null;
+    const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : null;
+    const name = typeof req.body?.name === "string" ? req.body.name.trim() : null;
+    const phone = typeof req.body?.phone === "string" ? req.body.phone.trim() : null;
+    if (!email || !previousEmail) return res.status(400).json({ error: "Bad Request", message: "email and previousEmail are required" });
+
+    const logtoUser = await updateLogtoUser({ userId: req.params.logtoUserId, email, name, phone });
+    await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: req.params.organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "logto_identity_updated", logtoUserId: req.params.logtoUserId, previousEmail, email } });
+
+    let fluentcrm = null;
+    try {
+      fluentcrm = await updateContactEmailAfterLogtoChange({ previousEmail, newEmail: email, logtoUserId: req.params.logtoUserId, logtoOrganizationId: req.params.organizationId, profile: { name, phone } });
+      await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: req.params.organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_FLUENTCRM_SYNC, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "fluentcrm_contact_identity_updated", logtoUserId: req.params.logtoUserId, previousEmail, email, fluentcrmStatus: fluentcrm.status } });
+    } catch (crmError) {
+      fluentcrm = { status: "error", message: getSafeErrorMessage(crmError), code: crmError.code || null };
+      await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: req.params.organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_FLUENTCRM_ERROR, result: AUDIT_RESULTS.ERROR, metadata: { stage: "fluentcrm_contact_identity_update_failed", logtoUserId: req.params.logtoUserId, previousEmail, email, error: crmError } });
+    }
+
+    return res.json({ status: fluentcrm?.status === "error" ? "logto_updated_fluentcrm_failed" : "updated", logtoUser, fluentcrm, futureSelfServiceRoute: "PATCH /me/identity" });
+  } catch (error) {
+    return res.status(error.status || 502).json({ error: "Bad Gateway", message: getSafeErrorMessage(error), integration: "logto_management_api", logtoRequest: error.request || null, logtoErrorBody: error.body || null });
   }
 });
 

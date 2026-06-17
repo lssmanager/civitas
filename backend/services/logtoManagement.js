@@ -266,6 +266,13 @@ async function getLogtoUserById(userId) {
   return callLogtoManagementApi(`/users/${encodeURIComponent(userId)}`);
 }
 
+async function updateLogtoUser({ userId, email, name, phone }) {
+  return callLogtoManagementApi(`/users/${encodeURIComponent(userId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ primaryEmail: email || undefined, name: name || undefined, phone: phone || undefined }),
+  });
+}
+
 async function listLogtoUsers({ search } = {}) {
   const params = new URLSearchParams();
   if (search) params.set("search", search);
@@ -404,6 +411,7 @@ module.exports = {
   removeLogtoUserGlobalRole,
   removeProhibitedLogtoUserGlobalRoles,
   updateLogtoOrganizationCustomData,
+  updateLogtoUser,
   fetchLogtoManagementApiAccessToken,
   findLogtoOrganizationByName,
   ensureOrganizationTemplate,
