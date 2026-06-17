@@ -8,6 +8,14 @@ const ORGANIZATION_PROFILE_STATUSES = Object.freeze({
   ARCHIVED: "archived",
 });
 
+const FLUENTCRM_SYNC_STATUSES = Object.freeze({
+  NOT_LINKED: "not_linked",
+  LINKED: "linked",
+  PENDING: "pending",
+  CONFLICT: "conflict",
+  ERROR: "error",
+});
+
 const LOGTO_SYNC_STATUSES = Object.freeze({
   PENDING: "pending",
   LOGTO_CREATED: "logto_created",
@@ -53,6 +61,10 @@ const serializeOrganizationProfile = (profile) => ({
   logtoSyncStatus: profile.logtoSyncStatus,
   logtoSyncError: profile.logtoSyncError,
   logtoSyncedAt: toIso(profile.logtoSyncedAt),
+  fluentcrmCompanyId: profile.fluentcrmCompanyId,
+  fluentcrmSyncStatus: profile.fluentcrmSyncStatus,
+  fluentcrmSyncError: profile.fluentcrmSyncError,
+  fluentcrmSyncedAt: toIso(profile.fluentcrmSyncedAt),
   createdAt: toIso(profile.createdAt),
   updatedAt: toIso(profile.updatedAt),
 });
@@ -88,6 +100,10 @@ async function createOrganizationProfile({ nameCache, type, subdomain, slug, adm
       logtoSyncStatus: LOGTO_SYNC_STATUSES.PENDING,
       logtoSyncError: null,
       logtoSyncedAt: null,
+      fluentcrmCompanyId: null,
+      fluentcrmSyncStatus: FLUENTCRM_SYNC_STATUSES.NOT_LINKED,
+      fluentcrmSyncError: null,
+      fluentcrmSyncedAt: null,
       updatedAt: now,
     })
     .returning();
@@ -182,6 +198,22 @@ async function upsertOrganizationProfile({ logtoOrganizationId, nameCache, type,
   return profile;
 }
 
+async function markOrganizationProfileFluentCrmSync({ id, companyId = null, status, errorMessage = null, synced = false, settings }) {
+  const now = new Date();
+  const update = {
+    fluentcrmSyncStatus: status,
+    fluentcrmSyncError: errorMessage,
+    updatedAt: now,
+  };
+
+  if (companyId !== undefined) update.fluentcrmCompanyId = companyId;
+  if (settings !== undefined) update.settings = settings;
+  if (synced) update.fluentcrmSyncedAt = now;
+
+  const [profile] = await db.update(organizationProfiles).set(update).where(eq(organizationProfiles.id, id)).returning();
+  return profile;
+}
+
 async function findOrganizationProfileBySlugOrAdminDomain({ slug, adminDomain }) {
   const filters = [];
   if (slug) filters.push(eq(organizationProfiles.slug, slug));
@@ -214,12 +246,14 @@ async function getOrganizationProfilesByLogtoIds(logtoOrganizationIds) {
 }
 
 module.exports = {
+  FLUENTCRM_SYNC_STATUSES,
   LOGTO_SYNC_STATUSES,
   ORGANIZATION_PROFILE_STATUSES,
   createOrganizationProfile,
   findOrganizationProfileBySlugOrAdminDomain,
   getOrganizationProfilesByLogtoIds,
   listOrganizationProfiles,
+  markOrganizationProfileFluentCrmSync,
   markOrganizationProfileLogtoSyncError,
   markOrganizationProfileLogtoSynced,
   markOrganizationProfileOrphaned,

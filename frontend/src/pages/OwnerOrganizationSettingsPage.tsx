@@ -1,12 +1,27 @@
+import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Alert, Badge, Button } from "react-bootstrap";
+import { Alert, Badge, Button, Form } from "react-bootstrap";
 import { useOwnerApi } from "../api/owner";
 import { useStableResource } from "../shared/hooks/useStableResource";
 import { ErrorState, LoadingState, PageCard, PageShell } from "../shared/ui";
 
+const getFluentCrmBadgeVariant = (status?: string | null) => {
+  if (status === "linked") return "success";
+  if (status === "conflict" || status === "error") return "danger";
+  if (status === "pending") return "warning";
+  return "secondary";
+};
+
+const formatTimestamp = (value?: string | null) => value ? new Date(value).toLocaleString() : "Nunca";
+
 export function OwnerOrganizationSettingsPage() {
   const { organizationId = "" } = useParams();
   const ownerApi = useOwnerApi();
+  const [crmForm, setCrmForm] = useState({ companyName: "", companyEmail: "", companyPhone: "", about: "", website: "", numberOfEmployees: "", industry: "", type: "", companyOwner: "", description: "" });
+  const [crmSubmitStatus, setCrmSubmitStatus] = useState<string | null>(null);
+  const [crmSubmitError, setCrmSubmitError] = useState<string | null>(null);
+  const [contactSyncStatus, setContactSyncStatus] = useState<string | null>(null);
+  const [contactSyncError, setContactSyncError] = useState<string | null>(null);
   const organizationsResource = useStableResource({
     initialParams: {},
     load: ownerApi.getOrganizations,
@@ -18,6 +33,36 @@ export function OwnerOrganizationSettingsPage() {
   const profile = organization?.profile;
   const provisioningState = profile?.settings?.provisioningState && typeof profile.settings.provisioningState === "object" ? profile.settings.provisioningState as Record<string, unknown> : null;
   const requiresResume = Boolean(provisioningState?.requiresResume);
+  const updateCrmForm = (field: keyof typeof crmForm, value: string) => setCrmForm((current) => ({ ...current, [field]: value }));
+  const handleContactSync = async () => {
+    if (!profile?.id && !organization?.logtoOrganizationId) return;
+    setContactSyncStatus(null);
+    setContactSyncError(null);
+    try {
+      const result = await ownerApi.syncOrganizationFluentCrmContacts(profile?.id || organization?.logtoOrganizationId || "");
+      setContactSyncStatus(`${result.contactSync.status}: ${result.contactSync.succeeded}/${result.contactSync.total} contactos sincronizados, ${result.contactSync.failed} errores, ${result.contactSync.conflicts} conflictos`);
+      organizationsResource.retry();
+    } catch (error) {
+      setContactSyncError(error instanceof Error ? error.message : "No se pudo sincronizar contactos FluentCRM.");
+    }
+  };
+
+  const handleCrmSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!profile?.id && !organization?.logtoOrganizationId) return;
+    setCrmSubmitStatus(null);
+    setCrmSubmitError(null);
+    try {
+      const result = await ownerApi.updateOrganizationFluentCrm(profile?.id || organization?.logtoOrganizationId || "", {
+        ...crmForm,
+        numberOfEmployees: crmForm.numberOfEmployees ? Number(crmForm.numberOfEmployees) : undefined,
+      });
+      setCrmSubmitStatus(result.status);
+      organizationsResource.retry();
+    } catch (error) {
+      setCrmSubmitError(error instanceof Error ? error.message : "No se pudo sincronizar FluentCRM.");
+    }
+  };
 
   return (
     <PageShell
@@ -41,8 +86,7 @@ export function OwnerOrganizationSettingsPage() {
                 <dt>Nombre</dt><dd>{organization.name ?? profile?.nameCache ?? "Sin nombre"}</dd>
                 <dt>Estado sync</dt><dd><Badge bg={profile?.logtoSyncStatus === "bootstrapped" || profile?.logtoSyncStatus === "synced" ? "success" : requiresResume ? "danger" : "warning"}>{profile?.logtoSyncStatus ?? "metadata_missing"}</Badge></dd>
                 <dt>Bootstrap</dt><dd>{requiresResume ? `Requiere reanudación${provisioningState?.failedStage ? ` desde ${String(provisioningState.failedStage)}` : ""}` : "Completo o sin acción pendiente"}</dd>
-              </dl>
-            </PageCard>
+              </dl>            </PageCard>
           </div>
           <div className="col-12 col-lg-6">
             <PageCard title="Configuración preparada" subtitle="Configuración exclusiva de Civitas para el futuro portal organization admin.">
@@ -62,6 +106,46 @@ export function OwnerOrganizationSettingsPage() {
                 <dt>Color primario</dt><dd>{profile?.branding?.primaryColor ?? "Sin color"}</dd>
                 <dt>Color oscuro</dt><dd>{profile?.branding?.primaryColorDark ?? "Sin color"}</dd>
               </dl>
+            </PageCard>
+          </div>
+
+          <div className="col-12 col-lg-6">
+            <PageCard title="Vínculo comercial FluentCRM" subtitle="Referencia CRM comercial; Logto sigue siendo la fuente canónica de identidad, roles y membresía.">
+              <dl className="mb-0 small">
+                <dt>Estado CRM</dt><dd><Badge bg={getFluentCrmBadgeVariant(profile?.fluentcrmSyncStatus)}>{profile?.fluentcrmSyncStatus ?? "not_linked"}</Badge></dd>
+                <dt>Company ID</dt><dd className="text-break">{profile?.fluentcrmCompanyId ?? "Sin vincular"}</dd>
+                <dt>Última sincronización</dt><dd>{formatTimestamp(profile?.fluentcrmSyncedAt)}</dd>
+                {profile?.fluentcrmSyncError ? <><dt>Error CRM</dt><dd className="text-break text-danger">{profile.fluentcrmSyncError}</dd></> : null}
+              </dl>
+
+              <Form onSubmit={handleCrmSubmit} className="mt-3 d-flex flex-column gap-2">
+                <Form.Group controlId="settingsCrmCompanyName"><Form.Label>Company Name</Form.Label><Form.Control value={crmForm.companyName} onChange={(event) => updateCrmForm("companyName", event.target.value)} placeholder={organization.name ?? profile?.nameCache ?? ""} /></Form.Group>
+                <div className="row g-2">
+                  <Form.Group className="col-12 col-lg-6" controlId="settingsCrmCompanyEmail"><Form.Label>Company Email</Form.Label><Form.Control type="email" value={crmForm.companyEmail} onChange={(event) => updateCrmForm("companyEmail", event.target.value)} /></Form.Group>
+                  <Form.Group className="col-12 col-lg-6" controlId="settingsCrmCompanyPhone"><Form.Label>Company Phone Number</Form.Label><Form.Control value={crmForm.companyPhone} onChange={(event) => updateCrmForm("companyPhone", event.target.value)} /></Form.Group>
+                </div>
+                <Form.Group controlId="settingsCrmAbout"><Form.Label>About this company</Form.Label><Form.Control as="textarea" rows={2} value={crmForm.about} onChange={(event) => updateCrmForm("about", event.target.value)} /></Form.Group>
+                <div className="row g-2">
+                  <Form.Group className="col-12 col-lg-6" controlId="settingsCrmWebsite"><Form.Label>Website</Form.Label><Form.Control value={crmForm.website} onChange={(event) => updateCrmForm("website", event.target.value)} placeholder={profile?.adminDomain ?? ""} /></Form.Group>
+                  <Form.Group className="col-12 col-lg-6" controlId="settingsCrmEmployees"><Form.Label>Number of Employees</Form.Label><Form.Control type="number" min="0" value={crmForm.numberOfEmployees} onChange={(event) => updateCrmForm("numberOfEmployees", event.target.value)} /></Form.Group>
+                </div>
+                <div className="row g-2">
+                  <Form.Group className="col-12 col-lg-4" controlId="settingsCrmIndustry"><Form.Label>Industry</Form.Label><Form.Control value={crmForm.industry} onChange={(event) => updateCrmForm("industry", event.target.value)} /></Form.Group>
+                  <Form.Group className="col-12 col-lg-4" controlId="settingsCrmType"><Form.Label>Type</Form.Label><Form.Control value={crmForm.type} onChange={(event) => updateCrmForm("type", event.target.value)} /></Form.Group>
+                  <Form.Group className="col-12 col-lg-4" controlId="settingsCrmOwner"><Form.Label>Company Owner</Form.Label><Form.Control value={crmForm.companyOwner} onChange={(event) => updateCrmForm("companyOwner", event.target.value)} /></Form.Group>
+                </div>
+                <Form.Group controlId="settingsCrmDescription"><Form.Label>Description</Form.Label><Form.Control as="textarea" rows={2} value={crmForm.description} onChange={(event) => updateCrmForm("description", event.target.value)} /></Form.Group>
+                {crmSubmitStatus ? <Alert variant="success" className="mb-0">Estado FluentCRM: {crmSubmitStatus}</Alert> : null}
+                {crmSubmitError ? <Alert variant="danger" className="mb-0">{crmSubmitError}</Alert> : null}
+                <Button type="submit" variant="outline-primary">Crear o vincular Company en FluentCRM</Button>
+              </Form>
+              <div className="mt-3 d-flex flex-column gap-2">
+                <Button type="button" variant="outline-secondary" onClick={handleContactSync}>Sincronizar contactos por roles Logto</Button>
+                <small className="text-secondary">Las tags/lists CRM son segmentación de comunicación; los permisos siguen viniendo de roles organizacionales en Logto.</small>
+                {contactSyncStatus ? <Alert variant="success" className="mb-0">{contactSyncStatus}</Alert> : null}
+                {contactSyncError ? <Alert variant="danger" className="mb-0">{contactSyncError}</Alert> : null}
+              </div>
+
             </PageCard>
           </div>
           <div className="col-12 col-lg-6">

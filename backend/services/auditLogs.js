@@ -20,6 +20,12 @@ const AUDIT_ACTIONS = Object.freeze({
   OWNER_ORGANIZATION_CREATOR_ROLE: "owner.organization.creator_role",
   OWNER_ORGANIZATION_BOOTSTRAP_FAILED: "owner.organization.bootstrap_failed",
   OWNER_ORGANIZATION_PROVISIONING: "owner.organization.provisioning",
+  OWNER_ORGANIZATION_FLUENTCRM_LINK: "owner.organization.fluentcrm_link",
+  OWNER_ORGANIZATION_FLUENTCRM_SYNC: "owner.organization.fluentcrm_sync",
+  OWNER_ORGANIZATION_FLUENTCRM_CONFLICT: "owner.organization.fluentcrm_conflict",
+  OWNER_ORGANIZATION_FLUENTCRM_ERROR: "owner.organization.fluentcrm_error",
+  OWNER_ORGANIZATION_DIRECTORY_ACCESS: "owner.organization.directory_access",
+  OWNER_ORGANIZATION_FLUENTCRM_CONTACT_SYNC: "owner.organization.fluentcrm_contact_sync",
 });
 
 const DEFAULT_LIMIT = 25;

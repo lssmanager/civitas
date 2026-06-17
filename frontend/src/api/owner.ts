@@ -38,6 +38,10 @@ export type OwnerOrganization = {
     logtoSyncStatus: "pending" | "logto_created" | "metadata_linked" | "base_admin_invitation_pending" | "base_member_pending" | "base_role_pending" | "bootstrap_incomplete" | "bootstrapped" | "synced" | "error" | string;
     logtoSyncError: string | null;
     logtoSyncedAt: string | null;
+    fluentcrmCompanyId: string | null;
+    fluentcrmSyncStatus: "not_linked" | "linked" | "pending" | "conflict" | "error" | string;
+    fluentcrmSyncError: string | null;
+    fluentcrmSyncedAt: string | null;
     createdAt?: string;
     updatedAt?: string;
   } | null;
@@ -91,6 +95,19 @@ export type OwnerOrganizationTemplate = {
   ready: boolean;
 };
 
+export type FluentCrmCompanyInput = {
+  companyName?: string;
+  companyEmail?: string;
+  companyPhone?: string;
+  about?: string;
+  website?: string;
+  numberOfEmployees?: number;
+  industry?: string;
+  type?: string;
+  companyOwner?: string;
+  description?: string;
+};
+
 export type CreateOwnerOrganizationInput = {
   name: string;
   description?: string;
@@ -104,6 +121,7 @@ export type CreateOwnerOrganizationInput = {
   baseAdmin?: { name?: string; email?: string; logtoUserId?: string; initialOrganizationRole?: string };
   jitProvisioning?: { domain?: string; defaultRoleNames?: string[] };
   settings?: Record<string, unknown>;
+  crm?: FluentCrmCompanyInput;
 };
 
 export const useOwnerApi = () => {
@@ -121,8 +139,14 @@ export const useOwnerApi = () => {
         const query = params.toString();
         return fetchWithToken(`/owner/audit${query ? `?${query}` : ""}`);
       },
-      createOrganization: async (data: CreateOwnerOrganizationInput): Promise<{ organization: OwnerOrganization; status: string; sourceOfTruth: "logto"; adminAssignment?: { status: string; message?: string; logtoUserId?: string; roleName?: string }; jitProvisioning?: { status: string; domain?: string; defaultRoleNames?: string[] }; steps?: Record<string, unknown>; warning?: string }> =>
+      createOrganization: async (data: CreateOwnerOrganizationInput): Promise<{ organization: OwnerOrganization; status: string; sourceOfTruth: "logto"; adminAssignment?: { status: string; message?: string; logtoUserId?: string; roleName?: string }; jitProvisioning?: { status: string; domain?: string; defaultRoleNames?: string[] }; steps?: Record<string, unknown>; fluentcrm?: Record<string, unknown>; warning?: string }> =>
         fetchWithToken("/owner/organizations", { method: "POST", body: JSON.stringify(data) }),
+      updateOrganizationFluentCrm: async (organizationId: string, crm: FluentCrmCompanyInput): Promise<{ status: string; fluentcrm?: Record<string, unknown> }> =>
+        fetchWithToken(`/owner/organizations/${encodeURIComponent(organizationId)}/fluentcrm`, { method: "PATCH", body: JSON.stringify({ crm }) }),
+      syncOrganizationFluentCrmContacts: async (organizationId: string): Promise<{ contactSync: { status: string; total: number; succeeded: number; failed: number; conflicts: number; errors?: unknown[] } }> =>
+        fetchWithToken(`/owner/organizations/${encodeURIComponent(organizationId)}/fluentcrm/sync-contacts`, { method: "POST" }),
+      getOrganizationFluentCrmSyncStatus: async (organizationId: string): Promise<{ contactSync: Record<string, unknown> | null; syncStatus: string; syncError: string | null; syncedAt: string | null }> =>
+        fetchWithToken(`/owner/organizations/${encodeURIComponent(organizationId)}/fluentcrm/sync-status`),
     }),
     [fetchWithToken]
   );

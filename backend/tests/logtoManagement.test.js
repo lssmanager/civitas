@@ -116,3 +116,25 @@ test("legitimate global owner user does not lose owner_global by accident", asyn
 
   assert.equal(requests.filter((request) => request.options.method === "DELETE").length, 0);
 });
+
+test("listLogtoOrganizationUsers reads organization membership from Logto", async () => {
+  const { listLogtoOrganizationUsers } = require("../services/logtoManagement");
+  global.fetch = async (url) => {
+    if (String(url).endsWith("/api/organizations/org-1/users")) return jsonResponse({ data: [{ id: "user-1", primaryEmail: "admin@example.edu" }] });
+    throw new Error(`unexpected request: ${url}`);
+  };
+
+  const users = await listLogtoOrganizationUsers({ organizationId: "org-1" });
+  assert.deepEqual(users, [{ id: "user-1", primaryEmail: "admin@example.edu" }]);
+});
+
+test("listLogtoOrganizationUserRoles reads only organization roles", async () => {
+  const { listLogtoOrganizationUserRoles } = require("../services/logtoManagement");
+  global.fetch = async (url) => {
+    if (String(url).endsWith("/api/organizations/org-1/users/user-1/roles")) return jsonResponse({ data: [{ id: "role-admin", name: "Admin-org" }] });
+    throw new Error(`unexpected request: ${url}`);
+  };
+
+  const roles = await listLogtoOrganizationUserRoles({ organizationId: "org-1", userId: "user-1" });
+  assert.deepEqual(roles, [{ id: "role-admin", name: "Admin-org" }]);
+});
