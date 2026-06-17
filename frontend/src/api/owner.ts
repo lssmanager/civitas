@@ -38,6 +38,10 @@ export type OwnerOrganization = {
     logtoSyncStatus: "pending" | "logto_created" | "metadata_linked" | "base_admin_invitation_pending" | "base_member_pending" | "base_role_pending" | "bootstrap_incomplete" | "bootstrapped" | "synced" | "error" | string;
     logtoSyncError: string | null;
     logtoSyncedAt: string | null;
+    fluentcrmCompanyId: string | null;
+    fluentcrmSyncStatus: "not_linked" | "linked" | "pending" | "conflict" | "error" | string;
+    fluentcrmSyncError: string | null;
+    fluentcrmSyncedAt: string | null;
     createdAt?: string;
     updatedAt?: string;
   } | null;

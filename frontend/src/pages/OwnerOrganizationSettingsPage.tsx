@@ -4,6 +4,15 @@ import { useOwnerApi } from "../api/owner";
 import { useStableResource } from "../shared/hooks/useStableResource";
 import { ErrorState, LoadingState, PageCard, PageShell } from "../shared/ui";
 
+const getFluentCrmBadgeVariant = (status?: string | null) => {
+  if (status === "linked") return "success";
+  if (status === "conflict" || status === "error") return "danger";
+  if (status === "pending") return "warning";
+  return "secondary";
+};
+
+const formatTimestamp = (value?: string | null) => value ? new Date(value).toLocaleString() : "Nunca";
+
 export function OwnerOrganizationSettingsPage() {
   const { organizationId = "" } = useParams();
   const ownerApi = useOwnerApi();
@@ -61,6 +70,17 @@ export function OwnerOrganizationSettingsPage() {
                 <dt>Favicon URL</dt><dd className="text-break">{profile?.branding?.faviconUrl ?? "Sin favicon"}</dd>
                 <dt>Color primario</dt><dd>{profile?.branding?.primaryColor ?? "Sin color"}</dd>
                 <dt>Color oscuro</dt><dd>{profile?.branding?.primaryColorDark ?? "Sin color"}</dd>
+              </dl>
+            </PageCard>
+          </div>
+
+          <div className="col-12 col-lg-6">
+            <PageCard title="Vínculo comercial FluentCRM" subtitle="Referencia CRM comercial; Logto sigue siendo la fuente canónica de identidad, roles y membresía.">
+              <dl className="mb-0 small">
+                <dt>Estado CRM</dt><dd><Badge bg={getFluentCrmBadgeVariant(profile?.fluentcrmSyncStatus)}>{profile?.fluentcrmSyncStatus ?? "not_linked"}</Badge></dd>
+                <dt>Company ID</dt><dd className="text-break">{profile?.fluentcrmCompanyId ?? "Sin vincular"}</dd>
+                <dt>Última sincronización</dt><dd>{formatTimestamp(profile?.fluentcrmSyncedAt)}</dd>
+                {profile?.fluentcrmSyncError ? <><dt>Error CRM</dt><dd className="text-break text-danger">{profile.fluentcrmSyncError}</dd></> : null}
               </dl>
             </PageCard>
           </div>
