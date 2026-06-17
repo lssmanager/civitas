@@ -39,6 +39,8 @@ function normalizeExtendedProvisioningInput(body = {}) {
       slug,
       adminDomain,
       oidcRedirectUri,
+      type: emptyToNull(body.organizationType ?? body.organization_type) || null,
+      seatTotal: Number.isInteger(Number(body.seatTotal)) && Number(body.seatTotal) >= 0 ? Number(body.seatTotal) : 0,
     },
   };
 }

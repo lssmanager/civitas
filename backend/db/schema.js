@@ -51,6 +51,10 @@ const organizationProfiles = pgTable(
     logtoSyncStatus: varchar("logto_sync_status", { length: 32 }).notNull().default("pending"),
     logtoSyncError: text("logto_sync_error"),
     logtoSyncedAt: timestamp("logto_synced_at", { withTimezone: true }),
+    fluentcrmCompanyId: varchar("fluentcrm_company_id", { length: 255 }),
+    fluentcrmSyncStatus: varchar("fluentcrm_sync_status", { length: 32 }).notNull().default("not_linked"),
+    fluentcrmSyncError: text("fluentcrm_sync_error"),
+    fluentcrmSyncedAt: timestamp("fluentcrm_synced_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -60,6 +64,8 @@ const organizationProfiles = pgTable(
     slugIdx: index("organization_profiles_slug_idx").on(table.slug),
     adminDomainIdx: index("organization_profiles_admin_domain_idx").on(table.adminDomain),
     logtoSyncStatusIdx: index("organization_profiles_logto_sync_status_idx").on(table.logtoSyncStatus),
+    fluentcrmCompanyIdx: index("organization_profiles_fluentcrm_company_idx").on(table.fluentcrmCompanyId),
+    fluentcrmSyncStatusIdx: index("organization_profiles_fluentcrm_sync_status_idx").on(table.fluentcrmSyncStatus),
   })
 );
 

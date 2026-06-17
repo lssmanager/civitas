@@ -64,6 +64,13 @@
       "when": 1791841320000,
       "tag": "0008_complete_organization_provisioning_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791841380000,
+      "tag": "0009_add_fluentcrm_sync_to_organization_profiles",
+      "breakpoints": true
     }
   ]
 }

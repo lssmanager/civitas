@@ -266,11 +266,28 @@ async function getLogtoUserById(userId) {
   return callLogtoManagementApi(`/users/${encodeURIComponent(userId)}`);
 }
 
+async function updateLogtoUser({ userId, email, name, phone }) {
+  return callLogtoManagementApi(`/users/${encodeURIComponent(userId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ primaryEmail: email || undefined, name: name || undefined, phone: phone || undefined }),
+  });
+}
+
 async function listLogtoUsers({ search } = {}) {
   const params = new URLSearchParams();
   if (search) params.set("search", search);
   const response = await callLogtoManagementApi(`/users${params.toString() ? `?${params}` : ""}`);
   return Array.isArray(response) ? response : response?.data || response?.items || [];
+}
+
+async function listLogtoOrganizationUsers({ organizationId }) {
+  const response = await callLogtoManagementApi(`/organizations/${encodeURIComponent(organizationId)}/users`);
+  return Array.isArray(response) ? response : response?.data || response?.items || [];
+}
+
+async function listLogtoOrganizationUserRoles({ organizationId, userId }) {
+  const response = await callLogtoManagementApi(`/organizations/${encodeURIComponent(organizationId)}/users/${encodeURIComponent(userId)}/roles`);
+  return normalizeRoleListResponse(response).map((role) => ({ ...role, id: getOrganizationRoleId(role), name: getOrganizationRoleName(role) }));
 }
 
 async function listLogtoUserGlobalRoles({ userId }) {
@@ -404,6 +421,7 @@ module.exports = {
   removeLogtoUserGlobalRole,
   removeProhibitedLogtoUserGlobalRoles,
   updateLogtoOrganizationCustomData,
+  updateLogtoUser,
   fetchLogtoManagementApiAccessToken,
   findLogtoOrganizationByName,
   ensureOrganizationTemplate,
@@ -412,6 +430,8 @@ module.exports = {
   getLogtoUserById,
   findLogtoUserByEmail,
   listLogtoOrganizationRoles,
+  listLogtoOrganizationUsers,
+  listLogtoOrganizationUserRoles,
   listLogtoUsers,
   validateOrganizationTemplate,
   parseLogtoManagementApiResponse,
