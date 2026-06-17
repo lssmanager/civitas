@@ -81,6 +81,24 @@ const extractOrganizationId = (payloadOrAudience) => {
 
 const parseScopes = (scope) => (typeof scope === "string" ? scope.split(" ").filter(Boolean) : []);
 
+const parseClaimList = (value) => {
+  if (Array.isArray(value)) return value.map(String).filter(Boolean);
+  if (typeof value === "string") return value.split(/[\s,]+/).filter(Boolean);
+  return [];
+};
+
+const extractRoleNames = (payload = {}) => {
+  const candidates = [
+    payload.roles,
+    payload.role_names,
+    payload.global_roles,
+    payload.organization_roles,
+    payload.organizationRoles,
+    payload.org_roles,
+  ];
+  return [...new Set(candidates.flatMap(parseClaimList))];
+};
+
 const hasRequiredScopes = (tokenScopes, requiredScopes = []) => {
   if (!requiredScopes || requiredScopes.length === 0) {
     return true;
@@ -115,6 +133,7 @@ const requireAuth = (resource = process.env.LOGTO_API_RESOURCE_INDICATOR) => {
         sub: payload.sub,
         scopes,
         organizationId: extractOrganizationId(payload),
+        roles: extractRoleNames(payload),
         claims: payload,
       };
 
@@ -142,7 +161,21 @@ const requireScope = (requiredScope) => {
   };
 };
 
-const requireOrganizationAccess = ({ requiredScopes = [] } = {}) => {
+const requireOrganizationRole = (requiredRoleName) => {
+  return (req, res, next) => {
+    const roles = Array.isArray(req.user?.roles) ? req.user.roles : extractRoleNames(req.user?.claims || {});
+    if (!roles.includes(requiredRoleName)) {
+      return res.status(403).json({
+        error: "Forbidden",
+        message: `Missing required Logto organization role: ${requiredRoleName}`,
+        requiredRole: requiredRoleName,
+      });
+    }
+    return next();
+  };
+};
+
+const requireOrganizationAccess = ({ requiredScopes = [], requiredRoleName = null } = {}) => {
   return async (req, res, next) => {
     try {
       const token = getTokenFromHeader(req.headers);
@@ -186,8 +219,17 @@ const requireOrganizationAccess = ({ requiredScopes = [] } = {}) => {
         sub: payload.sub,
         scopes,
         organizationId: verifiedOrganizationId,
+        roles: extractRoleNames(payload),
         claims: payload,
       };
+
+      if (requiredRoleName && !req.user.roles.includes(requiredRoleName)) {
+        return res.status(403).json({
+          error: "Forbidden",
+          message: `Missing required Logto organization role: ${requiredRoleName}`,
+          requiredRole: requiredRoleName,
+        });
+      }
 
       return next();
     } catch (error) {
@@ -201,9 +243,11 @@ module.exports = {
   decodeJwtPayload,
   extractOrganizationId,
   getTokenFromHeader,
+  extractRoleNames,
   hasRequiredScopes,
   requireAuth,
   requireOrganizationAccess,
+  requireOrganizationRole,
   requireScope,
   verifyJwt,
 };

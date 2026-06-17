@@ -31,7 +31,7 @@ const {
 } = require("./services/auditLogs");
 const { normalizeCanonicalProvisioningInput, runCanonicalOrganizationBootstrap } = require("./services/organizationProvisioningCore");
 const { buildLogtoOrganizationCustomData, normalizeExtendedProvisioningInput } = require("./services/organizationProvisioningSettings");
-const { FluentCrmError, cleanupContactInFluentCrm, ensureOrganizationTagsAndLists, getOrCreateCompanyForOrganization, normalizeCrmCompanyInput, searchContacts, syncOrganizationContactsToFluentCrm, updateContactEmailAfterLogtoChange } = require("./services/fluentCrm");
+const { FluentCrmError, cleanupContactInFluentCrm, ensureOrganizationTagsAndLists, getOrCreateCompanyForOrganization, normalizeCrmCompanyInput, searchContacts, syncOrganizationContactsToFluentCrm, validateFluentCrmConfiguration, updateContactEmailAfterLogtoChange } = require("./services/fluentCrm");
 const { getCommercialStatusForOrganization, getLatestCommercialEventsForOrganization, processCommercialEvent, verifyCommercialWebhookSignature } = require("./services/commercialEvents");
 
 const app = express();
@@ -523,7 +523,7 @@ app.get("/organizations", requireAuth(API_RESOURCE), requireScope("organizations
   }
 });
 
-app.get("/owner/organization-template", requireAuth(API_RESOURCE), requireScope("organizations:read"), async (req, res) => {
+app.get("/owner/organization-template", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
   try {
     const roles = await listLogtoOrganizationRoles();
     const template = await ensureOrganizationTemplate().catch((error) => ({ ok: false, missingRoleNames: error.missingRoleNames || [], requiredRoleNames: [ORGANIZATION_ADMIN_ROLE_NAME] }));
@@ -539,7 +539,7 @@ app.get("/owner/organization-template", requireAuth(API_RESOURCE), requireScope(
   }
 });
 
-app.get("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organizations:read"), async (req, res) => {
+app.get("/owner/organizations", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
   try {
     const logtoOrganizations = await listLogtoOrganizations();
     const rawProfiles = await listOrganizationProfiles();
@@ -552,7 +552,7 @@ app.get("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organiz
   }
 });
 
-app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organizations:create"), async (req, res) => {
+app.post("/owner/organizations", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
   let internalUser = null;
   let logtoOrganization = null;
   let logtoOrganizationId = null;
@@ -598,7 +598,7 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
     } catch (crmError) {
       const crmMessage = getSafeErrorMessage(crmError);
       crmWarning = `Organization was created in Logto, but FluentCRM sync failed: ${crmMessage}`;
-      fluentCrmStep = { status: "error", message: crmMessage, code: crmError.code || null };
+      fluentCrmStep = { status: "error", message: crmMessage, code: crmError.code || null, diagnostic: crmError.diagnostic || null, statusCode: crmError.status || null, body: crmError.body || null };
     }
 
     return res.status(201).json({
@@ -675,7 +675,7 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireScope("organi
 });
 
 
-app.patch("/owner/organizations/:organizationId/fluentcrm", requireAuth(API_RESOURCE), requireScope("organizations:create"), async (req, res) => {
+app.patch("/owner/organizations/:organizationId/fluentcrm", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
   let internalUser = null;
   try {
     internalUser = await getOrCreateInternalUser(req.user);
@@ -692,7 +692,7 @@ app.patch("/owner/organizations/:organizationId/fluentcrm", requireAuth(API_RESO
     return res.json({ status: result.status, fluentcrm: { ...result, taxonomy } });
   } catch (error) {
     const status = error instanceof FluentCrmError ? (error.status || 502) : error.status || 500;
-    return res.status(status).json({ error: status === 409 ? "Conflict" : status >= 500 ? "Bad Gateway" : "Bad Request", message: getSafeErrorMessage(error), integration: "fluentcrm", code: error.code || null });
+    return res.status(status).json({ error: status === 409 ? "Conflict" : status >= 500 ? "Bad Gateway" : "Bad Request", message: getSafeErrorMessage(error), integration: "fluentcrm", code: error.code || null, diagnostic: error.diagnostic || null, fluentcrmBody: error.body || null });
   }
 });
 
@@ -900,6 +900,15 @@ app.get("/owner/organizations/:organizationId/fluentcrm/sync-status", requireAut
   return res.json({ organizationId: profile.logtoOrganizationId, companyId: profile.fluentcrmCompanyId, syncStatus: profile.fluentcrmSyncStatus, syncError: profile.fluentcrmSyncError, syncedAt: profile.fluentcrmSyncedAt, contactSync: profile.settings?.fluentcrmContactSync || null, persistencePolicy: "summary_only_no_contact_profile_replication" });
 });
 
+app.get("/owner/integrations/fluentcrm/health", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  try {
+    return res.json({ integration: "fluentcrm", ...(await validateFluentCrmConfiguration()) });
+  } catch (error) {
+    const status = error.status || (error.code === "FLUENTCRM_CONFIG_MISSING" || error.code === "FLUENTCRM_CONFIG_INVALID" ? 400 : 502);
+    return res.status(status).json({ integration: "fluentcrm", status: "error", message: getSafeErrorMessage(error), code: error.code || null, diagnostic: error.diagnostic || null, details: error.body || null });
+  }
+});
+
 app.get("/owner/organizations/:organizationId/directory", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
   try {
     const internalUser = await getOrCreateInternalUser(req.user);
@@ -911,7 +920,7 @@ app.get("/owner/organizations/:organizationId/directory", requireAuth(API_RESOUR
   }
 });
 
-app.get("/organizations/:organizationId/directory", requireOrganizationAccess({ requiredScopes: ["organizations:read"] }), async (req, res) => {
+app.get("/organizations/:organizationId/directory", requireOrganizationAccess({ requiredScopes: ["organizations:read"], requiredRoleName: ORGANIZATION_ADMIN_ROLE_NAME }), async (req, res) => {
   try {
     const internalUser = await getOrCreateInternalUser(req.user);
     const result = await buildOrganizationDirectoryResponse({ organizationId: req.params.organizationId, actorUserId: internalUser.id, accessMode: "organization_admin", authUser: req.user, internalUser });

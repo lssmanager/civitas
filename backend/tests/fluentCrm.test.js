@@ -294,7 +294,7 @@ test("syncOrganizationContactsToFluentCrm handles missing email and duplicate co
   const { syncOrganizationContactsToFluentCrm } = require("../services/fluentCrm");
   configureFluentCrmEnv();
   global.fetch = async (url, options = {}) => {
-    if (String(url).includes("duplicate%40school.edu")) return jsonResponse({ subscribers: [{ id: 1 }, { id: 2 }] });
+    if (String(url).includes("duplicate%40school.edu")) return jsonResponse({ subscribers: [{ id: 1, email: "duplicate@school.edu" }, { id: 2, email: "DUPLICATE@school.edu" }] });
     if (String(url).includes("ok%40school.edu")) return jsonResponse({ subscribers: [] });
     if (String(url).endsWith("/wp-json/fluent-crm/v2/subscribers") && options.method === "POST") return jsonResponse({ id: 3, email: "ok@school.edu" }, 201);
     return jsonResponse({ subscribers: [] });
@@ -339,7 +339,7 @@ test("cleanupContactInFluentCrm returns no_contact_found without claiming deleti
 test("cleanupContactInFluentCrm refuses duplicate FluentCRM contacts", async () => {
   const { cleanupContactInFluentCrm } = require("../services/fluentCrm");
   configureFluentCrmEnv();
-  global.fetch = async () => jsonResponse({ subscribers: [{ id: 1 }, { id: 2 }] });
+  global.fetch = async () => jsonResponse({ subscribers: [{ id: 1, email: "duplicate@school.edu" }, { id: 2, email: "DUPLICATE@school.edu" }] });
 
   const result = await cleanupContactInFluentCrm({
     identity: { logtoUserId: "user-1", email: "duplicate@school.edu" },
@@ -358,7 +358,7 @@ test("cleanupContactInFluentCrm conservatively dissociates organization data and
   global.fetch = async (url, options = {}) => {
     requests.push({ url: String(url), options });
     if (options.method === "PUT") return jsonResponse({ id: 9, status: "unsubscribed" });
-    return jsonResponse({ subscribers: [{ id: 9, company_id: "company-1", tags: [{ title: "Civitas Organization: School" }, { title: "Other Org" }, { title: "civitas-role-student-org" }], lists: [{ title: "Civitas School" }, { title: "Global Newsletter" }] }] });
+    return jsonResponse({ subscribers: [{ id: 9, email: "student@school.edu", company_id: "company-1", tags: [{ title: "Civitas Organization: School" }, { title: "Other Org" }, { title: "civitas-role-student-org" }], lists: [{ title: "Civitas School" }, { title: "Global Newsletter" }] }] });
   };
 
   const result = await cleanupContactInFluentCrm({
@@ -380,7 +380,7 @@ test("cleanupContactInFluentCrm does not hard delete multi-organization users", 
   global.fetch = async (url, options = {}) => {
     methods.push(options.method || "GET");
     if (options.method === "PUT") return jsonResponse({ id: 9 });
-    return jsonResponse({ subscribers: [{ id: 9, company_id: "company-1", tags: [], lists: [] }] });
+    return jsonResponse({ subscribers: [{ id: 9, email: "shared@school.edu", company_id: "company-1", tags: [], lists: [] }] });
   };
 
   const result = await cleanupContactInFluentCrm({
@@ -400,7 +400,7 @@ test("cleanupContactInFluentCrm supports explicit hard delete when not shared", 
   global.fetch = async (url, options = {}) => {
     methods.push(options.method || "GET");
     if (options.method === "DELETE") return jsonResponse({ deleted: true });
-    return jsonResponse({ subscribers: [{ id: 9, company_id: "company-1" }] });
+    return jsonResponse({ subscribers: [{ id: 9, email: "single@school.edu", company_id: "company-1" }] });
   };
 
   const result = await cleanupContactInFluentCrm({
@@ -410,4 +410,53 @@ test("cleanupContactInFluentCrm supports explicit hard delete when not shared", 
 
   assert.equal(result.strategy, "hard_delete");
   assert.equal(methods.includes("DELETE"), true);
+});
+
+test("searchContacts revalidates exact normalized email and ignores broad search false positives", async () => {
+  const { searchContacts } = require("../services/fluentCrm");
+  configureFluentCrmEnv();
+  global.fetch = async () => jsonResponse({ subscribers: [{ id: 1, email: "other@school.edu" }, { id: 2, email: "USER@SCHOOL.EDU" }] });
+  const contacts = await searchContacts({ email: " user@school.edu " });
+  assert.deepEqual(contacts.map((contact) => contact.id), [2]);
+});
+
+test("searchContacts prioritizes exact external_id before falling back to email", async () => {
+  const { searchContacts } = require("../services/fluentCrm");
+  configureFluentCrmEnv();
+  const searches = [];
+  global.fetch = async (url) => {
+    const requestUrl = new URL(String(url));
+    searches.push(requestUrl.searchParams.get("search"));
+    if (searches.length === 1) return jsonResponse({ subscribers: [{ id: 9, external_id: "user-1", email: "wrong@school.edu" }, { id: 10, external_id: "other", email: "user@school.edu" }] });
+    return jsonResponse({ subscribers: [{ id: 10, email: "user@school.edu" }] });
+  };
+  const contacts = await searchContacts({ email: "user@school.edu", externalId: "user-1" });
+  assert.deepEqual(searches, ["user-1"]);
+  assert.deepEqual(contacts.map((contact) => contact.id), [9]);
+});
+
+test("FluentCRM timeout aborts remote requests with controlled diagnostic", async () => {
+  const { searchCompanies } = require("../services/fluentCrm");
+  configureFluentCrmEnv({ FLUENTCRM_TIMEOUT_MS: "5" });
+  global.fetch = async (_url, options = {}) => new Promise((resolve, reject) => {
+    options.signal.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })));
+  });
+  await assert.rejects(searchCompanies({ search: "slow" }), (error) => {
+    assert.equal(error.code, "FLUENTCRM_TIMEOUT");
+    assert.equal(error.status, 504);
+    assert.equal(error.diagnostic.timeoutMs, 5);
+    return true;
+  });
+});
+
+test("FluentCRM 401 reports authentication diagnostic instead of generic request failure", async () => {
+  const { searchCompanies } = require("../services/fluentCrm");
+  configureFluentCrmEnv();
+  global.fetch = async () => jsonResponse({ code: "rest_not_logged_in", message: "You are not logged in" }, 401);
+  await assert.rejects(searchCompanies({ search: "school" }), (error) => {
+    assert.equal(error.code, "FLUENTCRM_AUTHENTICATION_FAILED");
+    assert.match(error.message, /authentication failed \(401\)/i);
+    assert.ok(error.diagnostic.likelyCauses.includes("invalid_application_password"));
+    return true;
+  });
 });
