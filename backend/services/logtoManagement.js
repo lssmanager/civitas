@@ -284,26 +284,36 @@ async function removeLogtoUserGlobalRole({ userId, roleId }) {
   });
 }
 
-async function removeProhibitedLogtoUserGlobalRoles({ userId, allowedRoleNames = getAllowedOrganizationUserGlobalRoleNames() } = {}) {
+async function removeProhibitedLogtoUserGlobalRoles({
+  userId,
+  allowedRoleNames = getAllowedOrganizationUserGlobalRoleNames(),
+  removeProhibitedRoles = false,
+} = {}) {
   const allowed = new Set(allowedRoleNames);
   const globalRoles = await listLogtoUserGlobalRoles({ userId });
   const prohibitedRoles = globalRoles.filter((role) => !allowed.has(role.name));
   const removedRoles = [];
   const unremovableRoles = [];
+  const retainedRoles = [];
+
+  if (!removeProhibitedRoles) {
+    return { allowedRoleNames, globalRoles, prohibitedRoles, removedRoles, unremovableRoles, retainedRoles: prohibitedRoles };
+  }
 
   for (const role of prohibitedRoles) {
     if (!role.id) {
       unremovableRoles.push(role);
+      retainedRoles.push(role);
       continue;
     }
     await removeLogtoUserGlobalRole({ userId, roleId: role.id });
     removedRoles.push(role);
   }
 
-  return { allowedRoleNames, globalRoles, prohibitedRoles, removedRoles, unremovableRoles };
+  return { allowedRoleNames, globalRoles, prohibitedRoles, removedRoles, unremovableRoles, retainedRoles };
 }
 
-function buildProhibitedGlobalRolesError({ userId, prohibitedRoles, removedRoles = [], unremovableRoles = [] }) {
+function buildProhibitedGlobalRolesError({ userId, prohibitedRoles, removedRoles = [], unremovableRoles = [], retainedRoles = [], existingUser = false }) {
   const prohibitedRoleNames = prohibitedRoles.map((role) => role.name).filter(Boolean);
   const error = new LogtoManagementApiError(`Organization user has prohibited global role(s): ${prohibitedRoleNames.join(", ") || "unknown"}`, {
     status: 424,
@@ -313,20 +323,30 @@ function buildProhibitedGlobalRolesError({ userId, prohibitedRoles, removedRoles
       prohibitedRoleNames,
       removedRoleNames: removedRoles.map((role) => role.name).filter(Boolean),
       unremovableRoleNames: unremovableRoles.map((role) => role.name).filter(Boolean),
+      retainedRoleNames: retainedRoles.map((role) => role.name).filter(Boolean),
+      existingUser,
     },
   });
   error.code = "LOGTO_ORGANIZATION_USER_PROHIBITED_GLOBAL_ROLES";
   error.prohibitedRoles = prohibitedRoles;
   error.removedRoles = removedRoles;
   error.unremovableRoles = unremovableRoles;
-  error.diagnostic = "Logto assigned a global role to an organization user. Remove default global roles for regular users; owner_global must be reserved for Civitas platform owners.";
+  error.retainedRoles = retainedRoles;
+  error.diagnostic = existingUser
+    ? "An existing Logto user has global roles incompatible with being an organization base admin. Civitas did not mutate the existing user; choose a different base admin or remove the incompatible global roles manually after verifying ownership."
+    : "Logto assigned a global role to a newly created organization user. Civitas attempted to remove unsafe default global roles; remove default global roles for regular users because owner_global must be reserved for Civitas platform owners.";
   return error;
 }
 
-async function enforceNoProhibitedGlobalRolesForOrganizationUser({ userId, allowedRoleNames = getAllowedOrganizationUserGlobalRoleNames() } = {}) {
-  const result = await removeProhibitedLogtoUserGlobalRoles({ userId, allowedRoleNames });
+async function enforceNoProhibitedGlobalRolesForOrganizationUser({
+  userId,
+  allowedRoleNames = getAllowedOrganizationUserGlobalRoleNames(),
+  removeProhibitedRoles = false,
+  existingUser = !removeProhibitedRoles,
+} = {}) {
+  const result = await removeProhibitedLogtoUserGlobalRoles({ userId, allowedRoleNames, removeProhibitedRoles });
   if (result.prohibitedRoles.length > 0) {
-    throw buildProhibitedGlobalRolesError({ userId, ...result });
+    throw buildProhibitedGlobalRolesError({ userId, existingUser, ...result });
   }
   return result;
 }

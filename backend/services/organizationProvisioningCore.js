@@ -102,9 +102,13 @@ async function validateRequiredOrganizationRoles(roleNames, logtoOrganizationId,
   return template;
 }
 
-async function validateBaseAdminGlobalRoles({ baseAdminLogtoUserId, logtoOrganizationId, internalUser, auditContextBuilder, logtoOrganization }) {
+async function validateBaseAdminGlobalRoles({ baseAdminLogtoUserId, baseAdminUserCreated, baseAdminUserSource, logtoOrganizationId, internalUser, auditContextBuilder, logtoOrganization }) {
   try {
-    const result = await enforceNoProhibitedGlobalRolesForOrganizationUser({ userId: baseAdminLogtoUserId });
+    const result = await enforceNoProhibitedGlobalRolesForOrganizationUser({
+      userId: baseAdminLogtoUserId,
+      removeProhibitedRoles: Boolean(baseAdminUserCreated),
+      existingUser: !baseAdminUserCreated,
+    });
     await recordAuditLogBestEffort({
       actorUserId: internalUser.id,
       organizationId: logtoOrganizationId,
@@ -116,6 +120,8 @@ async function validateBaseAdminGlobalRoles({ baseAdminLogtoUserId, logtoOrganiz
         baseAdminLogtoUserId,
         allowedGlobalRoleNames: result.allowedRoleNames,
         globalRoleNames: result.globalRoles.map((role) => role.name).filter(Boolean),
+        baseAdminUserCreated: Boolean(baseAdminUserCreated),
+        baseAdminUserSource,
       },
     });
     return result;
@@ -133,6 +139,9 @@ async function validateBaseAdminGlobalRoles({ baseAdminLogtoUserId, logtoOrganiz
         prohibitedRoleNames: error.prohibitedRoles?.map((role) => role.name).filter(Boolean),
         removedRoleNames: error.removedRoles?.map((role) => role.name).filter(Boolean),
         unremovableRoleNames: error.unremovableRoles?.map((role) => role.name).filter(Boolean),
+        retainedRoleNames: error.body?.retainedRoleNames,
+        baseAdminUserCreated: Boolean(baseAdminUserCreated),
+        baseAdminUserSource,
         diagnostic: error.diagnostic,
       },
     });
@@ -154,7 +163,15 @@ async function assignBaseAdminBestEffort({ canonical, logtoOrganization, logtoOr
     throw error;
   }
 
-  await validateBaseAdminGlobalRoles({ baseAdminLogtoUserId, logtoOrganizationId, internalUser, auditContextBuilder, logtoOrganization });
+  await validateBaseAdminGlobalRoles({
+    baseAdminLogtoUserId,
+    baseAdminUserCreated: Boolean(resolvedUser.created),
+    baseAdminUserSource: resolvedUser.source,
+    logtoOrganizationId,
+    internalUser,
+    auditContextBuilder,
+    logtoOrganization,
+  });
 
   const adminRole = await findOrganizationRoleByName(canonical.baseAdmin.initialOrganizationRole);
   const adminRoleId = getOrganizationRoleId(adminRole);

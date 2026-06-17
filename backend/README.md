@@ -101,9 +101,11 @@ Configuración esperada en Logto:
 El backend también valida el base admin durante el alta de organizaciones: por
 defecto `CIVITAS_ALLOWED_ORG_USER_GLOBAL_ROLES` es una lista vacía, por lo que
 cualquier rol global detectado en un usuario de organización se considera una
-configuración insegura. Si Logto asigna externamente `owner_global`, Civitas
-intenta removerlo con la Management API, registra auditoría y falla el bootstrap
-con un error crítico para evitar que el alta termine con privilegios globales.
+configuración insegura. Si Logto asigna externamente `owner_global` a un
+usuario recién creado por el alta, Civitas intenta removerlo con la Management
+API, registra auditoría y falla el bootstrap con un error crítico. Si el usuario
+ya existía, Civitas no muta sus roles globales: registra auditoría y falla el
+bootstrap para evitar que un owner legítimo pierda permisos por accidente.
 
 El portal owner sigue protegido con tokens globales: los tokens organizacionales
 son rechazados y `/owner/*` requiere el scope global `owner:read`.
