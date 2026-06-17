@@ -2,6 +2,7 @@ const MANAGEMENT_TOKEN_SCOPE = "all";
 const ORGANIZATION_ADMIN_ROLE_NAME = "Admin-org";
 const JIT_DEFAULT_ORGANIZATION_ROLE_NAME = "Student-org";
 const REQUIRED_ORGANIZATION_ROLE_NAMES = [ORGANIZATION_ADMIN_ROLE_NAME, JIT_DEFAULT_ORGANIZATION_ROLE_NAME];
+const PROHIBITED_ORGANIZATION_USER_GLOBAL_ROLE_NAMES = ["owner_global"];
 
 let tokenCache = null;
 
@@ -177,11 +178,24 @@ async function replaceJitDefaultRolesForLogtoOrganization({ organizationId, orga
 
 async function listLogtoOrganizationRoles() {
   const response = await callLogtoManagementApi("/organization-roles");
-  return Array.isArray(response) ? response : response?.data || response?.items || [];
+  return normalizeRoleListResponse(response);
 }
 
 const getOrganizationRoleName = (role = {}) => role.name || role.nameCache || role.key || null;
 const getOrganizationRoleId = (role = {}) => role.id || role.organizationRoleId || role.roleId || null;
+const getGlobalRoleName = (role = {}) => role.name || role.nameCache || role.key || null;
+const getGlobalRoleId = (role = {}) => role.id || role.roleId || null;
+
+const parseCommaSeparatedEnv = (name) => (process.env[name] || "")
+  .split(",")
+  .map((value) => value.trim())
+  .filter(Boolean);
+
+function getAllowedOrganizationUserGlobalRoleNames() {
+  return parseCommaSeparatedEnv("CIVITAS_ALLOWED_ORG_USER_GLOBAL_ROLES");
+}
+
+const normalizeRoleListResponse = (response) => (Array.isArray(response) ? response : response?.data || response?.items || []);
 
 async function findOrganizationRoleByName(name) {
   const roles = await listLogtoOrganizationRoles();
@@ -259,6 +273,64 @@ async function listLogtoUsers({ search } = {}) {
   return Array.isArray(response) ? response : response?.data || response?.items || [];
 }
 
+async function listLogtoUserGlobalRoles({ userId }) {
+  return normalizeRoleListResponse(await callLogtoManagementApi(`/users/${encodeURIComponent(userId)}/roles`))
+    .map((role) => ({ ...role, id: getGlobalRoleId(role), name: getGlobalRoleName(role) }));
+}
+
+async function removeLogtoUserGlobalRole({ userId, roleId }) {
+  return callLogtoManagementApi(`/users/${encodeURIComponent(userId)}/roles/${encodeURIComponent(roleId)}`, {
+    method: "DELETE",
+  });
+}
+
+async function removeProhibitedLogtoUserGlobalRoles({ userId, allowedRoleNames = getAllowedOrganizationUserGlobalRoleNames() } = {}) {
+  const allowed = new Set(allowedRoleNames);
+  const globalRoles = await listLogtoUserGlobalRoles({ userId });
+  const prohibitedRoles = globalRoles.filter((role) => !allowed.has(role.name));
+  const removedRoles = [];
+  const unremovableRoles = [];
+
+  for (const role of prohibitedRoles) {
+    if (!role.id) {
+      unremovableRoles.push(role);
+      continue;
+    }
+    await removeLogtoUserGlobalRole({ userId, roleId: role.id });
+    removedRoles.push(role);
+  }
+
+  return { allowedRoleNames, globalRoles, prohibitedRoles, removedRoles, unremovableRoles };
+}
+
+function buildProhibitedGlobalRolesError({ userId, prohibitedRoles, removedRoles = [], unremovableRoles = [] }) {
+  const prohibitedRoleNames = prohibitedRoles.map((role) => role.name).filter(Boolean);
+  const error = new LogtoManagementApiError(`Organization user has prohibited global role(s): ${prohibitedRoleNames.join(", ") || "unknown"}`, {
+    status: 424,
+    body: {
+      reason: "organization_user_prohibited_global_roles",
+      userId,
+      prohibitedRoleNames,
+      removedRoleNames: removedRoles.map((role) => role.name).filter(Boolean),
+      unremovableRoleNames: unremovableRoles.map((role) => role.name).filter(Boolean),
+    },
+  });
+  error.code = "LOGTO_ORGANIZATION_USER_PROHIBITED_GLOBAL_ROLES";
+  error.prohibitedRoles = prohibitedRoles;
+  error.removedRoles = removedRoles;
+  error.unremovableRoles = unremovableRoles;
+  error.diagnostic = "Logto assigned a global role to an organization user. Remove default global roles for regular users; owner_global must be reserved for Civitas platform owners.";
+  return error;
+}
+
+async function enforceNoProhibitedGlobalRolesForOrganizationUser({ userId, allowedRoleNames = getAllowedOrganizationUserGlobalRoleNames() } = {}) {
+  const result = await removeProhibitedLogtoUserGlobalRoles({ userId, allowedRoleNames });
+  if (result.prohibitedRoles.length > 0) {
+    throw buildProhibitedGlobalRolesError({ userId, ...result });
+  }
+  return result;
+}
+
 async function findLogtoUserByEmail(email) {
   const normalizedEmail = typeof email === "string" ? email.trim().toLowerCase() : "";
   if (!normalizedEmail) return null;
@@ -297,6 +369,7 @@ module.exports = {
   ORGANIZATION_ADMIN_ROLE_NAME,
   JIT_DEFAULT_ORGANIZATION_ROLE_NAME,
   REQUIRED_ORGANIZATION_ROLE_NAMES,
+  PROHIBITED_ORGANIZATION_USER_GLOBAL_ROLE_NAMES,
   LogtoManagementApiError,
   replaceJitDefaultRolesForLogtoOrganization,
   replaceJitEmailDomainsForLogtoOrganization,
@@ -305,6 +378,11 @@ module.exports = {
   createLogtoOrganization,
   createLogtoUser,
   createOrResolveLogtoUserByEmail,
+  enforceNoProhibitedGlobalRolesForOrganizationUser,
+  getAllowedOrganizationUserGlobalRoleNames,
+  listLogtoUserGlobalRoles,
+  removeLogtoUserGlobalRole,
+  removeProhibitedLogtoUserGlobalRoles,
   updateLogtoOrganizationCustomData,
   fetchLogtoManagementApiAccessToken,
   findLogtoOrganizationByName,

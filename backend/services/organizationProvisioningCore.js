@@ -12,6 +12,7 @@ const {
   findOrganizationRoleByName,
   getLogtoUserById,
   createOrResolveLogtoUserByEmail,
+  enforceNoProhibitedGlobalRolesForOrganizationUser,
 } = require("./logtoManagement");
 const { AUDIT_ACTIONS, AUDIT_RESULTS, recordAuditLogBestEffort } = require("./auditLogs");
 
@@ -101,6 +102,44 @@ async function validateRequiredOrganizationRoles(roleNames, logtoOrganizationId,
   return template;
 }
 
+async function validateBaseAdminGlobalRoles({ baseAdminLogtoUserId, logtoOrganizationId, internalUser, auditContextBuilder, logtoOrganization }) {
+  try {
+    const result = await enforceNoProhibitedGlobalRolesForOrganizationUser({ userId: baseAdminLogtoUserId });
+    await recordAuditLogBestEffort({
+      actorUserId: internalUser.id,
+      organizationId: logtoOrganizationId,
+      action: AUDIT_ACTIONS.OWNER_ORGANIZATION_BASE_GLOBAL_ROLES,
+      result: AUDIT_RESULTS.SUCCESS,
+      metadata: {
+        ...auditContextBuilder({ organization: logtoOrganization }),
+        stage: "base_global_roles_validated",
+        baseAdminLogtoUserId,
+        allowedGlobalRoleNames: result.allowedRoleNames,
+        globalRoleNames: result.globalRoles.map((role) => role.name).filter(Boolean),
+      },
+    });
+    return result;
+  } catch (error) {
+    await recordAuditLogBestEffort({
+      actorUserId: internalUser.id,
+      organizationId: logtoOrganizationId,
+      action: AUDIT_ACTIONS.OWNER_ORGANIZATION_BASE_GLOBAL_ROLES,
+      result: AUDIT_RESULTS.ERROR,
+      metadata: {
+        ...auditContextBuilder({ organization: logtoOrganization }),
+        stage: "base_global_roles_rejected",
+        baseAdminLogtoUserId,
+        code: error.code,
+        prohibitedRoleNames: error.prohibitedRoles?.map((role) => role.name).filter(Boolean),
+        removedRoleNames: error.removedRoles?.map((role) => role.name).filter(Boolean),
+        unremovableRoleNames: error.unremovableRoles?.map((role) => role.name).filter(Boolean),
+        diagnostic: error.diagnostic,
+      },
+    });
+    throw error;
+  }
+}
+
 async function assignBaseAdminBestEffort({ canonical, logtoOrganization, logtoOrganizationId, internalUser, auditContextBuilder }) {
   const resolvedUser = await resolveBaseAdminUser({ canonical, logtoOrganizationId, internalUser });
   const baseAdminLogtoUser = resolvedUser.user;
@@ -114,6 +153,8 @@ async function assignBaseAdminBestEffort({ canonical, logtoOrganization, logtoOr
     error.diagnostic = "The resolved base admin Logto user belongs to a different email than baseAdmin.email; admin assignment was stopped.";
     throw error;
   }
+
+  await validateBaseAdminGlobalRoles({ baseAdminLogtoUserId, logtoOrganizationId, internalUser, auditContextBuilder, logtoOrganization });
 
   const adminRole = await findOrganizationRoleByName(canonical.baseAdmin.initialOrganizationRole);
   const adminRoleId = getOrganizationRoleId(adminRole);

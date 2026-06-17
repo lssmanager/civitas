@@ -79,3 +79,31 @@ del API resource de Civitas al usuario/rol global correspondiente y fuerza una
 renovación de sesión para que el access token incluya dichos scopes. PostgreSQL
 solo conserva el usuario interno y metadata operativa; no es la fuente de
 autorización owner global.
+
+## Seguridad Logto para usuarios de organizaciones
+
+Civitas separa estrictamente los permisos globales de plataforma de los roles de
+organización. El rol global `owner_global` está reservado exclusivamente para
+owners internos de Civitas y nunca debe configurarse como rol por defecto para
+usuarios normales, administradores de colegio, docentes o estudiantes.
+
+Configuración esperada en Logto:
+
+- No configurar `owner_global` como default role de nuevos usuarios.
+- Crear y mantener `Admin-org` y `Student-org` como roles de la plantilla de
+  organizaciones de Logto.
+- Asignar `Admin-org` al base admin solo dentro de su organización.
+- Asignar `Student-org` (u otros roles organizacionales equivalentes) vía JIT
+  solo dentro de la organización.
+- Reservar `owner_global` y scopes globales como `owner:read` únicamente para
+  owners de plataforma Civitas.
+
+El backend también valida el base admin durante el alta de organizaciones: por
+defecto `CIVITAS_ALLOWED_ORG_USER_GLOBAL_ROLES` es una lista vacía, por lo que
+cualquier rol global detectado en un usuario de organización se considera una
+configuración insegura. Si Logto asigna externamente `owner_global`, Civitas
+intenta removerlo con la Management API, registra auditoría y falla el bootstrap
+con un error crítico para evitar que el alta termine con privilegios globales.
+
+El portal owner sigue protegido con tokens globales: los tokens organizacionales
+son rechazados y `/owner/*` requiere el scope global `owner:read`.
