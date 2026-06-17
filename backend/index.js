@@ -11,6 +11,8 @@ const {
   getLogtoUserById,
   updateLogtoUser,
   listLogtoOrganizationRoles,
+  listLogtoOrganizationUserRoles,
+  listLogtoOrganizationUsers,
   listLogtoOrganizations,
 } = require("./services/logtoManagement");
 const {
@@ -27,7 +29,7 @@ const {
 } = require("./services/auditLogs");
 const { normalizeCanonicalProvisioningInput, runCanonicalOrganizationBootstrap } = require("./services/organizationProvisioningCore");
 const { buildLogtoOrganizationCustomData, normalizeExtendedProvisioningInput } = require("./services/organizationProvisioningSettings");
-const { FluentCrmError, ensureOrganizationTagsAndLists, getOrCreateCompanyForOrganization, normalizeCrmCompanyInput, updateContactEmailAfterLogtoChange } = require("./services/fluentCrm");
+const { FluentCrmError, ensureOrganizationTagsAndLists, getOrCreateCompanyForOrganization, normalizeCrmCompanyInput, searchContacts, updateContactEmailAfterLogtoChange } = require("./services/fluentCrm");
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -313,6 +315,92 @@ async function runFluentCrmOrganizationStep({ logtoOrganization, logtoOrganizati
     companyId: companyResult.company?.id ?? companyResult.company?.ID ?? companyResult.company?.company_id ?? null,
     reason: companyResult.reason,
     taxonomy,
+  };
+}
+
+
+const getLogtoUserIdentityFields = (user = {}) => ({
+  logtoUserId: user.id || user.userId || user.logtoUserId || user.sub || null,
+  name: user.name || user.profile?.name || null,
+  email: user.primaryEmail || user.email || user.profile?.email || null,
+  phone: user.primaryPhone || user.phone || user.profile?.phone || null,
+  username: user.username || user.profile?.username || null,
+  avatarUrl: user.avatar || user.avatarUrl || user.profile?.picture || null,
+  mfa: { enabled: Boolean(user.hasPassword === false ? user.mfaVerifications?.length : user.mfaEnabled || user.mfa?.enabled || user.twoFactorEnabled) },
+  connections: Array.isArray(user.identities) ? user.identities.map((identity) => identity.provider || identity.connectorId).filter(Boolean) : Array.isArray(user.ssoIdentities) ? user.ssoIdentities.map((identity) => identity.issuer || identity.connectorId).filter(Boolean) : [],
+  lastLoginAt: user.lastSignInAt || user.lastLoginAt || user.updatedAt || null,
+});
+
+const getCrmExclusiveFields = (contact = {}, company = null) => ({
+  company: contact.company || contact.company_name || company?.name || company?.title || null,
+  industry: contact.industry || company?.industry || null,
+  companyOwner: contact.company_owner || contact.owner || company?.owner || null,
+  numberOfEmployees: contact.number_of_employees ?? company?.number_of_employees ?? null,
+  lifecycleStage: contact.lifecycle_stage || contact.status || null,
+  lists: Array.isArray(contact.lists) ? contact.lists.map((item) => item.title || item.name || item).filter(Boolean) : [],
+  tags: Array.isArray(contact.tags) ? contact.tags.map((item) => item.title || item.name || item).filter(Boolean) : [],
+  previousEmailAddress: contact.previous_email_address || contact.previous_email || contact.custom_values?.previous_email || null,
+  customerNotes: contact.customer_notes || contact.notes || null,
+  purchaseSummary: contact.purchase_summary || contact.purchase_history || null,
+  subscriptionSummary: contact.subscription_summary || contact.subscription_metadata || null,
+});
+
+async function getCrmDirectoryBlock({ email, profile }) {
+  try {
+    const contacts = await searchContacts({ email });
+    const contact = contacts[0] || null;
+    return { status: contact ? "linked" : "not_found", ...getCrmExclusiveFields(contact || {}, null) };
+  } catch (error) {
+    return { status: "unavailable", error: getSafeErrorMessage(error), syncStatus: profile?.fluentcrmSyncStatus || "not_linked" };
+  }
+}
+
+async function buildOrganizationDirectoryResponse({ organizationId, actorUserId, accessMode, authUser, internalUser }) {
+  const [members, profiles] = await Promise.all([listLogtoOrganizationUsers({ organizationId }), listOrganizationProfiles()]);
+  const profile = profiles.find((item) => item.logtoOrganizationId === organizationId) || null;
+  const directoryMembers = await Promise.all(members.map(async (member) => {
+    const identity = getLogtoUserIdentityFields(member);
+    const roles = identity.logtoUserId ? await listLogtoOrganizationUserRoles({ organizationId, userId: identity.logtoUserId }).catch(() => []) : [];
+    const crm = await getCrmDirectoryBlock({ email: identity.email, profile });
+    return {
+      identity: { ...identity, roles: roles.map((role) => role.name).filter(Boolean) },
+      crm,
+      civitas: {
+        seatAllocation: 1,
+        seatConsumption: 1,
+        syncStatus: profile?.fluentcrmSyncStatus || "not_linked",
+        auditStatus: "ok",
+        organizationMetadata: profile ? { profileId: profile.id, status: profile.status, slug: profile.slug, adminDomain: profile.adminDomain } : {},
+      },
+    };
+  }));
+
+  await recordAuditLogBestEffort({
+    actorUserId,
+    organizationId,
+    action: AUDIT_ACTIONS.OWNER_ORGANIZATION_DIRECTORY_ACCESS,
+    result: AUDIT_RESULTS.SUCCESS,
+    metadata: { ...buildAuditContext({ authUser, internalUser, organization: { id: organizationId, name: profile?.nameCache } }), accessMode, memberCount: directoryMembers.length },
+  });
+
+  return {
+    organizationId,
+    sourcePolicy: {
+      identity: "logto",
+      organizationRoles: "logto",
+      organizationMembership: "logto",
+      crm: "fluentcrm_exclusive_fields_only",
+      civitas: "operational_state_only",
+      conflictResolution: "logto_wins_for_identity_fields",
+    },
+    civitas: {
+      seatAllocation: profile?.seatTotal ?? 0,
+      seatConsumption: directoryMembers.length,
+      syncStatus: profile?.fluentcrmSyncStatus || "not_linked",
+      auditStatus: "ok",
+      organizationMetadata: profile ? { profileId: profile.id, status: profile.status, slug: profile.slug, adminDomain: profile.adminDomain } : {},
+    },
+    members: directoryMembers,
   };
 }
 
@@ -626,6 +714,29 @@ app.patch("/owner/organizations/:organizationId/members/:logtoUserId/identity", 
     return res.json({ status: fluentcrm?.status === "error" ? "logto_updated_fluentcrm_failed" : "updated", logtoUser, fluentcrm, futureSelfServiceRoute: "PATCH /me/identity" });
   } catch (error) {
     return res.status(error.status || 502).json({ error: "Bad Gateway", message: getSafeErrorMessage(error), integration: "logto_management_api", logtoRequest: error.request || null, logtoErrorBody: error.body || null });
+  }
+});
+
+
+app.get("/owner/organizations/:organizationId/directory", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  try {
+    const internalUser = await getOrCreateInternalUser(req.user);
+    const result = await buildOrganizationDirectoryResponse({ organizationId: req.params.organizationId, actorUserId: internalUser.id, accessMode: "owner_global", authUser: req.user, internalUser });
+    return res.json(result);
+  } catch (error) {
+    console.error("Failed to build owner organization directory", error);
+    return res.status(error.status || 502).json({ error: "Bad Gateway", message: getSafeErrorMessage(error), sourcePolicy: "logto_first_directory" });
+  }
+});
+
+app.get("/organizations/:organizationId/directory", requireOrganizationAccess({ requiredScopes: ["organizations:read"] }), async (req, res) => {
+  try {
+    const internalUser = await getOrCreateInternalUser(req.user);
+    const result = await buildOrganizationDirectoryResponse({ organizationId: req.params.organizationId, actorUserId: internalUser.id, accessMode: "organization_admin", authUser: req.user, internalUser });
+    return res.json(result);
+  } catch (error) {
+    console.error("Failed to build organization directory", error);
+    return res.status(error.status || 502).json({ error: "Bad Gateway", message: getSafeErrorMessage(error), sourcePolicy: "logto_first_directory" });
   }
 });
 

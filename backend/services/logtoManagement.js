@@ -280,6 +280,16 @@ async function listLogtoUsers({ search } = {}) {
   return Array.isArray(response) ? response : response?.data || response?.items || [];
 }
 
+async function listLogtoOrganizationUsers({ organizationId }) {
+  const response = await callLogtoManagementApi(`/organizations/${encodeURIComponent(organizationId)}/users`);
+  return Array.isArray(response) ? response : response?.data || response?.items || [];
+}
+
+async function listLogtoOrganizationUserRoles({ organizationId, userId }) {
+  const response = await callLogtoManagementApi(`/organizations/${encodeURIComponent(organizationId)}/users/${encodeURIComponent(userId)}/roles`);
+  return normalizeRoleListResponse(response).map((role) => ({ ...role, id: getOrganizationRoleId(role), name: getOrganizationRoleName(role) }));
+}
+
 async function listLogtoUserGlobalRoles({ userId }) {
   return normalizeRoleListResponse(await callLogtoManagementApi(`/users/${encodeURIComponent(userId)}/roles`))
     .map((role) => ({ ...role, id: getGlobalRoleId(role), name: getGlobalRoleName(role) }));
@@ -420,6 +430,8 @@ module.exports = {
   getLogtoUserById,
   findLogtoUserByEmail,
   listLogtoOrganizationRoles,
+  listLogtoOrganizationUsers,
+  listLogtoOrganizationUserRoles,
   listLogtoUsers,
   validateOrganizationTemplate,
   parseLogtoManagementApiResponse,

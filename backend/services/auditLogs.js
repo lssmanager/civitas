@@ -24,6 +24,7 @@ const AUDIT_ACTIONS = Object.freeze({
   OWNER_ORGANIZATION_FLUENTCRM_SYNC: "owner.organization.fluentcrm_sync",
   OWNER_ORGANIZATION_FLUENTCRM_CONFLICT: "owner.organization.fluentcrm_conflict",
   OWNER_ORGANIZATION_FLUENTCRM_ERROR: "owner.organization.fluentcrm_error",
+  OWNER_ORGANIZATION_DIRECTORY_ACCESS: "owner.organization.directory_access",
 });
 
 const DEFAULT_LIMIT = 25;
