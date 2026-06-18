@@ -128,6 +128,16 @@ export type FluentCrmCompanyInput = {
   description?: string;
   nit?: number;
   verificationDigit?: number;
+  rector?: string;
+  emailRector?: string;
+  coordinatorName1?: string;
+  coordinatorEmail1?: string;
+  coordinatorName2?: string;
+  coordinatorEmail2?: string;
+  coordinatorName3?: string;
+  coordinatorEmail3?: string;
+  tags?: string[];
+  lists?: string[];
 };
 
 export type OwnerFluentCrmHealthResponse = {

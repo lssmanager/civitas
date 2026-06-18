@@ -234,6 +234,16 @@ test("normalizeCrmCompanyInput maps minimal FluentCRM company fields without ide
     description: "Description",
     nit: null,
     verificationDigit: null,
+    rector: null,
+    emailRector: null,
+    coordinatorName1: null,
+    coordinatorEmail1: null,
+    coordinatorName2: null,
+    coordinatorEmail2: null,
+    coordinatorName3: null,
+    coordinatorEmail3: null,
+    tags: [],
+    lists: [],
   });
 });
 
@@ -469,10 +479,22 @@ test("normalizeCrmCompanyInput accepts owner tax fields for FluentCRM companies"
     companyName: "Colegio San Jose",
     nit: "900123456",
     verificationDigit: "7",
+    rector: " Rector ",
+    emailRector: "RECTOR@SCHOOL.EDU ",
+    coordinatorName1: " Coordinador 1 ",
+    coordinatorEmail1: "COORD1@SCHOOL.EDU ",
+    tags: ["Admin-org", "Admin-org", ""],
+    lists: ["Colegio San Jose", "Colegio San Jose"],
   });
 
   assert.equal(normalized.nit, 900123456);
   assert.equal(normalized.verificationDigit, 7);
+  assert.equal(normalized.rector, "Rector");
+  assert.equal(normalized.emailRector, "rector@school.edu");
+  assert.equal(normalized.coordinatorName1, "Coordinador 1");
+  assert.equal(normalized.coordinatorEmail1, "coord1@school.edu");
+  assert.deepEqual(normalized.tags, ["Admin-org"]);
+  assert.deepEqual(normalized.lists, ["Colegio San Jose"]);
 });
 
 test("buildFluentCrmCompanyPayload maps NIT and verification digit to custom values", () => {
@@ -482,10 +504,30 @@ test("buildFluentCrmCompanyPayload maps NIT and verification digit to custom val
     companyEmail: "contacto@colegio.edu.co",
     nit: 900123456,
     verificationDigit: 5,
+    rector: "Rector",
+    emailRector: "rector@school.edu",
+    coordinatorName1: "Coordinador 1",
+    coordinatorEmail1: "coord1@school.edu",
+    coordinatorName2: "Coordinador 2",
+    coordinatorEmail2: "coord2@school.edu",
+    coordinatorName3: "Coordinador 3",
+    coordinatorEmail3: "coord3@school.edu",
+    tags: ["Admin-org"],
+    lists: ["Colegio San Jose"],
   });
 
   assert.deepEqual(payload.custom_values, {
     nit: 900123456,
     "digito_de_verificación": 5,
+    rector: "Rector",
+    email_rector: "rector@school.edu",
+    cordinador_name_1: "Coordinador 1",
+    cordinador_email_1: "coord1@school.edu",
+    cordinador_name_2: "Coordinador 2",
+    cordinador_email_2: "coord2@school.edu",
+    cordinador_name_3: "Coordinador 3",
+    cordinador_email_3: "coord3@school.edu",
   });
+  assert.deepEqual(payload.tags, ["Admin-org"]);
+  assert.deepEqual(payload.lists, ["Colegio San Jose"]);
 });

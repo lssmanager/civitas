@@ -102,6 +102,7 @@ function normalizeName(value) {
 
 
 const normalizeString = (value) => (typeof value === "string" && value.trim() ? value.trim() : null);
+const normalizeStringList = (value) => Array.isArray(value) ? [...new Set(value.map(normalizeString).filter(Boolean))] : [];
 const normalizeInteger = (value) => {
   if (value === undefined || value === null || value === "") return null;
   const parsed = Number.parseInt(value, 10);
@@ -123,6 +124,16 @@ function normalizeCrmCompanyInput(input = {}, fallback = {}) {
     description: normalizeString(input.description ?? input.about ?? input.companyDescription),
     nit: normalizeInteger(input.nit),
     verificationDigit: normalizeInteger(input.verificationDigit ?? input.digito_de_verificación ?? input.digito_de_verificacion),
+    rector: normalizeString(input.rector),
+    emailRector: normalizeEmail(input.emailRector ?? input.email_rector),
+    coordinatorName1: normalizeString(input.coordinatorName1 ?? input.cordinador_name_1),
+    coordinatorEmail1: normalizeEmail(input.coordinatorEmail1 ?? input.cordinador_email_1),
+    coordinatorName2: normalizeString(input.coordinatorName2 ?? input.cordinador_name_2),
+    coordinatorEmail2: normalizeEmail(input.coordinatorEmail2 ?? input.cordinador_email_2),
+    coordinatorName3: normalizeString(input.coordinatorName3 ?? input.cordinador_name_3),
+    coordinatorEmail3: normalizeEmail(input.coordinatorEmail3 ?? input.cordinador_email_3),
+    tags: normalizeStringList(input.tags),
+    lists: normalizeStringList(input.lists),
   };
 }
 
@@ -130,6 +141,14 @@ function buildFluentCrmCompanyPayload(company = {}) {
   const customValues = {};
   if (company.nit != null) customValues.nit = company.nit;
   if (company.verificationDigit != null) customValues["digito_de_verificación"] = company.verificationDigit;
+  if (company.rector) customValues.rector = company.rector;
+  if (company.emailRector) customValues.email_rector = company.emailRector;
+  if (company.coordinatorName1) customValues.cordinador_name_1 = company.coordinatorName1;
+  if (company.coordinatorEmail1) customValues.cordinador_email_1 = company.coordinatorEmail1;
+  if (company.coordinatorName2) customValues.cordinador_name_2 = company.coordinatorName2;
+  if (company.coordinatorEmail2) customValues.cordinador_email_2 = company.coordinatorEmail2;
+  if (company.coordinatorName3) customValues.cordinador_name_3 = company.coordinatorName3;
+  if (company.coordinatorEmail3) customValues.cordinador_email_3 = company.coordinatorEmail3;
 
   return {
     name: company.companyName || company.name || company.nameCache,
@@ -142,6 +161,8 @@ function buildFluentCrmCompanyPayload(company = {}) {
     owner: company.companyOwner || undefined,
     description: company.description || company.about || undefined,
     about: company.about || company.description || undefined,
+    ...(Array.isArray(company.tags) && company.tags.length > 0 ? { tags: company.tags } : {}),
+    ...(Array.isArray(company.lists) && company.lists.length > 0 ? { lists: company.lists } : {}),
     ...(Object.keys(customValues).length > 0 ? { custom_values: customValues } : {}),
   };
 }
