@@ -226,6 +226,7 @@ test("normalizeCrmCompanyInput maps minimal FluentCRM company fields without ide
     companyEmail: "info@school.edu",
     companyPhone: "+1555",
     website: "https://school.edu",
+    address: null,
     numberOfEmployees: 42,
     industry: "Education",
     type: "School",
@@ -234,6 +235,8 @@ test("normalizeCrmCompanyInput maps minimal FluentCRM company fields without ide
     description: "Description",
     nit: null,
     verificationDigit: null,
+    tags: [],
+    lists: [],
   });
 });
 
@@ -272,6 +275,22 @@ test("mapOrganizationRolesToCrmTaxonomy maps configured org roles and excludes o
   assert.deepEqual(taxonomy.lists.sort(), ["Civitas Admins", "Civitas Teachers"].sort());
   assert.deepEqual(taxonomy.excludedRoles, ["owner_global"]);
   assert.deepEqual(taxonomy.unmappedRoles, ["unknown-role"]);
+});
+
+
+test("getFluentCrmRoleSyncMapping sanitizes duplicated env key prefix", () => {
+  const { getFluentCrmRoleSyncMapping } = require("../services/fluentCrm");
+  process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON = 'FLUENTCRM_ROLE_SYNC_MAPPING_JSON={"Custom-role":{"tags":["custom-tag"],"lists":[]}}';
+  const mapping = getFluentCrmRoleSyncMapping();
+  assert.deepEqual(mapping["Custom-role"], { tags: ["custom-tag"], lists: [] });
+  delete process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON;
+});
+
+test("getFluentCrmRoleSyncMapping rejects non JSON env with actionable error", () => {
+  const { getFluentCrmRoleSyncMapping } = require("../services/fluentCrm");
+  process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON = "not-json";
+  assert.throws(() => getFluentCrmRoleSyncMapping(), /Provide only the JSON object value/);
+  delete process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON;
 });
 
 test("syncOrganizationContactsToFluentCrm returns organization-level error when company is not linked", async () => {
@@ -469,10 +488,16 @@ test("normalizeCrmCompanyInput accepts owner tax fields for FluentCRM companies"
     companyName: "Colegio San Jose",
     nit: "900123456",
     verificationDigit: "7",
+    address: " Calle 123 ",
+    tags: ["Admin-org", "Admin-org", ""],
+    lists: ["Colegio San Jose", "Colegio San Jose"],
   });
 
   assert.equal(normalized.nit, 900123456);
   assert.equal(normalized.verificationDigit, 7);
+  assert.equal(normalized.address, "Calle 123");
+  assert.deepEqual(normalized.tags, ["Admin-org"]);
+  assert.deepEqual(normalized.lists, ["Colegio San Jose"]);
 });
 
 test("buildFluentCrmCompanyPayload maps NIT and verification digit to custom values", () => {
@@ -482,10 +507,16 @@ test("buildFluentCrmCompanyPayload maps NIT and verification digit to custom val
     companyEmail: "contacto@colegio.edu.co",
     nit: 900123456,
     verificationDigit: 5,
+    address: "Calle 123",
+    tags: ["Admin-org"],
+    lists: ["Colegio San Jose"],
   });
 
   assert.deepEqual(payload.custom_values, {
     nit: 900123456,
     "digito_de_verificación": 5,
   });
+  assert.equal(payload.address, "Calle 123");
+  assert.deepEqual(payload.tags, ["Admin-org"]);
+  assert.deepEqual(payload.lists, ["Colegio San Jose"]);
 });

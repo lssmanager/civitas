@@ -102,6 +102,7 @@ function normalizeName(value) {
 
 
 const normalizeString = (value) => (typeof value === "string" && value.trim() ? value.trim() : null);
+const normalizeStringList = (value) => Array.isArray(value) ? [...new Set(value.map(normalizeString).filter(Boolean))] : [];
 const normalizeInteger = (value) => {
   if (value === undefined || value === null || value === "") return null;
   const parsed = Number.parseInt(value, 10);
@@ -115,6 +116,7 @@ function normalizeCrmCompanyInput(input = {}, fallback = {}) {
     companyEmail: normalizeEmail(input.companyEmail ?? input.email),
     companyPhone: normalizeString(input.companyPhone ?? input.phone),
     website: normalizeString(input.website ?? fallback.website ?? fallback.adminDomain),
+    address: normalizeString(input.address ?? input.billingAddress ?? input.companyAddress),
     numberOfEmployees: normalizeInteger(input.numberOfEmployees),
     industry: normalizeString(input.industry),
     type: normalizeString(input.type),
@@ -123,6 +125,8 @@ function normalizeCrmCompanyInput(input = {}, fallback = {}) {
     description: normalizeString(input.description ?? input.about ?? input.companyDescription),
     nit: normalizeInteger(input.nit),
     verificationDigit: normalizeInteger(input.verificationDigit ?? input.digito_de_verificación ?? input.digito_de_verificacion),
+    tags: normalizeStringList(input.tags),
+    lists: normalizeStringList(input.lists),
   };
 }
 
@@ -136,12 +140,15 @@ function buildFluentCrmCompanyPayload(company = {}) {
     email: company.companyEmail || company.email || company.billingEmail || company.contactEmail || undefined,
     phone: company.companyPhone || company.phone || undefined,
     website: company.website || company.adminDomain || undefined,
+    address: company.address || undefined,
     number_of_employees: company.numberOfEmployees ?? undefined,
     industry: company.industry || undefined,
     type: company.type || undefined,
     owner: company.companyOwner || undefined,
     description: company.description || company.about || undefined,
     about: company.about || company.description || undefined,
+    ...(Array.isArray(company.tags) && company.tags.length > 0 ? { tags: company.tags } : {}),
+    ...(Array.isArray(company.lists) && company.lists.length > 0 ? { lists: company.lists } : {}),
     ...(Object.keys(customValues).length > 0 ? { custom_values: customValues } : {}),
   };
 }
@@ -450,11 +457,13 @@ async function updateContactEmailAfterLogtoChange({ previousEmail, newEmail, log
 
 
 function getFluentCrmRoleSyncMapping() {
-  if (!process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON) return DEFAULT_ROLE_SYNC_MAPPING;
+  const raw = process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON;
+  if (!raw) return DEFAULT_ROLE_SYNC_MAPPING;
+  const sanitized = String(raw).trim().replace(/^FLUENTCRM_ROLE_SYNC_MAPPING_JSON\s*=\s*/, "");
   try {
-    return { ...DEFAULT_ROLE_SYNC_MAPPING, ...JSON.parse(process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON) };
+    return { ...DEFAULT_ROLE_SYNC_MAPPING, ...JSON.parse(sanitized) };
   } catch (error) {
-    throw new FluentCrmError("FLUENTCRM_ROLE_SYNC_MAPPING_JSON must be valid JSON", { code: "FLUENTCRM_ROLE_MAPPING_INVALID" });
+    throw new FluentCrmError("FLUENTCRM_ROLE_SYNC_MAPPING_JSON must be valid JSON. Provide only the JSON object value, not a KEY= prefix.", { code: "FLUENTCRM_ROLE_MAPPING_INVALID", body: { hint: "Expected pure JSON, for example {\"Admin-org\":{\"tags\":[\"admin\"],\"lists\":[]}}", receivedPrefix: String(raw).slice(0, 64) } });
   }
 }
 
@@ -485,7 +494,7 @@ async function createContact(fields = {}) {
   return requestFluentCrm("/subscribers", { method: "POST", body: fields });
 }
 
-async function upsertContactFromLogtoIdentity({ identity, companyId, roleNames = [] }) {
+async function upsertContactFromLogtoIdentity({ identity, companyId, roleNames = [], extraTags = [], extraLists = [] }) {
   const email = normalizeEmail(identity.email);
   if (!email) return { status: "error", reason: "missing_email", logtoUserId: identity.logtoUserId || null };
   const contacts = await searchContacts({ email });
@@ -495,10 +504,12 @@ async function upsertContactFromLogtoIdentity({ identity, companyId, roleNames =
     email,
     full_name: normalizeString(identity.name),
     phone: normalizeString(identity.phone),
+    job_title: normalizeString(identity.position),
+    custom_values: normalizeString(identity.position) ? { cargo: normalizeString(identity.position) } : undefined,
     external_id: identity.logtoUserId || undefined,
     company_id: companyId,
-    tags: taxonomy.tags,
-    lists: taxonomy.lists,
+    tags: [...new Set([...taxonomy.tags, ...normalizeStringList(extraTags)])],
+    lists: [...new Set([...taxonomy.lists, ...normalizeStringList(extraLists)])],
   };
   const contact = contacts[0] ? await updateContact(contacts[0], payload) : await createContact(payload);
   return { status: contacts[0] ? "updated" : "created", contact, email, logtoUserId: identity.logtoUserId || null, taxonomy };
