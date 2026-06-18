@@ -121,10 +121,16 @@ function normalizeCrmCompanyInput(input = {}, fallback = {}) {
     companyOwner: normalizeString(input.companyOwner),
     about: normalizeString(input.about ?? input.description ?? input.companyDescription),
     description: normalizeString(input.description ?? input.about ?? input.companyDescription),
+    nit: normalizeInteger(input.nit),
+    verificationDigit: normalizeInteger(input.verificationDigit ?? input.digito_de_verificación ?? input.digito_de_verificacion),
   };
 }
 
 function buildFluentCrmCompanyPayload(company = {}) {
+  const customValues = {};
+  if (company.nit != null) customValues.nit = company.nit;
+  if (company.verificationDigit != null) customValues["digito_de_verificación"] = company.verificationDigit;
+
   return {
     name: company.companyName || company.name || company.nameCache,
     email: company.companyEmail || company.email || company.billingEmail || company.contactEmail || undefined,
@@ -136,6 +142,7 @@ function buildFluentCrmCompanyPayload(company = {}) {
     owner: company.companyOwner || undefined,
     description: company.description || company.about || undefined,
     about: company.about || company.description || undefined,
+    ...(Object.keys(customValues).length > 0 ? { custom_values: customValues } : {}),
   };
 }
 
@@ -251,7 +258,7 @@ function findReliableCompanyMatch(organization = {}, candidates = []) {
 }
 
 async function createCompany(organization = {}) {
-  const payload = { name: organization.companyName || organization.name || organization.nameCache, website: organization.website || organization.adminDomain || undefined, email: organization.companyEmail || organization.email || organization.billingEmail || organization.contactEmail || undefined };
+  const payload = buildFluentCrmCompanyPayload(organization);
   const body = await requestFluentCrm("/companies", { method: "POST", body: payload });
   return extractCompanies(body)[0] || body;
 }
