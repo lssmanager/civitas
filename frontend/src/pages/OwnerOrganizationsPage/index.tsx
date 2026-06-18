@@ -135,7 +135,7 @@ export function OwnerOrganizationsPage() {
                       <h3 className="h6 text-uppercase text-secondary mb-1">Asistente de creación</h3>
                       <p className="text-secondary mb-0">Primero se crea la organización y su bootstrap en Logto. Después se enlaza la capa comercial en FluentCRM sin reescribir identidad ni permisos.</p>
                     </div>
-                    <Button variant={showHelp ? "secondary" : "outline-secondary"} onClick={() => setShowHelp((value) => !value)} aria-expanded={showHelp} className="align-self-start">
+                    <Button type="button" variant={showHelp ? "secondary" : "outline-secondary"} onClick={() => setShowHelp((value) => !value)} aria-expanded={showHelp} className="align-self-start">
                       {showHelp ? "Ocultar ayuda" : "Mostrar ayuda"}
                     </Button>
                   </div>
