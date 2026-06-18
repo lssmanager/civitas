@@ -25,6 +25,25 @@ const users = pgTable(
   })
 );
 
+const crmRoleMappings = pgTable(
+  "crm_role_mappings",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationRoleName: varchar("organization_role_name", { length: 255 }).notNull().unique(),
+    tagsJson: jsonb("tags_json").notNull().default([]),
+    listsJson: jsonb("lists_json").notNull().default([]),
+    roleType: varchar("role_type", { length: 64 }).notNull().default("organizational"),
+    isActive: boolean("is_active").notNull().default(true),
+    source: varchar("source", { length: 32 }).notNull().default("gui_override"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    roleNameIdx: uniqueIndex("crm_role_mappings_role_name_unique").on(table.organizationRoleName),
+    activeIdx: index("crm_role_mappings_active_idx").on(table.isActive),
+  })
+);
+
 const organizationProfiles = pgTable(
   "organization_profiles",
   {
@@ -121,6 +140,7 @@ const auditLogs = pgTable(
 module.exports = {
   auditLogs,
   commercialEvents,
+  crmRoleMappings,
   healthChecks,
   organizationProfiles,
   users,

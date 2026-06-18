@@ -78,6 +78,13 @@
       "when": 1791841440000,
       "tag": "0010_create_commercial_events",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1781712000000,
+      "tag": "0011_create_crm_role_mappings",
+      "breakpoints": true
     }
   ]
 }

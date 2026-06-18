@@ -32,6 +32,9 @@ const {
 const { normalizeCanonicalProvisioningInput, runCanonicalOrganizationBootstrap } = require("./services/organizationProvisioningCore");
 const { buildLogtoOrganizationCustomData, normalizeExtendedProvisioningInput } = require("./services/organizationProvisioningSettings");
 const { FluentCrmError, cleanupContactInFluentCrm, ensureOrganizationTagsAndLists, getOrCreateCompanyForOrganization, normalizeCrmCompanyInput, searchContacts, syncOrganizationContactsToFluentCrm, validateFluentCrmConfiguration, updateContactEmailAfterLogtoChange } = require("./services/fluentCrm");
+const { buildRoleMappingResponse, getEffectiveCrmRoleMapping, resetCrmRoleMappings, upsertCrmRoleMappings } = require("./services/crmRoleMappings");
+const { db } = require("./db/client");
+const { crmRoleMappings } = require("./db/schema");
 const { getCommercialStatusForOrganization, getLatestCommercialEventsForOrganization, processCommercialEvent, verifyCommercialWebhookSignature } = require("./services/commercialEvents");
 
 const app = express();
@@ -539,6 +542,47 @@ app.get("/owner/organization-template", requireAuth(API_RESOURCE), requireOwner,
   }
 });
 
+
+app.get("/owner/integrations/fluentcrm/role-mappings", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  try {
+    const [logtoRoles, persistedRows, effective] = await Promise.all([listLogtoOrganizationRoles(), db.select().from(crmRoleMappings), getEffectiveCrmRoleMapping()]);
+    return res.json(buildRoleMappingResponse({ logtoRoles, persistedRows, effective }));
+  } catch (error) {
+    console.error("Failed to load FluentCRM role mappings", error);
+    return res.status(error.status || 502).json({ error: "Bad Gateway", message: "Failed to load FluentCRM role mappings" });
+  }
+});
+
+app.put("/owner/integrations/fluentcrm/role-mappings", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  let internalUser = null;
+  try {
+    internalUser = await getOrCreateInternalUser(req.user);
+    const mappings = Array.isArray(req.body?.mappings) ? req.body.mappings : [];
+    const before = await getEffectiveCrmRoleMapping();
+    await upsertCrmRoleMappings({ mappings });
+    const [logtoRoles, persistedRows, effective] = await Promise.all([listLogtoOrganizationRoles(), db.select().from(crmRoleMappings), getEffectiveCrmRoleMapping()]);
+    await recordAuditLogBestEffort({ actorUserId: internalUser.id, action: AUDIT_ACTIONS.OWNER_FLUENTCRM_ROLE_MAPPING_UPDATE, result: AUDIT_RESULTS.SUCCESS, metadata: { changedRoleNames: mappings.map((item) => item.organizationRoleName).filter(Boolean), beforeSource: before.source, afterSource: effective.source } });
+    return res.json(buildRoleMappingResponse({ logtoRoles, persistedRows, effective }));
+  } catch (error) {
+    await recordAuditLogBestEffort({ actorUserId: internalUser?.id ?? null, action: AUDIT_ACTIONS.OWNER_FLUENTCRM_ROLE_MAPPING_UPDATE, result: AUDIT_RESULTS.ERROR, metadata: { error } });
+    return res.status(error.status || 400).json({ error: "Bad Request", message: getSafeErrorMessage(error) });
+  }
+});
+
+app.post("/owner/integrations/fluentcrm/role-mappings/reset", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  let internalUser = null;
+  try {
+    internalUser = await getOrCreateInternalUser(req.user);
+    await resetCrmRoleMappings();
+    const [logtoRoles, persistedRows, effective] = await Promise.all([listLogtoOrganizationRoles(), db.select().from(crmRoleMappings), getEffectiveCrmRoleMapping()]);
+    await recordAuditLogBestEffort({ actorUserId: internalUser.id, action: AUDIT_ACTIONS.OWNER_FLUENTCRM_ROLE_MAPPING_RESET, result: AUDIT_RESULTS.SUCCESS, metadata: { effectiveSource: effective.source } });
+    return res.json(buildRoleMappingResponse({ logtoRoles, persistedRows, effective }));
+  } catch (error) {
+    await recordAuditLogBestEffort({ actorUserId: internalUser?.id ?? null, action: AUDIT_ACTIONS.OWNER_FLUENTCRM_ROLE_MAPPING_RESET, result: AUDIT_RESULTS.ERROR, metadata: { error } });
+    return res.status(error.status || 400).json({ error: "Bad Request", message: getSafeErrorMessage(error) });
+  }
+});
+
 app.get("/owner/organizations", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
   try {
     const logtoOrganizations = await listLogtoOrganizations();
@@ -880,8 +924,10 @@ app.post("/owner/organizations/:organizationId/fluentcrm/sync-contacts", require
     const profile = await resolveOrganizationProfileForRequest(req.params.organizationId);
     if (!profile) return res.status(404).json({ error: "Not Found", message: "Organization profile not found" });
     const members = await listLogtoOrganizationUsers({ organizationId: profile.logtoOrganizationId });
+    const roleMapping = (await getEffectiveCrmRoleMapping()).mapping;
     const summary = await syncOrganizationContactsToFluentCrm({
       profile,
+      roleMapping,
       members,
       getMemberRoles: async (logtoUserId) => (await listLogtoOrganizationUserRoles({ organizationId: profile.logtoOrganizationId, userId: logtoUserId })).map((role) => role.name).filter(Boolean),
       audit: async (event) => recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: profile.logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_FLUENTCRM_CONTACT_SYNC, result: event.result === "success" ? AUDIT_RESULTS.SUCCESS : AUDIT_RESULTS.ERROR, metadata: { stage: "fluentcrm_contact_sync", ...event } }),
