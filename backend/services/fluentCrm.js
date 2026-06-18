@@ -504,6 +504,8 @@ async function upsertContactFromLogtoIdentity({ identity, companyId, roleNames =
     email,
     full_name: normalizeString(identity.name),
     phone: normalizeString(identity.phone),
+    job_title: normalizeString(identity.position),
+    custom_values: normalizeString(identity.position) ? { cargo: normalizeString(identity.position) } : undefined,
     external_id: identity.logtoUserId || undefined,
     company_id: companyId,
     tags: [...new Set([...taxonomy.tags, ...normalizeStringList(extraTags)])],

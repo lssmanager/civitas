@@ -32,6 +32,7 @@ const normalizeAdministrativeContacts = (value) => {
       name: emptyToNull(contact?.name),
       email: emptyToNull(contact?.email)?.toLowerCase() || null,
       phone: emptyToNull(contact?.phone),
+      position: emptyToNull(contact?.position ?? contact?.cargo),
       organizationRoleName: emptyToNull(contact?.organizationRoleName),
     }))
     .filter((contact) => contact.name || contact.email || contact.organizationRoleName);
@@ -108,7 +109,7 @@ async function resolveLogtoOrganizationForSync({ name, description, customData }
 
 async function resolveAdministrativeContactUser({ contact, logtoOrganizationId, internalUser }) {
   const resolved = await createOrResolveLogtoUserByEmail({ email: contact.email, name: contact.name, phone: contact.phone });
-  await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: resolved.created ? "administrative_contact_user_created" : "administrative_contact_user_resolved", administrativeContactEmail: contact.email, administrativeContactKey: contact.key, phone: contact.phone, roleName: contact.organizationRoleName, source: resolved.source } });
+  await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: resolved.created ? "administrative_contact_user_created" : "administrative_contact_user_resolved", administrativeContactEmail: contact.email, administrativeContactKey: contact.key, phone: contact.phone, position: contact.position, roleName: contact.organizationRoleName, source: resolved.source } });
   return resolved;
 }
 
