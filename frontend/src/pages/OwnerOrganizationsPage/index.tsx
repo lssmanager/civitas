@@ -1,9 +1,39 @@
 import { useState } from "react";
 import { Alert, Badge, Button, Collapse, Form } from "react-bootstrap";
+import { ApiRequestError } from "../../api/base";
 import { useOwnerApi } from "../../api/owner";
 import { ORGANIZATION_BOOTSTRAP_ADMIN_ROLE, ORGANIZATION_JIT_DEFAULT_ROLE } from "../../authLayers";
 import { useStableResource } from "../../shared/hooks/useStableResource";
 import { ErrorState, LoadingState, PageCard, PageShell } from "../../shared/ui";
+
+const FLUENTCRM_LIKELY_CAUSE_LABELS: Record<string, string> = {
+  invalid_username: "El usuario no coincide con el username/API username entregado por FluentCRM.",
+  invalid_application_password: "La Application Password es inválida, fue truncada o ya no corresponde al usuario elegido.",
+  basic_auth_blocked: "El hosting o una capa de seguridad puede estar bloqueando el header Authorization de Basic Auth.",
+  wrong_base_url_or_site: "FLUENTCRM_BASE_URL apunta al sitio equivocado o no es la base real de WordPress donde vive FluentCRM.",
+  wordpress_user_lacks_fluentcrm_permissions: "El usuario autenticado no tiene permisos suficientes dentro de FluentCRM.",
+  security_plugin_blocks_rest_api: "Algún plugin o regla de seguridad está bloqueando la REST API de WordPress o FluentCRM.",
+  wrong_base_url: "La URL base configurada no coincide con la instalación real de WordPress.",
+  fluentcrm_plugin_missing_or_inactive: "FluentCRM no está instalado, no está activo o su REST API no está disponible.",
+  rest_route_unavailable: "La ruta /wp-json/fluent-crm/v2 no está respondiendo como debería.",
+};
+
+const getFriendlyFluentCrmHints = (likelyCauses: unknown): string[] => {
+  if (!Array.isArray(likelyCauses)) return [];
+  return likelyCauses
+    .map((cause) => typeof cause === "string" ? FLUENTCRM_LIKELY_CAUSE_LABELS[cause] || cause : null)
+    .filter((value): value is string => Boolean(value));
+};
+
+const getDiagnosticFromUnknown = (value: unknown): { code?: string; message?: string; likelyCauses?: string[] } | null => {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Record<string, unknown>;
+  return {
+    code: typeof candidate.code === "string" ? candidate.code : undefined,
+    message: typeof candidate.message === "string" ? candidate.message : undefined,
+    likelyCauses: Array.isArray(candidate.likelyCauses) ? candidate.likelyCauses.filter((item): item is string => typeof item === "string") : undefined,
+  };
+};
 
 export function OwnerOrganizationsPage() {
   const ownerApi = useOwnerApi();
@@ -18,6 +48,7 @@ export function OwnerOrganizationsPage() {
   const [jitDefaultRoleName, setJitDefaultRoleName] = useState<string>(ORGANIZATION_JIT_DEFAULT_ROLE);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitWarning, setSubmitWarning] = useState<string | null>(null);
+  const [submitHints, setSubmitHints] = useState<string[]>([]);
   const [createdCrmStatus, setCreatedCrmStatus] = useState<string | null>(null);
   const [crmCompanyName, setCrmCompanyName] = useState("");
   const [crmCompanyEmail, setCrmCompanyEmail] = useState("");
@@ -32,6 +63,10 @@ export function OwnerOrganizationsPage() {
   const [crmNit, setCrmNit] = useState("");
   const [crmVerificationDigit, setCrmVerificationDigit] = useState("");
   const [showHelp, setShowHelp] = useState(false);
+  const [crmHealthMessage, setCrmHealthMessage] = useState<string | null>(null);
+  const [crmHealthHints, setCrmHealthHints] = useState<string[]>([]);
+  const [crmHealthVariant, setCrmHealthVariant] = useState<"success" | "danger" | "warning" | null>(null);
+  const [crmHealthChecking, setCrmHealthChecking] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const templateResource = useStableResource({
@@ -46,10 +81,40 @@ export function OwnerOrganizationsPage() {
   const selectedJitRole = roles.some((role) => role.name === jitDefaultRoleName) ? jitDefaultRoleName : ORGANIZATION_JIT_DEFAULT_ROLE;
   const logtoUserIdLooksLikeRole = [ORGANIZATION_BOOTSTRAP_ADMIN_ROLE, ORGANIZATION_JIT_DEFAULT_ROLE].includes(baseAdminLogtoUserId.trim() as typeof ORGANIZATION_BOOTSTRAP_ADMIN_ROLE | typeof ORGANIZATION_JIT_DEFAULT_ROLE);
 
+  const handleCrmHealthCheck = async () => {
+    setCrmHealthChecking(true);
+    setCrmHealthMessage(null);
+    setCrmHealthHints([]);
+    setCrmHealthVariant(null);
+    try {
+      const result = await ownerApi.getFluentCrmHealth();
+      setCrmHealthVariant("success");
+      setCrmHealthMessage(`Conexión FluentCRM OK. Endpoint verificado: ${result.endpoint || result.baseUrl || "configurado"}.`);
+      setCrmHealthHints(result.timeoutMs ? [`Timeout activo: ${result.timeoutMs}ms.`] : []);
+    } catch (error) {
+      const payload = error instanceof ApiRequestError ? error.payload : null;
+      const diagnostic = getDiagnosticFromUnknown(payload?.diagnostic);
+      setCrmHealthVariant(diagnostic?.code === "FLUENTCRM_AUTHENTICATION_FAILED" ? "warning" : "danger");
+      setCrmHealthMessage(error instanceof Error ? error.message : "No se pudo verificar la conexión con FluentCRM.");
+      setCrmHealthHints([
+        ...getFriendlyFluentCrmHints(diagnostic?.likelyCauses),
+        ...(diagnostic?.code === "FLUENTCRM_AUTHENTICATION_FAILED"
+          ? [
+              "Verifica que el API key haya sido generado desde FluentCRM > Settings > Rest API para un manager válido.",
+              "Confirma que FLUENTCRM_BASE_URL sea la raíz del WordPress correcto, sin añadir /wp-json manualmente.",
+            ]
+          : []),
+      ]);
+    } finally {
+      setCrmHealthChecking(false);
+    }
+  };
+
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setSubmitError(null);
     setSubmitWarning(null);
+    setSubmitHints([]);
     setCreatedCrmStatus(null);
     setIsSubmitting(true);
 
@@ -85,6 +150,10 @@ export function OwnerOrganizationsPage() {
         },
       });
 
+      const fluentCrmStep = result.fluentcrm as Record<string, unknown> | undefined;
+      const diagnostic = getDiagnosticFromUnknown(fluentCrmStep?.diagnostic);
+      const likelyCauseHints = getFriendlyFluentCrmHints(diagnostic?.likelyCauses);
+
       setName("");
       setSlug("");
       setAppSubdomain("");
@@ -104,7 +173,14 @@ export function OwnerOrganizationsPage() {
       setCrmDescription("");
       setCrmNit("");
       setCrmVerificationDigit("");
-      if (result.warning) setSubmitWarning(result.warning);
+      if (result.warning) {
+        if (diagnostic?.code === "FLUENTCRM_AUTHENTICATION_FAILED") {
+          setSubmitWarning("La organización sí quedó creada en Logto, pero FluentCRM rechazó la autenticación del API key. Revisa las credenciales y permisos antes de reintentar la vinculación comercial.");
+        } else {
+          setSubmitWarning(result.warning);
+        }
+      }
+      setSubmitHints(likelyCauseHints);
       setCreatedCrmStatus(typeof result.fluentcrm?.status === "string" ? result.fluentcrm.status : null);
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : "No se pudo crear la organización.");
@@ -139,6 +215,11 @@ export function OwnerOrganizationsPage() {
                       {showHelp ? "Ocultar ayuda" : "Mostrar ayuda"}
                     </Button>
                   </div>
+                  <div className="d-flex flex-wrap gap-2">
+                    <Badge bg="light" text="dark" className="border">Paso 1: Logto canónico</Badge>
+                    <Badge bg="light" text="dark" className="border">Paso 2: CRM downstream</Badge>
+                    <Badge bg="light" text="dark" className="border">Sin retyping cuando el dato ya existe</Badge>
+                  </div>
                   <Collapse in={showHelp}>
                     <div>
                       <Alert variant="light" className="mb-0 border">
@@ -163,12 +244,12 @@ export function OwnerOrganizationsPage() {
                 ) : null}
 
                 <section className="border rounded-3 p-3 p-lg-4 d-flex flex-column gap-3">
-                  <div>
-                    <h3 className="h5 mb-1">Paso 1. Identidad y bootstrap</h3>
+                  <div className="d-flex flex-column gap-1">
+                    <h3 className="h5 mb-0">Paso 1. Identidad y bootstrap</h3>
                     <p className="text-secondary mb-0">Todo lo que define organización, membresía y permisos nace en Logto.</p>
                   </div>
 
-                  <Form.Group controlId="ownerOrganizationName"><Form.Label>Nombre de organización</Form.Label><Form.Control value={name} onChange={(event) => setName(event.target.value)} placeholder="Colegio San José" required /></Form.Group>
+                  <Form.Group controlId="ownerOrganizationName"><Form.Label>Nombre de organización</Form.Label><Form.Control size="lg" value={name} onChange={(event) => setName(event.target.value)} placeholder="Colegio San José" required /></Form.Group>
                   <Form.Group controlId="ownerOrganizationSlug"><Form.Label>Slug</Form.Label><Form.Control value={slug} onChange={(event) => setSlug(event.target.value)} placeholder="colegio-san-jose" required /><Form.Text>Identificador interno legible para rutas y operación owner; usa minúsculas, números y guiones.</Form.Text></Form.Group>
 
                   <div className="row g-3">
@@ -190,12 +271,32 @@ export function OwnerOrganizationsPage() {
                 </section>
 
                 <section className="border rounded-3 p-3 p-lg-4 d-flex flex-column gap-3">
-                  <div>
-                    <h3 className="h5 mb-1">Paso 2. FluentCRM</h3>
-                    <p className="text-secondary mb-0">Datos comerciales downstream. Si dejas campos vacíos, el wizard reutiliza datos del paso 1 para que el flujo sea más fluido.</p>
+                  <div className="d-flex flex-column flex-xl-row justify-content-between align-items-xl-start gap-3">
+                    <div className="d-flex flex-column gap-1">
+                      <h3 className="h5 mb-0">Paso 2. FluentCRM</h3>
+                      <p className="text-secondary mb-0">Datos comerciales downstream. Si dejas campos vacíos, el wizard reutiliza datos del paso 1 para que el flujo sea más fluido.</p>
+                    </div>
+                    <div className="d-flex flex-column align-items-xl-end gap-2">
+                      <Button type="button" variant="outline-primary" onClick={handleCrmHealthCheck} disabled={crmHealthChecking}>
+                        {crmHealthChecking ? "Verificando conexión..." : "Verificar conexión CRM"}
+                      </Button>
+                      <small className="text-secondary text-xl-end">Comprueba credenciales, endpoint y permisos antes de crear la Company.</small>
+                    </div>
                   </div>
 
-                  <Form.Group controlId="ownerOrganizationCrmCompanyName"><Form.Label>Company Name</Form.Label><Form.Control value={crmCompanyName} onChange={(event) => setCrmCompanyName(event.target.value)} placeholder={name || "Colegio San José"} /></Form.Group>
+                  {crmHealthMessage ? (
+                    <Alert variant={crmHealthVariant || "info"} className="mb-0">
+                      <div className="fw-semibold mb-1">Diagnóstico FluentCRM</div>
+                      <div>{crmHealthMessage}</div>
+                      {crmHealthHints.length > 0 ? (
+                        <ul className="mt-2 mb-0 ps-3 d-flex flex-column gap-1">
+                          {crmHealthHints.map((hint) => <li key={hint}>{hint}</li>)}
+                        </ul>
+                      ) : null}
+                    </Alert>
+                  ) : null}
+
+                  <Form.Group controlId="ownerOrganizationCrmCompanyName"><Form.Label>Company Name</Form.Label><Form.Control size="lg" value={crmCompanyName} onChange={(event) => setCrmCompanyName(event.target.value)} placeholder={name || "Colegio San José"} /></Form.Group>
 
                   <div className="row g-3">
                     <Form.Group className="col-12 col-xl-6" controlId="ownerOrganizationCrmCompanyEmail"><Form.Label>Company Email</Form.Label><Form.Control type="email" value={crmCompanyEmail} onChange={(event) => setCrmCompanyEmail(event.target.value)} placeholder={baseAdminEmail || "contacto@colegio.edu"} /></Form.Group>
@@ -227,10 +328,21 @@ export function OwnerOrganizationsPage() {
                   El alta crea o reconcilia la organización en Logto, crea o resuelve el admin base en Logto, lo agrega como miembro, le asigna Admin-org y configura en la API de Logto el dominio institucional con Student-org como rol JIT predeterminado. <code>customData</code> queda solo como metadata auxiliar.
                 </Alert>
                 {submitError && <Alert variant="danger" className="mb-0">{submitError}</Alert>}
-                {submitWarning && <Alert variant="warning" className="mb-0">{submitWarning}</Alert>}
+                {submitWarning ? (
+                  <Alert variant="warning" className="mb-0">
+                    <div className="fw-semibold mb-1">Atención en el paso FluentCRM</div>
+                    <div>{submitWarning}</div>
+                    {submitHints.length > 0 ? (
+                      <ul className="mt-2 mb-0 ps-3 d-flex flex-column gap-1">
+                        {submitHints.map((hint) => <li key={hint}>{hint}</li>)}
+                      </ul>
+                    ) : null}
+                  </Alert>
+                ) : null}
                 {createdCrmStatus && <Alert variant="success" className="mb-0">Estado FluentCRM: {createdCrmStatus}. La organización canónica y permisos siguen en Logto.</Alert>}
-                <div className="d-flex justify-content-end">
-                  <Button type="submit" disabled={isSubmitting || !name.trim() || !slug.trim() || !appSubdomain.trim() || !adminDomain.trim() || !baseAdminName.trim() || !baseAdminEmail.trim() || logtoUserIdLooksLikeRole || !templateResource.data?.ready} className="px-4">
+                <div className="d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-3">
+                  <small className="text-secondary">Si FluentCRM falla, la organización igual queda creada canónicamente en Logto y podrás volver a intentar la vinculación comercial después.</small>
+                  <Button type="submit" disabled={isSubmitting || !name.trim() || !slug.trim() || !appSubdomain.trim() || !adminDomain.trim() || !baseAdminName.trim() || !baseAdminEmail.trim() || logtoUserIdLooksLikeRole || !templateResource.data?.ready} className="px-4 align-self-sm-end">
                     {isSubmitting ? "Creando..." : "Crear organización"}
                   </Button>
                 </div>
