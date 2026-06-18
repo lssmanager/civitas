@@ -311,22 +311,22 @@ async function runFluentCrmOrganizationStep({ logtoOrganization, logtoOrganizati
   }
 
   const companyId = companyResult.company?.id ?? companyResult.company?.ID ?? companyResult.company?.company_id ?? null;
+  const taxonomy = await ensureOrganizationTagsAndLists({
+    logtoOrganizationId,
+    slug: extended.slug,
+    name: canonical.name,
+  });
+  const organizationLists = [...new Set([...(normalizedCrm.lists || []), taxonomy.list?.title].filter(Boolean))];
   const administrativeContacts = [];
   for (const assignment of administrativeContactAssignments) {
     const contactSync = await upsertContactFromLogtoIdentity({
       identity: { logtoUserId: assignment.logtoUserId, email: assignment.email, name: assignment.name, phone: assignment.phone, position: assignment.position },
       companyId,
       roleNames: [assignment.roleName || assignment.organizationRoleName].filter(Boolean),
-      extraLists: normalizedCrm.lists || [],
+      extraLists: organizationLists,
     });
     administrativeContacts.push({ key: assignment.key, name: assignment.name, email: assignment.email, phone: assignment.phone, position: assignment.position, logtoUserId: assignment.logtoUserId, roleName: assignment.roleName || assignment.organizationRoleName, contactSync });
   }
-
-  const taxonomy = await ensureOrganizationTagsAndLists({
-    logtoOrganizationId,
-    slug: extended.slug,
-    name: canonical.name,
-  });
 
   return {
     profile,

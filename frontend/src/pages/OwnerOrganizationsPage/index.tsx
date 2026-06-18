@@ -277,12 +277,8 @@ export function OwnerOrganizationsPage() {
     }
   };
 
-  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (currentStep !== 3) {
-      goNext();
-      return;
-    }
+  const handleCreateOrganization = async () => {
+    if (currentStep !== 3) return;
     const validationError = validateStepOne();
     if (validationError) {
       setStepError(validationError);
@@ -495,7 +491,7 @@ export function OwnerOrganizationsPage() {
     <PageShell eyebrow="Owner / Organizaciones" title="Crear organización" description="Flujo Logto-first: la organización nace canónicamente en Logto; Civitas no crea una pre-organización local ni checkpoints pending para validar el alta." actions={<Badge bg="success">organizations:create</Badge>}>
       <div className="row g-4"><div className="col-12"><PageCard title="Nueva organización" subtitle="Logto es la fuente canónica; la base local queda fuera del camino obligatorio de creación.">
         {templateResource.isLoading ? <LoadingState title="Cargando plantilla" description="Consultando roles de la organization template de Logto." /> : templateResource.error ? <ErrorState title="No se pudo cargar la plantilla" message={templateResource.error} action={<Button onClick={templateResource.retry}>Reintentar</Button>} /> : (
-          <Form onSubmit={handleSubmit} className="d-flex flex-column gap-4">
+          <Form onSubmit={(event) => event.preventDefault()} className="d-flex flex-column gap-4">
             <div className="d-flex flex-column gap-2">
               <div className="d-inline-flex align-items-center gap-2"><Form.Check type="switch" id="ownerOrganizationHelpToggle" label="help" checked={showHelp} onChange={(event) => setShowHelp(event.target.checked)} /></div>
               <Collapse in={showHelp}><div className="d-flex flex-column gap-3"><div><h3 className="h6 text-uppercase text-secondary mb-1">Asistente de creación</h3><p className="text-secondary mb-0">Primero se crea la organización y su bootstrap en Logto. Después se enlaza la capa comercial en FluentCRM sin reescribir identidad ni permisos.</p></div><div className="d-flex flex-wrap gap-2"><Badge bg="light" text="dark" className="border">Paso 1: Logto canónico</Badge><Badge bg="light" text="dark" className="border">Paso 2: CRM downstream</Badge><Badge bg="light" text="dark" className="border">Sin retyping cuando el dato ya existe</Badge></div><Alert variant="light" className="mb-0 border"><ol className="text-secondary mb-0 d-flex flex-column gap-2 ps-3"><li>Crear o reconciliar primero la organización canónica en Logto.</li><li>Enviar <code>customData</code> derivado de slug, subdominio y dominio directamente a Logto.</li><li>Persistir <code>organization_profiles</code> solo después de Logto para referencias externas, sync y auditoría.</li><li>Crear o resolver el admin base por <code>logtoUserId</code> o por correo y nombre.</li><li>Crear o resolver Director y Responsables primero en Logto, asignarles rol organizacional y después sincronizarlos como contactos FluentCRM.</li><li>FluentCRM recibe downstream la Company y los contactos CRM; sus tags/lists son segmentación comercial, no permisos.</li><li>Agregarlo como miembro y asignarle <code>{ORGANIZATION_BOOTSTRAP_ADMIN_ROLE}</code> sin usar al owner global como sustituto.</li><li>Configurar JIT real en Logto con el dominio institucional y el rol por defecto <code>{ORGANIZATION_JIT_DEFAULT_ROLE}</code>.</li><li>Si dejas campos CRM vacíos, Civitas reutiliza datos del paso 1 para evitar retyping.</li></ol></Alert></div></Collapse>
@@ -516,7 +512,7 @@ export function OwnerOrganizationsPage() {
               <small className="text-secondary">Si FluentCRM falla, la organización igual queda creada canónicamente en Logto y podrás volver a intentar la vinculación comercial después.</small>
               <div className="d-flex flex-wrap gap-2 align-self-sm-end">
                 {currentStep > 1 ? <Button type="button" variant="outline-secondary" onClick={() => setCurrentStep((step) => Math.max(1, step - 1) as WizardStep)}>Anterior</Button> : null}
-                {currentStep < 3 ? <Button type="button" onClick={goNext}>Siguiente</Button> : <Button type="submit" disabled={isSubmitting} className="px-4">{isSubmitting ? "Creando..." : "Crear organización"}</Button>}
+                {currentStep < 3 ? <Button type="button" onClick={goNext}>Siguiente</Button> : <Button type="button" onClick={handleCreateOrganization} disabled={isSubmitting} className="px-4">{isSubmitting ? "Creando..." : "Crear organización"}</Button>}
               </div>
             </div>
           </Form>
