@@ -24,6 +24,17 @@ const normalizeRoleNames = (value, fallback = DEFAULT_JIT_ROLE_NAMES) => {
   const roles = input.map((role) => (typeof role === "string" ? role.trim() : "")).filter(Boolean);
   return Array.from(new Set(roles.length > 0 ? roles : fallback));
 };
+const normalizeAdministrativeContacts = (value) => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((contact, index) => ({
+      key: typeof contact?.key === "string" && contact.key.trim() ? contact.key.trim() : `administrative_contact_${index + 1}`,
+      name: emptyToNull(contact?.name),
+      email: emptyToNull(contact?.email)?.toLowerCase() || null,
+      organizationRoleName: emptyToNull(contact?.organizationRoleName),
+    }))
+    .filter((contact) => contact.name || contact.email || contact.organizationRoleName);
+};
 const looksLikeRoleName = (value) => [ORGANIZATION_ADMIN_ROLE_NAME, JIT_DEFAULT_ORGANIZATION_ROLE_NAME].includes(value);
 
 const getLogtoOrganizationId = (organization) => organization.id || organization.organizationId || organization.logtoOrganizationId;
@@ -41,6 +52,7 @@ function normalizeCanonicalProvisioningInput(body = {}) {
   const jitProvisioning = body.jitProvisioning && typeof body.jitProvisioning === "object" ? body.jitProvisioning : {};
   const jitProvisioningDomain = emptyToNull(jitProvisioning.domain ?? body.adminDomain ?? body.institutionalProvisioningDomain)?.toLowerCase() || null;
   const jitDefaultRoleNames = normalizeRoleNames(jitProvisioning.defaultRoleNames ?? body.defaultRoleNames, DEFAULT_JIT_ROLE_NAMES);
+  const administrativeContacts = normalizeAdministrativeContacts(body.administrativeContacts);
   const errors = [];
 
   if (!name) errors.push({ field: "name", message: "Organization name is required" });
@@ -51,6 +63,13 @@ function normalizeCanonicalProvisioningInput(body = {}) {
   if (baseAdminInitialOrganizationRole !== ORGANIZATION_ADMIN_ROLE_NAME) errors.push({ field: "baseAdmin.initialOrganizationRole", message: `Base admin initial organization role must be ${ORGANIZATION_ADMIN_ROLE_NAME}` });
   if (!jitProvisioningDomain) errors.push({ field: "jitProvisioning.domain", message: "JIT provisioning domain is required" });
   if (!jitDefaultRoleNames.includes(JIT_DEFAULT_ORGANIZATION_ROLE_NAME)) errors.push({ field: "jitProvisioning.defaultRoleNames", message: `JIT default organization roles must include ${JIT_DEFAULT_ORGANIZATION_ROLE_NAME}` });
+  administrativeContacts.forEach((contact, index) => {
+    const prefix = `administrativeContacts.${index}`;
+    if (!contact.name) errors.push({ field: `${prefix}.name`, message: "Administrative contact name is required when adding a contact" });
+    if (!contact.email) errors.push({ field: `${prefix}.email`, message: "Administrative contact email is required when adding a contact" });
+    if (contact.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact.email)) errors.push({ field: `${prefix}.email`, message: "Administrative contact email must be a valid email address" });
+    if (!contact.organizationRoleName) errors.push({ field: `${prefix}.organizationRoleName`, message: "Administrative contact organization role is required" });
+  });
 
   return {
     errors,
@@ -59,6 +78,7 @@ function normalizeCanonicalProvisioningInput(body = {}) {
       description: typeof body.description === "string" ? body.description.trim() : undefined,
       baseAdmin: { name: baseAdminName, email: baseAdminEmail, logtoUserId: baseAdminLogtoUserId, initialOrganizationRole: baseAdminInitialOrganizationRole },
       jitProvisioning: { domain: jitProvisioningDomain, defaultRoleNames: jitDefaultRoleNames },
+      administrativeContacts,
     },
   };
 }
@@ -83,6 +103,12 @@ async function resolveLogtoOrganizationForSync({ name, description, customData }
   const error = new Error("Logto organization creation succeeded but no organization id was returned or reconciled");
   error.logtoResponse = createdOrganization;
   throw error;
+}
+
+async function resolveAdministrativeContactUser({ contact, logtoOrganizationId, internalUser }) {
+  const resolved = await createOrResolveLogtoUserByEmail({ email: contact.email, name: contact.name });
+  await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: resolved.created ? "administrative_contact_user_created" : "administrative_contact_user_resolved", administrativeContactEmail: contact.email, administrativeContactKey: contact.key, roleName: contact.organizationRoleName, source: resolved.source } });
+  return resolved;
 }
 
 async function resolveBaseAdminUser({ canonical, logtoOrganizationId, internalUser }) {
@@ -186,6 +212,43 @@ async function assignBaseAdminBestEffort({ canonical, logtoOrganization, logtoOr
   return { status: "assigned", userCreated: Boolean(resolvedUser.created), userSource: resolvedUser.source, logtoUserId: baseAdminLogtoUserId, roleName: canonical.baseAdmin.initialOrganizationRole, membershipAdded: true, roleAssigned: true };
 }
 
+async function assignAdministrativeContactsBestEffort({ canonical, logtoOrganization, logtoOrganizationId, internalUser, auditContextBuilder }) {
+  const assignments = [];
+  for (const contact of canonical.administrativeContacts || []) {
+    const resolvedUser = await resolveAdministrativeContactUser({ contact, logtoOrganizationId, internalUser });
+    const logtoUserId = getLogtoUserId(resolvedUser.user);
+    if (!logtoUserId) throw new Error(`Administrative contact ${contact.email} resolution did not return a Logto user id`);
+    const logtoUserEmail = getLogtoUserEmail(resolvedUser.user)?.toLowerCase() || null;
+    if (logtoUserEmail !== contact.email) {
+      const error = new Error("Administrative contact Logto user email does not match the requested email");
+      error.code = "ADMINISTRATIVE_CONTACT_EMAIL_MISMATCH";
+      error.status = 409;
+      error.diagnostic = "The resolved administrative Logto user belongs to a different email; assignment was stopped.";
+      throw error;
+    }
+
+    await validateBaseAdminGlobalRoles({
+      baseAdminLogtoUserId: logtoUserId,
+      baseAdminUserCreated: Boolean(resolvedUser.created),
+      baseAdminUserSource: resolvedUser.source,
+      logtoOrganizationId,
+      internalUser,
+      auditContextBuilder,
+      logtoOrganization,
+    });
+
+    const role = await findOrganizationRoleByName(contact.organizationRoleName);
+    const roleId = getOrganizationRoleId(role);
+    if (!roleId) throw new Error(`Logto organization role ${contact.organizationRoleName} exists but no role id was returned`);
+
+    await addUserToLogtoOrganization({ organizationId: logtoOrganizationId, userId: logtoUserId });
+    await assignOrganizationRoleToUser({ organizationId: logtoOrganizationId, userId: logtoUserId, organizationRoleId: roleId, organizationRoleName: contact.organizationRoleName });
+    await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { ...auditContextBuilder({ organization: logtoOrganization }), stage: "administrative_contact_assigned", administrativeContactKey: contact.key, email: contact.email, logtoUserId, roleName: contact.organizationRoleName, roleId } });
+    assignments.push({ ...contact, status: "assigned", userCreated: Boolean(resolvedUser.created), userSource: resolvedUser.source, logtoUserId, roleName: contact.organizationRoleName, membershipAdded: true, roleAssigned: true });
+  }
+  return assignments;
+}
+
 async function configureJitProvisioning({ canonical, logtoOrganizationId, internalUser }) {
   const roleIds = [];
   for (const roleName of canonical.jitProvisioning.defaultRoleNames) {
@@ -228,10 +291,11 @@ async function runCanonicalOrganizationBootstrap({ canonical, logtoCustomData = 
       },
     });
 
-    const requiredRoleNames = Array.from(new Set([canonical.baseAdmin.initialOrganizationRole, ...canonical.jitProvisioning.defaultRoleNames]));
+    const requiredRoleNames = Array.from(new Set([canonical.baseAdmin.initialOrganizationRole, ...canonical.jitProvisioning.defaultRoleNames, ...(canonical.administrativeContacts || []).map((contact) => contact.organizationRoleName)]));
     await validateRequiredOrganizationRoles(requiredRoleNames, logtoOrganizationId, internalUser);
     const jitProvisioning = await configureJitProvisioning({ canonical, logtoOrganizationId, internalUser });
     const adminAssignment = await assignBaseAdminBestEffort({ canonical, logtoOrganization, logtoOrganizationId, internalUser, auditContextBuilder });
+    const administrativeContactAssignments = await assignAdministrativeContactsBestEffort({ canonical, logtoOrganization, logtoOrganizationId, internalUser, auditContextBuilder });
 
     return {
       logtoOrganization,
@@ -240,6 +304,7 @@ async function runCanonicalOrganizationBootstrap({ canonical, logtoCustomData = 
       reconciled: resolvedLogtoOrganization.reconciled,
       customDataApplied: Boolean(resolvedLogtoOrganization.customDataApplied),
       adminAssignment,
+      administrativeContactAssignments,
       jitProvisioning,
       status: "created_with_admin_and_jit_configured",
     };

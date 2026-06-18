@@ -31,7 +31,7 @@ const {
 } = require("./services/auditLogs");
 const { normalizeCanonicalProvisioningInput, runCanonicalOrganizationBootstrap } = require("./services/organizationProvisioningCore");
 const { buildLogtoOrganizationCustomData, normalizeExtendedProvisioningInput } = require("./services/organizationProvisioningSettings");
-const { FluentCrmError, cleanupContactInFluentCrm, ensureOrganizationTagsAndLists, getOrCreateCompanyForOrganization, normalizeCrmCompanyInput, searchContacts, syncOrganizationContactsToFluentCrm, validateFluentCrmConfiguration, updateContactEmailAfterLogtoChange } = require("./services/fluentCrm");
+const { FluentCrmError, cleanupContactInFluentCrm, ensureOrganizationTagsAndLists, getOrCreateCompanyForOrganization, normalizeCrmCompanyInput, searchContacts, syncOrganizationContactsToFluentCrm, upsertContactFromLogtoIdentity, validateFluentCrmConfiguration, updateContactEmailAfterLogtoChange } = require("./services/fluentCrm");
 const { getCommercialStatusForOrganization, getLatestCommercialEventsForOrganization, processCommercialEvent, verifyCommercialWebhookSignature } = require("./services/commercialEvents");
 
 const app = express();
@@ -277,7 +277,7 @@ function reconcileProfilesWithLogtoOrganizations({ profiles }) {
 }
 
 
-async function runFluentCrmOrganizationStep({ logtoOrganization, logtoOrganizationId, canonical, extended, crmInput, internalUser, authUser }) {
+async function runFluentCrmOrganizationStep({ logtoOrganization, logtoOrganizationId, canonical, extended, crmInput, administrativeContactAssignments = [], internalUser, authUser }) {
   const profile = await upsertOrganizationProfile({
     logtoOrganizationId,
     nameCache: getLogtoOrganizationName(logtoOrganization) || canonical.name,
@@ -310,6 +310,17 @@ async function runFluentCrmOrganizationStep({ logtoOrganization, logtoOrganizati
     };
   }
 
+  const companyId = companyResult.company?.id ?? companyResult.company?.ID ?? companyResult.company?.company_id ?? null;
+  const administrativeContacts = [];
+  for (const assignment of administrativeContactAssignments) {
+    const contactSync = await upsertContactFromLogtoIdentity({
+      identity: { logtoUserId: assignment.logtoUserId, email: assignment.email, name: assignment.name },
+      companyId,
+      roleNames: [assignment.roleName || assignment.organizationRoleName].filter(Boolean),
+    });
+    administrativeContacts.push({ key: assignment.key, name: assignment.name, email: assignment.email, logtoUserId: assignment.logtoUserId, roleName: assignment.roleName || assignment.organizationRoleName, contactSync });
+  }
+
   const taxonomy = await ensureOrganizationTagsAndLists({
     logtoOrganizationId,
     slug: extended.slug,
@@ -319,9 +330,10 @@ async function runFluentCrmOrganizationStep({ logtoOrganization, logtoOrganizati
   return {
     profile,
     status: companyResult.status,
-    companyId: companyResult.company?.id ?? companyResult.company?.ID ?? companyResult.company?.company_id ?? null,
+    companyId,
     reason: companyResult.reason,
     taxonomy,
+    administrativeContacts,
   };
 }
 
@@ -591,6 +603,7 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireOwner, async 
         canonical: canonicalInput.value,
         extended: extendedInput.value,
         crmInput: req.body?.crm || req.body?.fluentcrm || {},
+        administrativeContactAssignments: result.administrativeContactAssignments || [],
         internalUser,
         authUser: req.user,
       });
@@ -612,6 +625,7 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireOwner, async 
         baseAdminUser: { status: result.adminAssignment?.userCreated ? "created" : "resolved", logtoUserId: result.adminAssignment?.logtoUserId, source: result.adminAssignment?.userSource },
         baseAdminMembership: { status: result.adminAssignment?.membershipAdded ? "added" : "not_added" },
         baseAdminRole: { status: result.adminAssignment?.roleAssigned ? "assigned" : "not_assigned", roleName: result.adminAssignment?.roleName },
+        administrativeContacts: { status: result.administrativeContactAssignments?.length ? "assigned" : "not_requested", contacts: result.administrativeContactAssignments || [] },
         jitProvisioning: { status: result.jitProvisioning?.status, domainConfigured: result.jitProvisioning?.domainConfigured, domain: result.jitProvisioning?.domain },
         jitDefaultRoles: { status: result.jitProvisioning?.defaultRolesConfigured ? "configured" : "not_configured", roleNames: result.jitProvisioning?.defaultRoleNames },
         fluentcrm: fluentCrmStep,
@@ -619,6 +633,7 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireOwner, async 
       fluentcrm: fluentCrmStep,
       warning: crmWarning || undefined,
       adminAssignment: result.adminAssignment,
+      administrativeContactAssignments: result.administrativeContactAssignments || [],
       jitProvisioning: result.jitProvisioning,
     });
   } catch (error) {

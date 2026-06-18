@@ -116,6 +116,7 @@ function normalizeCrmCompanyInput(input = {}, fallback = {}) {
     companyEmail: normalizeEmail(input.companyEmail ?? input.email),
     companyPhone: normalizeString(input.companyPhone ?? input.phone),
     website: normalizeString(input.website ?? fallback.website ?? fallback.adminDomain),
+    address: normalizeString(input.address ?? input.billingAddress ?? input.companyAddress),
     numberOfEmployees: normalizeInteger(input.numberOfEmployees),
     industry: normalizeString(input.industry),
     type: normalizeString(input.type),
@@ -124,14 +125,6 @@ function normalizeCrmCompanyInput(input = {}, fallback = {}) {
     description: normalizeString(input.description ?? input.about ?? input.companyDescription),
     nit: normalizeInteger(input.nit),
     verificationDigit: normalizeInteger(input.verificationDigit ?? input.digito_de_verificación ?? input.digito_de_verificacion),
-    rector: normalizeString(input.rector),
-    emailRector: normalizeEmail(input.emailRector ?? input.email_rector),
-    coordinatorName1: normalizeString(input.coordinatorName1 ?? input.cordinador_name_1),
-    coordinatorEmail1: normalizeEmail(input.coordinatorEmail1 ?? input.cordinador_email_1),
-    coordinatorName2: normalizeString(input.coordinatorName2 ?? input.cordinador_name_2),
-    coordinatorEmail2: normalizeEmail(input.coordinatorEmail2 ?? input.cordinador_email_2),
-    coordinatorName3: normalizeString(input.coordinatorName3 ?? input.cordinador_name_3),
-    coordinatorEmail3: normalizeEmail(input.coordinatorEmail3 ?? input.cordinador_email_3),
     tags: normalizeStringList(input.tags),
     lists: normalizeStringList(input.lists),
   };
@@ -141,20 +134,13 @@ function buildFluentCrmCompanyPayload(company = {}) {
   const customValues = {};
   if (company.nit != null) customValues.nit = company.nit;
   if (company.verificationDigit != null) customValues["digito_de_verificación"] = company.verificationDigit;
-  if (company.rector) customValues.rector = company.rector;
-  if (company.emailRector) customValues.email_rector = company.emailRector;
-  if (company.coordinatorName1) customValues.cordinador_name_1 = company.coordinatorName1;
-  if (company.coordinatorEmail1) customValues.cordinador_email_1 = company.coordinatorEmail1;
-  if (company.coordinatorName2) customValues.cordinador_name_2 = company.coordinatorName2;
-  if (company.coordinatorEmail2) customValues.cordinador_email_2 = company.coordinatorEmail2;
-  if (company.coordinatorName3) customValues.cordinador_name_3 = company.coordinatorName3;
-  if (company.coordinatorEmail3) customValues.cordinador_email_3 = company.coordinatorEmail3;
 
   return {
     name: company.companyName || company.name || company.nameCache,
     email: company.companyEmail || company.email || company.billingEmail || company.contactEmail || undefined,
     phone: company.companyPhone || company.phone || undefined,
     website: company.website || company.adminDomain || undefined,
+    address: company.address || undefined,
     number_of_employees: company.numberOfEmployees ?? undefined,
     industry: company.industry || undefined,
     type: company.type || undefined,
