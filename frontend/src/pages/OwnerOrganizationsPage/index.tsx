@@ -115,7 +115,7 @@ const wizardSteps: Array<{ step: WizardStep; title: string; description: string 
 ];
 
 const uniqueValues = (values: string[]) => [...new Set(values.map((value) => value.trim()).filter(Boolean))];
-const deriveTags = (adminRoleName: string, jitDefaultRoleName: string) => uniqueValues([adminRoleName, jitDefaultRoleName].filter((role) => role !== "owner_global"));
+const deriveOrganizationTags = (organizationName: string) => uniqueValues([organizationName]);
 const deriveContactTag = (roleName: string) => roleName && roleName !== "owner_global" ? `civitas-role-${roleName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}` : null;
 const displayValue = (value?: string | null) => value?.trim() || "—";
 
@@ -160,7 +160,7 @@ export function OwnerOrganizationsPage() {
         companyName: dirty.crm.companyName ? current.crm.companyName : current.name,
         companyEmail: dirty.crm.companyEmail ? current.crm.companyEmail : current.baseAdminEmail,
         website: dirty.crm.website ? current.crm.website : current.adminDomain,
-        tags: dirty.crm.tags ? current.crm.tags : deriveTags(selectedAdminRole, selectedJitRole),
+        tags: dirty.crm.tags ? current.crm.tags : deriveOrganizationTags(current.name),
         lists: dirty.crm.lists ? current.crm.lists : uniqueValues([current.name]),
       },
     }));
@@ -458,7 +458,7 @@ export function OwnerOrganizationsPage() {
         </div>
       </div>
       <div className="row g-3">
-        <div className="col-12 col-xl-6">{renderCollectionEditor("tags", formData.crm.tags, tagInput, setTagInput, "Tags CRM")}</div>
+        <div className="col-12 col-xl-6">{renderCollectionEditor("tags", formData.crm.tags, tagInput, setTagInput, "Tags CRM globales de organización")}</div>
         <div className="col-12 col-xl-6">{renderCollectionEditor("lists", formData.crm.lists, listInput, setListInput, "Lists CRM")}</div>
       </div>
     </section>
