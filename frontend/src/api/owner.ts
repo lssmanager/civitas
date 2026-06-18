@@ -163,7 +163,7 @@ export type CreateOwnerOrganizationInput = {
   jitProvisioning?: { domain?: string; defaultRoleNames?: string[] };
   settings?: Record<string, unknown>;
   crm?: FluentCrmCompanyInput;
-  administrativeContacts?: Array<{ name: string; email: string; organizationRoleName: string }>;
+  administrativeContacts?: Array<{ kind?: string; name: string; email: string; phone?: string; organizationRoleName: string }>;
 };
 
 export const useOwnerApi = () => {

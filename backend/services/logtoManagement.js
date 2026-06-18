@@ -381,19 +381,26 @@ async function findLogtoUserByEmail(email) {
   return users.find((user) => (user.primaryEmail || user.email || user.profile?.email || "").toLowerCase() === normalizedEmail) || null;
 }
 
-async function createLogtoUser({ email, name }) {
+async function createLogtoUser({ email, name, phone }) {
   return callLogtoManagementApi("/users", {
     method: "POST",
-    body: JSON.stringify({ primaryEmail: email, name }),
+    body: JSON.stringify({ primaryEmail: email, name, ...(phone ? { primaryPhone: phone } : {}) }),
   });
 }
 
-async function createOrResolveLogtoUserByEmail({ email, name }) {
+async function createOrResolveLogtoUserByEmail({ email, name, phone }) {
   const existingUser = await findLogtoUserByEmail(email);
-  if (existingUser) return { user: existingUser, created: false, source: "email_lookup" };
+  if (existingUser) {
+    const userId = existingUser.id || existingUser.userId || existingUser.logtoUserId;
+    if (userId && (name || phone)) {
+      const updated = await updateLogtoUser({ userId, email, name, phone });
+      return { user: updated || existingUser, created: false, source: "email_lookup_updated" };
+    }
+    return { user: existingUser, created: false, source: "email_lookup" };
+  }
 
   try {
-    return { user: await createLogtoUser({ email, name }), created: true, source: "create_user" };
+    return { user: await createLogtoUser({ email, name, phone }), created: true, source: "create_user" };
   } catch (error) {
     if (error instanceof LogtoManagementApiError && [400, 409, 422].includes(error.status)) {
       const reconciledUser = await findLogtoUserByEmail(email);

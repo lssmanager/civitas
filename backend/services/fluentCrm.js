@@ -457,11 +457,13 @@ async function updateContactEmailAfterLogtoChange({ previousEmail, newEmail, log
 
 
 function getFluentCrmRoleSyncMapping() {
-  if (!process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON) return DEFAULT_ROLE_SYNC_MAPPING;
+  const raw = process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON;
+  if (!raw) return DEFAULT_ROLE_SYNC_MAPPING;
+  const sanitized = String(raw).trim().replace(/^FLUENTCRM_ROLE_SYNC_MAPPING_JSON\s*=\s*/, "");
   try {
-    return { ...DEFAULT_ROLE_SYNC_MAPPING, ...JSON.parse(process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON) };
+    return { ...DEFAULT_ROLE_SYNC_MAPPING, ...JSON.parse(sanitized) };
   } catch (error) {
-    throw new FluentCrmError("FLUENTCRM_ROLE_SYNC_MAPPING_JSON must be valid JSON", { code: "FLUENTCRM_ROLE_MAPPING_INVALID" });
+    throw new FluentCrmError("FLUENTCRM_ROLE_SYNC_MAPPING_JSON must be valid JSON. Provide only the JSON object value, not a KEY= prefix.", { code: "FLUENTCRM_ROLE_MAPPING_INVALID", body: { hint: "Expected pure JSON, for example {\"Admin-org\":{\"tags\":[\"admin\"],\"lists\":[]}}", receivedPrefix: String(raw).slice(0, 64) } });
   }
 }
 
@@ -492,7 +494,7 @@ async function createContact(fields = {}) {
   return requestFluentCrm("/subscribers", { method: "POST", body: fields });
 }
 
-async function upsertContactFromLogtoIdentity({ identity, companyId, roleNames = [] }) {
+async function upsertContactFromLogtoIdentity({ identity, companyId, roleNames = [], extraTags = [], extraLists = [] }) {
   const email = normalizeEmail(identity.email);
   if (!email) return { status: "error", reason: "missing_email", logtoUserId: identity.logtoUserId || null };
   const contacts = await searchContacts({ email });
@@ -504,8 +506,8 @@ async function upsertContactFromLogtoIdentity({ identity, companyId, roleNames =
     phone: normalizeString(identity.phone),
     external_id: identity.logtoUserId || undefined,
     company_id: companyId,
-    tags: taxonomy.tags,
-    lists: taxonomy.lists,
+    tags: [...new Set([...taxonomy.tags, ...normalizeStringList(extraTags)])],
+    lists: [...new Set([...taxonomy.lists, ...normalizeStringList(extraLists)])],
   };
   const contact = contacts[0] ? await updateContact(contacts[0], payload) : await createContact(payload);
   return { status: contacts[0] ? "updated" : "created", contact, email, logtoUserId: identity.logtoUserId || null, taxonomy };

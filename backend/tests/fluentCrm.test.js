@@ -277,6 +277,22 @@ test("mapOrganizationRolesToCrmTaxonomy maps configured org roles and excludes o
   assert.deepEqual(taxonomy.unmappedRoles, ["unknown-role"]);
 });
 
+
+test("getFluentCrmRoleSyncMapping sanitizes duplicated env key prefix", () => {
+  const { getFluentCrmRoleSyncMapping } = require("../services/fluentCrm");
+  process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON = 'FLUENTCRM_ROLE_SYNC_MAPPING_JSON={"Custom-role":{"tags":["custom-tag"],"lists":[]}}';
+  const mapping = getFluentCrmRoleSyncMapping();
+  assert.deepEqual(mapping["Custom-role"], { tags: ["custom-tag"], lists: [] });
+  delete process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON;
+});
+
+test("getFluentCrmRoleSyncMapping rejects non JSON env with actionable error", () => {
+  const { getFluentCrmRoleSyncMapping } = require("../services/fluentCrm");
+  process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON = "not-json";
+  assert.throws(() => getFluentCrmRoleSyncMapping(), /Provide only the JSON object value/);
+  delete process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON;
+});
+
 test("syncOrganizationContactsToFluentCrm returns organization-level error when company is not linked", async () => {
   const { syncOrganizationContactsToFluentCrm } = require("../services/fluentCrm");
   const persisted = [];

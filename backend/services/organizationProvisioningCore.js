@@ -28,9 +28,10 @@ const normalizeAdministrativeContacts = (value) => {
   if (!Array.isArray(value)) return [];
   return value
     .map((contact, index) => ({
-      key: typeof contact?.key === "string" && contact.key.trim() ? contact.key.trim() : `administrative_contact_${index + 1}`,
+      key: typeof (contact?.key ?? contact?.kind) === "string" && (contact.key ?? contact.kind).trim() ? (contact.key ?? contact.kind).trim() : `administrative_contact_${index + 1}`,
       name: emptyToNull(contact?.name),
       email: emptyToNull(contact?.email)?.toLowerCase() || null,
+      phone: emptyToNull(contact?.phone),
       organizationRoleName: emptyToNull(contact?.organizationRoleName),
     }))
     .filter((contact) => contact.name || contact.email || contact.organizationRoleName);
@@ -106,8 +107,8 @@ async function resolveLogtoOrganizationForSync({ name, description, customData }
 }
 
 async function resolveAdministrativeContactUser({ contact, logtoOrganizationId, internalUser }) {
-  const resolved = await createOrResolveLogtoUserByEmail({ email: contact.email, name: contact.name });
-  await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: resolved.created ? "administrative_contact_user_created" : "administrative_contact_user_resolved", administrativeContactEmail: contact.email, administrativeContactKey: contact.key, roleName: contact.organizationRoleName, source: resolved.source } });
+  const resolved = await createOrResolveLogtoUserByEmail({ email: contact.email, name: contact.name, phone: contact.phone });
+  await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: resolved.created ? "administrative_contact_user_created" : "administrative_contact_user_resolved", administrativeContactEmail: contact.email, administrativeContactKey: contact.key, phone: contact.phone, roleName: contact.organizationRoleName, source: resolved.source } });
   return resolved;
 }
 

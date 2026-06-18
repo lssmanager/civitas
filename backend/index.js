@@ -314,11 +314,12 @@ async function runFluentCrmOrganizationStep({ logtoOrganization, logtoOrganizati
   const administrativeContacts = [];
   for (const assignment of administrativeContactAssignments) {
     const contactSync = await upsertContactFromLogtoIdentity({
-      identity: { logtoUserId: assignment.logtoUserId, email: assignment.email, name: assignment.name },
+      identity: { logtoUserId: assignment.logtoUserId, email: assignment.email, name: assignment.name, phone: assignment.phone },
       companyId,
       roleNames: [assignment.roleName || assignment.organizationRoleName].filter(Boolean),
+      extraLists: normalizedCrm.lists || [],
     });
-    administrativeContacts.push({ key: assignment.key, name: assignment.name, email: assignment.email, logtoUserId: assignment.logtoUserId, roleName: assignment.roleName || assignment.organizationRoleName, contactSync });
+    administrativeContacts.push({ key: assignment.key, name: assignment.name, email: assignment.email, phone: assignment.phone, logtoUserId: assignment.logtoUserId, roleName: assignment.roleName || assignment.organizationRoleName, contactSync });
   }
 
   const taxonomy = await ensureOrganizationTagsAndLists({
