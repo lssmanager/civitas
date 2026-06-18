@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Country, State } from "country-state-city";
 import { Alert, Badge, Button, Collapse, Form } from "react-bootstrap";
 import { ApiRequestError } from "../../api/base";
 import { useOwnerApi } from "../../api/owner";
@@ -56,7 +57,12 @@ type OwnerOrganizationFormData = {
     companyPhone: string;
     about: string;
     website: string;
-    address: string;
+    addressLine1: string;
+    addressLine2: string;
+    city: string;
+    state: string;
+    postalCode: string;
+    country: string;
     numberOfEmployees: string;
     industry: string;
     type: string;
@@ -90,7 +96,12 @@ const initialFormData: OwnerOrganizationFormData = {
     companyPhone: "",
     about: "",
     website: "",
-    address: "",
+    addressLine1: "",
+    addressLine2: "",
+    city: "",
+    state: "",
+    postalCode: "",
+    country: "",
     numberOfEmployees: "",
     industry: "",
     type: "",
@@ -151,6 +162,9 @@ export function OwnerOrganizationsPage() {
   const selectedAdminRole = roles.some((role) => role.name === formData.adminRoleName) ? formData.adminRoleName : ORGANIZATION_BOOTSTRAP_ADMIN_ROLE;
   const selectedJitRole = roles.some((role) => role.name === formData.jitDefaultRoleName) ? formData.jitDefaultRoleName : ORGANIZATION_JIT_DEFAULT_ROLE;
   const logtoUserIdLooksLikeRole = [ORGANIZATION_BOOTSTRAP_ADMIN_ROLE, ORGANIZATION_JIT_DEFAULT_ROLE].includes(formData.baseAdminLogtoUserId.trim() as typeof ORGANIZATION_BOOTSTRAP_ADMIN_ROLE | typeof ORGANIZATION_JIT_DEFAULT_ROLE);
+  const countries = useMemo(() => Country.getAllCountries(), []);
+  const selectedCountry = countries.find((country) => country.name === formData.crm.country || country.isoCode === formData.crm.country) || null;
+  const countryStates = useMemo(() => selectedCountry ? State.getStatesOfCountry(selectedCountry.isoCode) : [], [selectedCountry]);
 
   useEffect(() => {
     setFormData((current) => ({
@@ -178,11 +192,19 @@ export function OwnerOrganizationsPage() {
     if (["companyName", "companyEmail", "website"].includes(field)) {
       setDirty((current) => ({ ...current, crm: { ...current.crm, [field]: true } }));
     }
-    setFormData((current) => ({ ...current, crm: { ...current.crm, [field]: value } }));
+    setFormData((current) => ({
+      ...current,
+      crm: {
+        ...current.crm,
+        [field]: value,
+        ...(field === "country" ? { state: "", city: "" } : {}),
+      },
+    }));
   };
 
   const getInstitutionalEmailSuffix = () => formData.adminDomain.trim() ? `@${formData.adminDomain.trim()}` : "";
-  const getAdministrativeEmailPlaceholder = (key: AdministrativeContactKey) => formData.adminDomain.trim() ? `${key === "director" ? "director" : key.replace("responsible", "responsable")}@${formData.adminDomain.trim()}` : "correo@dominio.edu";
+  const getEmailDomainExample = () => formData.adminDomain.trim() || "ejemplo.com.co";
+  const getAdministrativeEmailPlaceholder = (key: AdministrativeContactKey) => `${key === "director" ? "director" : key.replace("responsible", "responsable")}@${getEmailDomainExample()}`;
   const isOnlyInstitutionalEmailSuffix = (email: string) => Boolean(getInstitutionalEmailSuffix()) && email.trim().toLowerCase() === getInstitutionalEmailSuffix().toLowerCase();
   const normalizeAdministrativeEmail = (email: string) => isOnlyInstitutionalEmailSuffix(email) ? "" : email.trim();
   const normalizeAdministrativeContactForSubmission = (contact: AdministrativeContact): { value?: { kind: AdministrativeContactKey; name: string; email: string; phone?: string; position?: string; organizationRoleName: string }; error?: string } | null => {
@@ -336,7 +358,12 @@ export function OwnerOrganizationsPage() {
           companyPhone: formData.crm.companyPhone || undefined,
           about: formData.crm.about || undefined,
           website: formData.crm.website || formData.adminDomain || undefined,
-          address: formData.crm.address || undefined,
+          addressLine1: formData.crm.addressLine1 || undefined,
+          addressLine2: formData.crm.addressLine2 || undefined,
+          city: formData.crm.city || undefined,
+          state: formData.crm.state || undefined,
+          postalCode: formData.crm.postalCode || undefined,
+          country: formData.crm.country || undefined,
           numberOfEmployees: formData.crm.numberOfEmployees ? Number(formData.crm.numberOfEmployees) : undefined,
           industry: formData.crm.industry || undefined,
           type: formData.crm.type || undefined,
@@ -407,19 +434,19 @@ export function OwnerOrganizationsPage() {
         <p className="text-secondary mb-0">Todo lo que define organización, membresía y permisos nace en Logto.</p>
       </div>
       <Form.Group controlId="ownerOrganizationName"><Form.Label>Nombre de organización</Form.Label><Form.Control size="lg" value={formData.name} onChange={(event) => updateField("name", event.target.value)} placeholder="Colegio San José" required /></Form.Group>
-      <Form.Group controlId="ownerOrganizationSlug"><Form.Label>Slug</Form.Label><Form.Control value={formData.slug} onChange={(event) => updateField("slug", event.target.value)} placeholder="colegio-san-jose" required /><Form.Text>Identificador interno legible para rutas y operación owner; usa minúsculas, números y guiones.</Form.Text></Form.Group>
+      <Form.Group controlId="ownerOrganizationSlug"><Form.Label>Slug</Form.Label><Form.Control value={formData.slug} onChange={(event) => updateField("slug", event.target.value)} placeholder="colegio-san-jose" required /></Form.Group>
       <div className="row g-3">
-        <Form.Group className="col-12 col-xl-6" controlId="ownerOrganizationAppSubdomain"><Form.Label>Subdominio app</Form.Label><Form.Control value={formData.appSubdomain} onChange={(event) => updateField("appSubdomain", event.target.value)} placeholder="sanjose" required /><Form.Text>Solo el prefijo operativo de la app. Genera automáticamente <code>https://{formData.appSubdomain || "sanjose"}.learnsocialstudies.com/callback</code>.</Form.Text></Form.Group>
-        <Form.Group className="col-12 col-xl-6" controlId="ownerOrganizationAdminDomain"><Form.Label>Dominio institucional de aprovisionamiento</Form.Label><Form.Control value={formData.adminDomain} onChange={(event) => updateField("adminDomain", event.target.value)} placeholder="colegiosanjose.edu.co" required /><Form.Text>Dominio real de correo o identidad institucional; no es el subdominio app.</Form.Text></Form.Group>
+        <Form.Group className="col-12 col-xl-6" controlId="ownerOrganizationAppSubdomain"><Form.Label>Subdominio app</Form.Label><Form.Control value={formData.appSubdomain} onChange={(event) => updateField("appSubdomain", event.target.value)} placeholder="sanjose" required /></Form.Group>
+        <Form.Group className="col-12 col-xl-6" controlId="ownerOrganizationAdminDomain"><Form.Label>Dominio institucional de aprovisionamiento</Form.Label><Form.Control value={formData.adminDomain} onChange={(event) => updateField("adminDomain", event.target.value)} placeholder="ejemplo.com.co" required /></Form.Group>
       </div>
       <div className="row g-3">
         <Form.Group className="col-12 col-xl-6" controlId="ownerOrganizationBaseAdminName"><Form.Label>Nombre admin base</Form.Label><Form.Control value={formData.baseAdminName} onChange={(event) => updateField("baseAdminName", event.target.value)} placeholder="María Admin" required /></Form.Group>
-        <Form.Group className="col-12 col-xl-6" controlId="ownerOrganizationBaseAdminEmail"><Form.Label>Correo admin base</Form.Label><Form.Control type="email" value={formData.baseAdminEmail} onChange={(event) => updateField("baseAdminEmail", event.target.value)} placeholder={formData.adminDomain ? `admin@${formData.adminDomain}` : "admin@colegio1.edu.co"} required /></Form.Group>
+        <Form.Group className="col-12 col-xl-6" controlId="ownerOrganizationBaseAdminEmail"><Form.Label>Correo admin base</Form.Label><Form.Control type="email" value={formData.baseAdminEmail} onChange={(event) => updateField("baseAdminEmail", event.target.value)} placeholder={`admin@${getEmailDomainExample()}`} required /></Form.Group>
       </div>
-      <Form.Group controlId="ownerOrganizationBaseAdminLogtoId"><Form.Label>Logto user id admin base existente</Form.Label><Form.Control isInvalid={logtoUserIdLooksLikeRole} value={formData.baseAdminLogtoUserId} onChange={(event) => updateField("baseAdminLogtoUserId", event.target.value)} placeholder="Opcional: user id real de Logto, no un nombre de rol" /><Form.Control.Feedback type="invalid">Admin-org y Student-org son roles, no user ids de Logto.</Form.Control.Feedback><Form.Text>Si se omite, Civitas crea o resuelve el usuario por correo y nombre en Logto antes de agregarlo como miembro.</Form.Text></Form.Group>
+      <Form.Group controlId="ownerOrganizationBaseAdminLogtoId"><Form.Label>Logto user id admin base existente</Form.Label><Form.Control isInvalid={logtoUserIdLooksLikeRole} value={formData.baseAdminLogtoUserId} onChange={(event) => updateField("baseAdminLogtoUserId", event.target.value)} placeholder="user_123456789" /><Form.Control.Feedback type="invalid">Admin-org y Student-org son roles, no user ids de Logto.</Form.Control.Feedback></Form.Group>
       <div className="row g-3">
-        <Form.Group className="col-12 col-xl-6" controlId="ownerOrganizationAdminRole"><Form.Label>Rol organizacional del admin base</Form.Label><Form.Select value={selectedAdminRole} onChange={(event) => updateField("adminRoleName", event.target.value)} disabled={roles.length === 0}>{roles.filter((role) => role.name === ORGANIZATION_BOOTSTRAP_ADMIN_ROLE).map((role) => <option value={role.name} key={role.id}>{role.name}</option>)}</Form.Select><Form.Text>Se asigna al usuario admin base después de hacerlo miembro.</Form.Text></Form.Group>
-        <Form.Group className="col-12 col-xl-6" controlId="ownerOrganizationJitDefaultRole"><Form.Label>Rol predeterminado para JIT</Form.Label><Form.Select value={selectedJitRole} onChange={(event) => updateField("jitDefaultRoleName", event.target.value)} disabled={roles.length === 0}>{roles.filter((role) => role.name === ORGANIZATION_JIT_DEFAULT_ROLE).map((role) => <option value={role.name} key={role.id}>{role.name}</option>)}</Form.Select><Form.Text>Se configura en Logto para nuevos usuarios del dominio institucional.</Form.Text></Form.Group>
+        <Form.Group className="col-12 col-xl-6" controlId="ownerOrganizationAdminRole"><Form.Label>Rol organizacional del admin base</Form.Label><Form.Select value={selectedAdminRole} onChange={(event) => updateField("adminRoleName", event.target.value)} disabled={roles.length === 0}>{roles.filter((role) => role.name === ORGANIZATION_BOOTSTRAP_ADMIN_ROLE).map((role) => <option value={role.name} key={role.id}>{role.name}</option>)}</Form.Select></Form.Group>
+        <Form.Group className="col-12 col-xl-6" controlId="ownerOrganizationJitDefaultRole"><Form.Label>Rol predeterminado para JIT</Form.Label><Form.Select value={selectedJitRole} onChange={(event) => updateField("jitDefaultRoleName", event.target.value)} disabled={roles.length === 0}>{roles.filter((role) => role.name === ORGANIZATION_JIT_DEFAULT_ROLE).map((role) => <option value={role.name} key={role.id}>{role.name}</option>)}</Form.Select></Form.Group>
       </div>
     </section>
   );
@@ -443,27 +470,34 @@ export function OwnerOrganizationsPage() {
           {crmHealthHints.length > 0 ? <ul className="mt-2 mb-0 ps-3 d-flex flex-column gap-1">{crmHealthHints.map((hint) => <li key={hint}>{hint}</li>)}</ul> : null}
         </Alert>
       ) : null}
-      <Form.Group controlId="ownerOrganizationCrmCompanyName"><Form.Label>Company Name</Form.Label><Form.Control size="lg" value={formData.crm.companyName} onChange={(event) => updateCrmField("companyName", event.target.value)} /></Form.Group>
+      <Form.Group controlId="ownerOrganizationCrmCompanyName"><Form.Label>Company Name</Form.Label><Form.Control size="lg" value={formData.crm.companyName} onChange={(event) => updateCrmField("companyName", event.target.value)} placeholder="Colegio San José" /></Form.Group>
       <div className="row g-3">
-        <Form.Group className="col-12 col-xl-6" controlId="ownerOrganizationCrmCompanyEmail"><Form.Label>Company Email</Form.Label><Form.Control type="email" value={formData.crm.companyEmail} onChange={(event) => updateCrmField("companyEmail", event.target.value)} /></Form.Group>
+        <Form.Group className="col-12 col-xl-6" controlId="ownerOrganizationCrmCompanyEmail"><Form.Label>Company Email</Form.Label><Form.Control type="email" value={formData.crm.companyEmail} onChange={(event) => updateCrmField("companyEmail", event.target.value)} placeholder={`contacto@${getEmailDomainExample()}`} /></Form.Group>
         <Form.Group className="col-12 col-xl-6" controlId="ownerOrganizationCrmCompanyPhone"><Form.Label>Company Phone Number</Form.Label><Form.Control value={formData.crm.companyPhone} onChange={(event) => updateCrmField("companyPhone", event.target.value)} placeholder="+1 555 555 5555" /></Form.Group>
       </div>
-      <Form.Group controlId="ownerOrganizationCrmAbout"><Form.Label>About this company</Form.Label><Form.Control as="textarea" rows={2} value={formData.crm.about} onChange={(event) => updateCrmField("about", event.target.value)} /></Form.Group>
+      <Form.Group controlId="ownerOrganizationCrmAbout"><Form.Label>About this company</Form.Label><Form.Control as="textarea" rows={2} value={formData.crm.about} onChange={(event) => updateCrmField("about", event.target.value)} placeholder="Describe the company" /></Form.Group>
       <div className="row g-3">
-        <Form.Group className="col-12 col-xl-4" controlId="ownerOrganizationCrmWebsite"><Form.Label>Website</Form.Label><Form.Control value={formData.crm.website} onChange={(event) => updateCrmField("website", event.target.value)} /></Form.Group>
-        <Form.Group className="col-12 col-xl-4" controlId="ownerOrganizationCrmAddress"><Form.Label>Address</Form.Label><Form.Control type="text" value={formData.crm.address} onChange={(event) => updateCrmField("address", event.target.value)} /></Form.Group>
-        <Form.Group className="col-12 col-xl-4" controlId="ownerOrganizationCrmEmployees"><Form.Label>Number of Employees</Form.Label><Form.Control type="number" min="0" value={formData.crm.numberOfEmployees} onChange={(event) => updateCrmField("numberOfEmployees", event.target.value)} /></Form.Group>
+        <Form.Group className="col-12 col-xl-4" controlId="ownerOrganizationCrmWebsite"><Form.Label>Website</Form.Label><Form.Control value={formData.crm.website} onChange={(event) => updateCrmField("website", event.target.value)} placeholder={`https://${getEmailDomainExample()}`} /></Form.Group>
+        <Form.Group className="col-12 col-xl-4" controlId="ownerOrganizationCrmEmployees"><Form.Label>Number of Employees</Form.Label><Form.Control type="number" min="0" value={formData.crm.numberOfEmployees} onChange={(event) => updateCrmField("numberOfEmployees", event.target.value)} placeholder="Enter number of employees" /></Form.Group>
       </div>
       <div className="row g-3">
-        <Form.Group className="col-12 col-xl-6" controlId="ownerOrganizationCrmNit"><Form.Label>NIT</Form.Label><Form.Control type="number" min="0" value={formData.crm.nit} onChange={(event) => updateCrmField("nit", event.target.value)} placeholder="900123456" /><Form.Text>Campo comercial downstream en FluentCRM: <code>nit</code>.</Form.Text></Form.Group>
-        <Form.Group className="col-12 col-xl-6" controlId="ownerOrganizationCrmVerificationDigit"><Form.Label>Digito de Verificación</Form.Label><Form.Control type="number" min="0" value={formData.crm.verificationDigit} onChange={(event) => updateCrmField("verificationDigit", event.target.value)} placeholder="7" /><Form.Text>Campo comercial downstream en FluentCRM: <code>digito_de_verificación</code>.</Form.Text></Form.Group>
+        <Form.Group className="col-12 col-xl-6" controlId="ownerOrganizationCrmAddressLine1"><Form.Label>Address Line 1</Form.Label><Form.Control value={formData.crm.addressLine1} onChange={(event) => updateCrmField("addressLine1", event.target.value)} placeholder="Enter address line 1" /></Form.Group>
+        <Form.Group className="col-12 col-xl-6" controlId="ownerOrganizationCrmAddressLine2"><Form.Label>Address Line 2 (Optional)</Form.Label><Form.Control value={formData.crm.addressLine2} onChange={(event) => updateCrmField("addressLine2", event.target.value)} placeholder="Enter address line 2" /></Form.Group>
+        <Form.Group className="col-12 col-xl-4" controlId="ownerOrganizationCrmCity"><Form.Label>Ciudad</Form.Label><Form.Control value={formData.crm.city} onChange={(event) => updateCrmField("city", event.target.value)} placeholder="Enter city" /></Form.Group>
+        <Form.Group className="col-12 col-xl-4" controlId="ownerOrganizationCrmState"><Form.Label>Departamento</Form.Label>{countryStates.length > 0 ? <Form.Select value={formData.crm.state} onChange={(event) => updateCrmField("state", event.target.value)}><option value="">Enter state / province</option>{countryStates.map((state) => <option key={state.isoCode} value={state.name}>{state.name}</option>)}</Form.Select> : <Form.Control value={formData.crm.state} onChange={(event) => updateCrmField("state", event.target.value)} placeholder="Enter state / province" />}</Form.Group>
+        <Form.Group className="col-12 col-xl-4" controlId="ownerOrganizationCrmPostalCode"><Form.Label>Postal Code</Form.Label><Form.Control value={formData.crm.postalCode} onChange={(event) => updateCrmField("postalCode", event.target.value)} placeholder="Enter postal code" /></Form.Group>
+        <Form.Group className="col-12 col-xl-6" controlId="ownerOrganizationCrmCountry"><Form.Label>País</Form.Label><Form.Select value={formData.crm.country} onChange={(event) => updateCrmField("country", event.target.value)}><option value="">Selecciona país</option>{countries.map((country) => <option key={country.isoCode} value={country.name}>{country.name}</option>)}</Form.Select></Form.Group>
       </div>
       <div className="row g-3">
-        <Form.Group className="col-12 col-lg-4" controlId="ownerOrganizationCrmIndustry"><Form.Label>Industry</Form.Label><Form.Control value={formData.crm.industry} onChange={(event) => updateCrmField("industry", event.target.value)} placeholder="Education" /></Form.Group>
-        <Form.Group className="col-12 col-lg-4" controlId="ownerOrganizationCrmType"><Form.Label>Type</Form.Label><Form.Control value={formData.crm.type} onChange={(event) => updateCrmField("type", event.target.value)} placeholder="School" /></Form.Group>
-        <Form.Group className="col-12 col-lg-4" controlId="ownerOrganizationCrmOwner"><Form.Label>Company Owner</Form.Label><Form.Control value={formData.crm.companyOwner} onChange={(event) => updateCrmField("companyOwner", event.target.value)} /></Form.Group>
+        <Form.Group className="col-12 col-xl-6" controlId="ownerOrganizationCrmNit"><Form.Label>NIT</Form.Label><Form.Control type="number" min="0" value={formData.crm.nit} onChange={(event) => updateCrmField("nit", event.target.value)} placeholder="Enter NIT" /></Form.Group>
+        <Form.Group className="col-12 col-xl-6" controlId="ownerOrganizationCrmVerificationDigit"><Form.Label>Digito de Verificación</Form.Label><Form.Control type="number" min="0" value={formData.crm.verificationDigit} onChange={(event) => updateCrmField("verificationDigit", event.target.value)} placeholder="Enter verification digit" /></Form.Group>
       </div>
-      <Form.Group controlId="ownerOrganizationCrmDescription"><Form.Label>Description</Form.Label><Form.Control as="textarea" rows={2} value={formData.crm.description} onChange={(event) => updateCrmField("description", event.target.value)} /></Form.Group>
+      <div className="row g-3">
+        <Form.Group className="col-12 col-lg-4" controlId="ownerOrganizationCrmIndustry"><Form.Label>Industry</Form.Label><Form.Control value={formData.crm.industry} onChange={(event) => updateCrmField("industry", event.target.value)} placeholder="Enter industry" /></Form.Group>
+        <Form.Group className="col-12 col-lg-4" controlId="ownerOrganizationCrmType"><Form.Label>Type</Form.Label><Form.Control value={formData.crm.type} onChange={(event) => updateCrmField("type", event.target.value)} placeholder="Enter type" /></Form.Group>
+        <Form.Group className="col-12 col-lg-4" controlId="ownerOrganizationCrmOwner"><Form.Label>Company Owner</Form.Label><Form.Control value={formData.crm.companyOwner} onChange={(event) => updateCrmField("companyOwner", event.target.value)} placeholder="Enter company owner" /></Form.Group>
+      </div>
+      <Form.Group controlId="ownerOrganizationCrmDescription"><Form.Label>Description</Form.Label><Form.Control as="textarea" rows={2} value={formData.crm.description} onChange={(event) => updateCrmField("description", event.target.value)} placeholder="Enter description" /></Form.Group>
 
       <div className="border rounded-3 p-3 d-flex flex-column gap-3 bg-light bg-opacity-50">
         <div><h4 className="h6 mb-1">Administrativos</h4><p className="text-secondary mb-0 small">Personas reales: se crearán/resolverán en Logto, quedarán como miembros de la organización y se sincronizarán como contactos CRM downstream.</p></div>
@@ -477,11 +511,11 @@ export function OwnerOrganizationsPage() {
                   <span className="small text-secondary">Tag por contacto: {previewTag ? <Badge bg="light" text="dark" className="border ms-1">{previewTag}</Badge> : "—"}</span>
                 </div>
                 <div className="row g-3">
-                  <Form.Group className="col-12 col-xl-6" controlId={`ownerOrganizationAdminContactName-${contact.key}`}><Form.Label>{contact.label} nombre</Form.Label><Form.Control value={contact.name} onChange={(event) => updateAdministrativeContact(contact.key, "name", event.target.value)} /></Form.Group>
-                  <Form.Group className="col-12 col-xl-6" controlId={`ownerOrganizationAdminContactEmail-${contact.key}`}><Form.Label>{contact.label} email</Form.Label><Form.Control type="email" value={contact.email} onChange={(event) => updateAdministrativeContact(contact.key, "email", event.target.value)} placeholder={getAdministrativeEmailPlaceholder(contact.key)} /><Form.Text>{getInstitutionalEmailSuffix() ? `Sugerencia: usa el sufijo ${getInstitutionalEmailSuffix()}. El sufijo solo no cuenta como email completo.` : "Define primero el dominio institucional para ver el sufijo sugerido."}</Form.Text></Form.Group>
-                  <Form.Group className="col-12 col-xl-4" controlId={`ownerOrganizationAdminContactPhone-${contact.key}`}><Form.Label>{contact.label} teléfono</Form.Label><Form.Control type="tel" value={contact.phone} onChange={(event) => updateAdministrativeContact(contact.key, "phone", event.target.value)} /></Form.Group>
+                  <Form.Group className="col-12 col-xl-6" controlId={`ownerOrganizationAdminContactName-${contact.key}`}><Form.Label>{contact.label} nombre</Form.Label><Form.Control value={contact.name} onChange={(event) => updateAdministrativeContact(contact.key, "name", event.target.value)} placeholder={`${contact.label} name`} /></Form.Group>
+                  <Form.Group className="col-12 col-xl-6" controlId={`ownerOrganizationAdminContactEmail-${contact.key}`}><Form.Label>{contact.label} email</Form.Label><Form.Control type="email" value={contact.email} onChange={(event) => updateAdministrativeContact(contact.key, "email", event.target.value)} placeholder={getAdministrativeEmailPlaceholder(contact.key)} /></Form.Group>
+                  <Form.Group className="col-12 col-xl-4" controlId={`ownerOrganizationAdminContactPhone-${contact.key}`}><Form.Label>{contact.label} teléfono</Form.Label><Form.Control type="tel" value={contact.phone} onChange={(event) => updateAdministrativeContact(contact.key, "phone", event.target.value)} placeholder="Enter phone" /></Form.Group>
                   <Form.Group className="col-12 col-xl-4" controlId={`ownerOrganizationAdminContactPosition-${contact.key}`}><Form.Label>{contact.label} cargo</Form.Label><Form.Control value={contact.position} onChange={(event) => updateAdministrativeContact(contact.key, "position", event.target.value)} placeholder={contact.label} /></Form.Group>
-                  <Form.Group className="col-12 col-xl-4" controlId={`ownerOrganizationAdminContactRole-${contact.key}`}><Form.Label>{contact.label} rol Logto</Form.Label><Form.Select value={contact.organizationRoleName} onChange={(event) => updateAdministrativeContact(contact.key, "organizationRoleName", event.target.value)} disabled={roles.length === 0}>{!roles.some((role) => role.name === contact.organizationRoleName) ? <option value={contact.organizationRoleName}>{contact.organizationRoleName}</option> : null}{roles.map((role) => <option value={role.name} key={`${contact.key}-${role.id}`}>{role.name}</option>)}</Form.Select><Form.Text>Rol organizacional real de Logto; tags CRM son solo segmentación.</Form.Text></Form.Group>
+                  <Form.Group className="col-12 col-xl-4" controlId={`ownerOrganizationAdminContactRole-${contact.key}`}><Form.Label>{contact.label} rol Logto</Form.Label><Form.Select value={contact.organizationRoleName} onChange={(event) => updateAdministrativeContact(contact.key, "organizationRoleName", event.target.value)} disabled={roles.length === 0}>{!roles.some((role) => role.name === contact.organizationRoleName) ? <option value={contact.organizationRoleName}>{contact.organizationRoleName}</option> : null}{roles.map((role) => <option value={role.name} key={`${contact.key}-${role.id}`}>{role.name}</option>)}</Form.Select></Form.Group>
                 </div>
               </div>
             );
@@ -503,7 +537,7 @@ export function OwnerOrganizationsPage() {
       </div>
       <div className="row g-3">
         <div className="col-12 col-xl-6"><div className="border rounded-3 p-3 h-100 d-flex flex-column gap-2"><div className="d-flex justify-content-between gap-2"><h4 className="h6 mb-0">Identidad y bootstrap</h4><Button type="button" size="sm" variant="outline-secondary" onClick={() => goToStep(1)}>Editar</Button></div>{summaryRow("Organización", formData.name)}{summaryRow("Slug", formData.slug)}{summaryRow("Subdominio app", formData.appSubdomain)}{summaryRow("Dominio institucional", formData.adminDomain)}{summaryRow("Admin base", formData.baseAdminName)}{summaryRow("Correo admin base", formData.baseAdminEmail)}{summaryRow("Logto user id", formData.baseAdminLogtoUserId)}{summaryRow("Rol admin", selectedAdminRole)}{summaryRow("Rol JIT", selectedJitRole)}</div></div>
-        <div className="col-12 col-xl-6"><div className="border rounded-3 p-3 h-100 d-flex flex-column gap-2"><div className="d-flex justify-content-between gap-2"><h4 className="h6 mb-0">Datos CRM</h4><Button type="button" size="sm" variant="outline-secondary" onClick={() => goToStep(2)}>Editar</Button></div>{summaryRow("Company Name", formData.crm.companyName)}{summaryRow("Company Email", formData.crm.companyEmail)}{summaryRow("Company Phone Number", formData.crm.companyPhone)}{summaryRow("Website", formData.crm.website)}{summaryRow("Address", formData.crm.address)}{summaryRow("Number of Employees", formData.crm.numberOfEmployees)}{summaryRow("Industry", formData.crm.industry)}{summaryRow("Type", formData.crm.type)}{summaryRow("Company Owner", formData.crm.companyOwner)}{summaryRow("NIT", formData.crm.nit)}{summaryRow("Digito de Verificación", formData.crm.verificationDigit)}</div></div>
+        <div className="col-12 col-xl-6"><div className="border rounded-3 p-3 h-100 d-flex flex-column gap-2"><div className="d-flex justify-content-between gap-2"><h4 className="h6 mb-0">Datos CRM</h4><Button type="button" size="sm" variant="outline-secondary" onClick={() => goToStep(2)}>Editar</Button></div>{summaryRow("Company Name", formData.crm.companyName)}{summaryRow("Company Email", formData.crm.companyEmail)}{summaryRow("Company Phone Number", formData.crm.companyPhone)}{summaryRow("Website", formData.crm.website)}{summaryRow("Address Line 1", formData.crm.addressLine1)}{summaryRow("Address Line 2", formData.crm.addressLine2)}{summaryRow("Ciudad", formData.crm.city)}{summaryRow("Departamento", formData.crm.state)}{summaryRow("Postal Code", formData.crm.postalCode)}{summaryRow("País", formData.crm.country)}{summaryRow("Number of Employees", formData.crm.numberOfEmployees)}{summaryRow("Industry", formData.crm.industry)}{summaryRow("Type", formData.crm.type)}{summaryRow("Company Owner", formData.crm.companyOwner)}{summaryRow("NIT", formData.crm.nit)}{summaryRow("Digito de Verificación", formData.crm.verificationDigit)}</div></div>
         <div className="col-12 col-xl-6"><div className="border rounded-3 p-3 h-100 d-flex flex-column gap-2"><h4 className="h6 mb-0">Administrativos</h4>{formData.administrativeContacts.map((contact) => <div key={`summary-${contact.key}`} className="border-bottom pb-2"><div className="fw-semibold">{contact.label}</div><div className="small text-secondary">{displayValue(contact.name)} · {displayValue(contact.email)} · {displayValue(contact.phone)} · {displayValue(contact.position)}</div><div className="small">Rol Logto: {displayValue(contact.organizationRoleName)}</div><div className="small">Tag por contacto: {deriveContactTag(contact.organizationRoleName) || "—"}</div></div>)}</div></div>
         <div className="col-12 col-xl-6"><div className="border rounded-3 p-3 h-100 d-flex flex-column gap-3"><h4 className="h6 mb-0">Tags CRM</h4><div className="d-flex flex-wrap gap-2">{formData.crm.tags.length ? formData.crm.tags.map((tag) => <Badge key={tag} bg="light" text="dark" className="border">{tag}</Badge>) : <span className="text-secondary small">Sin tags.</span>}</div><h4 className="h6 mb-0">Lists CRM</h4><div className="d-flex flex-wrap gap-2">{formData.crm.lists.length ? formData.crm.lists.map((list) => <Badge key={list} bg="light" text="dark" className="border">{list}</Badge>) : <span className="text-secondary small">Sin lists.</span>}</div><h4 className="h6 mb-0">Descripción / About</h4>{summaryRow("About this company", formData.crm.about)}{summaryRow("Description", formData.crm.description)}</div></div>
       </div>
@@ -517,7 +551,7 @@ export function OwnerOrganizationsPage() {
           <Form onSubmit={(event) => event.preventDefault()} className="d-flex flex-column gap-4">
             <div className="d-flex flex-column gap-2">
               <div className="d-inline-flex align-items-center gap-2"><Form.Check type="switch" id="ownerOrganizationHelpToggle" label="help" checked={showHelp} onChange={(event) => setShowHelp(event.target.checked)} /></div>
-              <Collapse in={showHelp}><div className="d-flex flex-column gap-3"><div><h3 className="h6 text-uppercase text-secondary mb-1">Asistente de creación</h3><p className="text-secondary mb-0">Primero se crea la organización y su bootstrap en Logto. Después se enlaza la capa comercial en FluentCRM sin reescribir identidad ni permisos.</p></div><div className="d-flex flex-wrap gap-2"><Badge bg="light" text="dark" className="border">Paso 1: Logto canónico</Badge><Badge bg="light" text="dark" className="border">Paso 2: CRM downstream</Badge><Badge bg="light" text="dark" className="border">Sin retyping cuando el dato ya existe</Badge></div><Alert variant="light" className="mb-0 border"><ol className="text-secondary mb-0 d-flex flex-column gap-2 ps-3"><li>Crear o reconciliar primero la organización canónica en Logto.</li><li>Enviar <code>customData</code> derivado de slug, subdominio y dominio directamente a Logto.</li><li>Persistir <code>organization_profiles</code> solo después de Logto para referencias externas, sync y auditoría.</li><li>Crear o resolver el admin base por <code>logtoUserId</code> o por correo y nombre.</li><li>Crear o resolver Director y Responsables primero en Logto, asignarles rol organizacional y después sincronizarlos como contactos FluentCRM.</li><li>FluentCRM recibe downstream la Company y los contactos CRM; sus tags/lists son segmentación comercial, no permisos.</li><li>Agregarlo como miembro y asignarle <code>{ORGANIZATION_BOOTSTRAP_ADMIN_ROLE}</code> sin usar al owner global como sustituto.</li><li>Configurar JIT real en Logto con el dominio institucional y el rol por defecto <code>{ORGANIZATION_JIT_DEFAULT_ROLE}</code>.</li><li>Si dejas campos CRM vacíos, Civitas reutiliza datos del paso 1 para evitar retyping.</li></ol></Alert></div></Collapse>
+              <Collapse in={showHelp}><div className="d-flex flex-column gap-3"><div><h3 className="h6 text-uppercase text-secondary mb-1">Asistente de creación</h3><p className="text-secondary mb-0">Primero se crea la organización y su bootstrap en Logto. Después se enlaza la capa comercial en FluentCRM sin reescribir identidad ni permisos.</p></div><div className="d-flex flex-wrap gap-2"><Badge bg="light" text="dark" className="border">Paso 1: Logto canónico</Badge><Badge bg="light" text="dark" className="border">Paso 2: CRM downstream</Badge><Badge bg="light" text="dark" className="border">Sin retyping cuando el dato ya existe</Badge></div><Alert variant="light" className="mb-0 border">El alta crea o reconcilia la organización en Logto, crea o resuelve el admin base en Logto, lo agrega como miembro, le asigna Admin-org y configura en la API de Logto el dominio institucional con Student-org como rol JIT predeterminado. <code>customData</code> queda solo como metadata auxiliar.</Alert><Alert variant="light" className="mb-0 border"><ol className="text-secondary mb-0 d-flex flex-column gap-2 ps-3"><li>Crear o reconciliar primero la organización canónica en Logto.</li><li>Enviar <code>customData</code> derivado de slug, subdominio y dominio directamente a Logto.</li><li>Persistir <code>organization_profiles</code> solo después de Logto para referencias externas, sync y auditoría.</li><li>Crear o resolver el admin base por <code>logtoUserId</code> o por correo y nombre.</li><li>Crear o resolver Director y Responsables primero en Logto, asignarles rol organizacional y después sincronizarlos como contactos FluentCRM.</li><li>FluentCRM recibe downstream la Company y los contactos CRM; sus tags/lists son segmentación comercial, no permisos.</li><li>Agregarlo como miembro y asignarle <code>{ORGANIZATION_BOOTSTRAP_ADMIN_ROLE}</code> sin usar al owner global como sustituto.</li><li>Configurar JIT real en Logto con el dominio institucional y el rol por defecto <code>{ORGANIZATION_JIT_DEFAULT_ROLE}</code>.</li><li>Si dejas campos CRM vacíos, Civitas reutiliza datos del paso 1 para evitar retyping.</li></ol></Alert></div></Collapse>
             </div>
             <div className="d-flex flex-column flex-lg-row gap-2">
               {wizardSteps.map((item) => <button key={item.step} type="button" className={`btn flex-fill text-start border ${currentStep === item.step ? "btn-primary" : "btn-light"}`} onClick={() => goToStep(item.step)}><span className="d-block fw-semibold">{item.title}</span><span className={currentStep === item.step ? "small text-white-50" : "small text-secondary"}>{item.description}</span></button>)}
@@ -527,7 +561,6 @@ export function OwnerOrganizationsPage() {
             {currentStep === 1 ? renderStepOne() : null}
             {currentStep === 2 ? renderStepTwo() : null}
             {currentStep === 3 ? renderStepThree() : null}
-            <Alert variant="info" className="mb-0">El alta crea o reconcilia la organización en Logto, crea o resuelve el admin base en Logto, lo agrega como miembro, le asigna Admin-org y configura en la API de Logto el dominio institucional con Student-org como rol JIT predeterminado. <code>customData</code> queda solo como metadata auxiliar.</Alert>
             {submitError && <Alert variant="danger" className="mb-0">{submitError}</Alert>}
             {submitWarning ? <Alert variant="warning" className="mb-0"><div className="fw-semibold mb-1">Atención en el paso FluentCRM</div><div>{submitWarning}</div>{submitHints.length > 0 ? <ul className="mt-2 mb-0 ps-3 d-flex flex-column gap-1">{submitHints.map((hint) => <li key={hint}>{hint}</li>)}</ul> : null}</Alert> : null}
             {createdCrmStatus && <Alert variant="success" className="mb-0">Estado FluentCRM: {createdCrmStatus}. La organización canónica y permisos siguen en Logto.</Alert>}

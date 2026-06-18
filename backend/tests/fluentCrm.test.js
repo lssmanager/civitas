@@ -227,6 +227,12 @@ test("normalizeCrmCompanyInput maps minimal FluentCRM company fields without ide
     companyPhone: "+1555",
     website: "https://school.edu",
     address: null,
+    addressLine1: null,
+    addressLine2: null,
+    city: null,
+    state: null,
+    postalCode: null,
+    country: null,
     numberOfEmployees: 42,
     industry: "Education",
     type: "School",
@@ -498,6 +504,14 @@ test("normalizeCrmCompanyInput accepts owner tax fields for FluentCRM companies"
   assert.equal(normalized.address, "Calle 123");
   assert.deepEqual(normalized.tags, ["Admin-org"]);
   assert.deepEqual(normalized.lists, ["Colegio San Jose"]);
+});
+
+test("normalizeCrmCompanyInput builds legacy address from structured owner address fields", () => {
+  const { normalizeCrmCompanyInput, buildFluentCrmCompanyPayload } = require("../services/fluentCrm");
+  const normalized = normalizeCrmCompanyInput({ addressLine1: " Calle 1 ", addressLine2: " Piso 2 ", city: " Bogotá ", state: " Cundinamarca ", postalCode: "110111", country: "Colombia" }, { name: "Colegio" });
+
+  assert.equal(normalized.address, "Calle 1, Piso 2, Bogotá, Cundinamarca, 110111, Colombia");
+  assert.equal(buildFluentCrmCompanyPayload(normalized).address, "Calle 1, Piso 2, Bogotá, Cundinamarca, 110111, Colombia");
 });
 
 test("buildFluentCrmCompanyPayload maps NIT and verification digit to custom values", () => {

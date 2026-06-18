@@ -121,7 +121,12 @@ export type FluentCrmCompanyInput = {
   companyPhone?: string;
   about?: string;
   website?: string;
-  address?: string;
+  addressLine1?: string;
+  addressLine2?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+  country?: string;
   numberOfEmployees?: number;
   industry?: string;
   type?: string;

@@ -109,6 +109,15 @@ const normalizeInteger = (value) => {
   return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
 };
 
+const buildStructuredAddress = (company = {}) => [
+  company.addressLine1,
+  company.addressLine2,
+  company.city,
+  company.state,
+  company.postalCode,
+  company.country,
+].map(normalizeString).filter(Boolean).join(", ") || null;
+
 function normalizeCrmCompanyInput(input = {}, fallback = {}) {
   const companyName = normalizeString(input.companyName ?? input.name) || normalizeString(fallback.name ?? fallback.nameCache);
   return {
@@ -116,7 +125,13 @@ function normalizeCrmCompanyInput(input = {}, fallback = {}) {
     companyEmail: normalizeEmail(input.companyEmail ?? input.email),
     companyPhone: normalizeString(input.companyPhone ?? input.phone),
     website: normalizeString(input.website ?? fallback.website ?? fallback.adminDomain),
-    address: normalizeString(input.address ?? input.billingAddress ?? input.companyAddress),
+    address: normalizeString(input.address ?? input.billingAddress ?? input.companyAddress) || buildStructuredAddress(input),
+    addressLine1: normalizeString(input.addressLine1),
+    addressLine2: normalizeString(input.addressLine2),
+    city: normalizeString(input.city),
+    state: normalizeString(input.state ?? input.department),
+    postalCode: normalizeString(input.postalCode ?? input.zip),
+    country: normalizeString(input.country),
     numberOfEmployees: normalizeInteger(input.numberOfEmployees),
     industry: normalizeString(input.industry),
     type: normalizeString(input.type),
@@ -140,7 +155,7 @@ function buildFluentCrmCompanyPayload(company = {}) {
     email: company.companyEmail || company.email || company.billingEmail || company.contactEmail || undefined,
     phone: company.companyPhone || company.phone || undefined,
     website: company.website || company.adminDomain || undefined,
-    address: company.address || undefined,
+    address: company.address || buildStructuredAddress(company) || undefined,
     number_of_employees: company.numberOfEmployees ?? undefined,
     industry: company.industry || undefined,
     type: company.type || undefined,

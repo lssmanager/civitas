@@ -431,6 +431,29 @@ const getSafeErrorMessage = (error) => {
   return `${error.message || "Logto synchronization failed"}${status}${requestPath}`;
 };
 
+const buildPendingReconciliationSettings = (profile, { failedStep, error, retryRecommended = true }) => ({
+  ...(profile?.settings || {}),
+  pendingReconciliation: {
+    failedStep,
+    lastError: getSafeErrorMessage(error),
+    lastAttemptAt: new Date().toISOString(),
+    retryRecommended,
+  },
+});
+
+async function persistPendingReconciliation({ logtoOrganizationId, profile, failedStep, error }) {
+  const resolvedProfile = profile || (logtoOrganizationId ? (await listOrganizationProfiles()).find((item) => item.logtoOrganizationId === logtoOrganizationId) : null);
+  if (!resolvedProfile) return null;
+  return markOrganizationProfileFluentCrmSync({
+    id: resolvedProfile.id,
+    companyId: resolvedProfile.fluentcrmCompanyId,
+    status: "error",
+    errorMessage: getSafeErrorMessage(error),
+    synced: false,
+    settings: buildPendingReconciliationSettings(resolvedProfile, { failedStep, error }),
+  });
+}
+
 // Local base healthcheck. It intentionally does not depend on Logto or any external integration.
 app.get("/health", async (req, res) => {
   const database = await checkDatabaseConnection();
@@ -612,7 +635,8 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireOwner, async 
     } catch (crmError) {
       const crmMessage = getSafeErrorMessage(crmError);
       crmWarning = `Organization was created in Logto, but FluentCRM sync failed: ${crmMessage}`;
-      fluentCrmStep = { status: "error", message: crmMessage, code: crmError.code || null, diagnostic: crmError.diagnostic || null, statusCode: crmError.status || null, body: crmError.body || null };
+      const pendingProfile = await persistPendingReconciliation({ logtoOrganizationId, profile: fluentCrmStep.profile, failedStep: "fluentcrm_company_or_contacts_sync", error: crmError });
+      fluentCrmStep = { status: "error", message: crmMessage, code: crmError.code || null, diagnostic: crmError.diagnostic || null, statusCode: crmError.status || null, body: crmError.body || null, profile: pendingProfile || fluentCrmStep.profile || null, pendingReconciliation: pendingProfile?.settings?.pendingReconciliation || null };
     }
 
     return res.status(201).json({
@@ -666,12 +690,14 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireOwner, async 
 
     console.error("Organization creation through Logto failed", error);
     if (canonicalCreated && logtoOrganizationId) {
+      const failedStep = error.request?.path?.includes("/jit/email-domains") ? "jit_email_domain_configuration" : error.request?.path?.includes("/jit/roles") ? "jit_default_roles_configuration" : error.request?.path?.includes("/users") ? "base_admin_user_resolution" : error.request?.path?.includes("/roles") ? "base_admin_role_assignment" : error.code === "LOGTO_ORGANIZATION_TEMPLATE_MISSING_ROLES" ? "organization_template_validation" : "base_admin_or_jit_followup";
+      await persistPendingReconciliation({ logtoOrganizationId, failedStep, error }).catch(() => null);
       return res.status(201).json({
         organization: serializeLogtoOwnerOrganization(logtoOrganization, logtoOrganizationId),
         status: "created_in_logto_with_followup_failure",
         sourceOfTruth: "logto",
         warning: `Organization was created canonically in Logto, but a non-canonical follow-up step failed: ${errorMessage}`,
-        failedStep: error.request?.path?.includes("/jit/email-domains") ? "jit_email_domain_configuration" : error.request?.path?.includes("/jit/roles") ? "jit_default_roles_configuration" : error.request?.path?.includes("/users") ? "base_admin_user_resolution" : error.request?.path?.includes("/roles") ? "base_admin_role_assignment" : error.code === "LOGTO_ORGANIZATION_TEMPLATE_MISSING_ROLES" ? "organization_template_validation" : "base_admin_or_jit_followup",
+        failedStep,
         followUpError: { message: errorMessage, status: error.status || null, request: error.request || null, body: error.body || null },
       });
     }
