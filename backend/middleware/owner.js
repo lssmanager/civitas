@@ -1,4 +1,4 @@
-const { requireScope } = require("./auth");
+const { extractRoleNames, requireScope } = require("./auth");
 
 const requireOwnerScope = requireScope("owner:read");
 
@@ -7,6 +7,15 @@ const requireOwner = (req, res, next) => {
     return res.status(403).json({
       error: "Forbidden",
       message: "Owner portal requires a global API access token, not an organization token",
+    });
+  }
+
+  const roles = Array.isArray(req.user?.roles) ? req.user.roles : extractRoleNames(req.user?.claims || {});
+  if (!roles.includes("owner_global")) {
+    return res.status(403).json({
+      error: "Forbidden",
+      message: "Owner portal requires the global Logto role owner_global",
+      requiredRole: "owner_global",
     });
   }
 

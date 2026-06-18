@@ -2,12 +2,14 @@ const { AUDIT_ACTIONS, AUDIT_RESULTS, recordAuditLogBestEffort } = require("./au
 const { FLUENTCRM_SYNC_STATUSES, markOrganizationProfileFluentCrmSync } = require("./organizationProfiles");
 
 class FluentCrmError extends Error {
-  constructor(message, { status, body, code } = {}) {
+  constructor(message, { status, body, code, diagnostic, request } = {}) {
     super(message);
     this.name = "FluentCrmError";
     this.status = status;
     this.body = sanitizeForDiagnostics(body);
     this.code = code;
+    this.diagnostic = diagnostic || null;
+    this.request = request ? sanitizeForDiagnostics(request) : null;
   }
 }
 
@@ -70,7 +72,8 @@ function getFluentCrmConfig() {
   if (missing.length) {
     throw new FluentCrmError(`FluentCRM is not configured; missing ${missing.join(", ")}`, { code: "FLUENTCRM_CONFIG_MISSING", body: { missing } });
   }
-  return { baseUrl, username, appPassword };
+  const timeoutMs = Number.parseInt(process.env.FLUENTCRM_TIMEOUT_MS || "10000", 10);
+  return { baseUrl, username, appPassword, timeoutMs: Number.isInteger(timeoutMs) && timeoutMs > 0 ? timeoutMs : 10000 };
 }
 
 function buildAuthHeader(config) {
@@ -160,25 +163,46 @@ function extractCompanies(body) {
   return [];
 }
 
+function getFluentCrmDiagnostic(response, parsed, path) {
+  if (response.status === 401) return { code: "FLUENTCRM_AUTHENTICATION_FAILED", message: "FluentCRM authentication failed (401). Verify FLUENTCRM_USERNAME and FLUENTCRM_APP_PASSWORD are a valid WordPress Application Password for the configured site.", likelyCauses: ["invalid_username", "invalid_application_password", "basic_auth_blocked", "wrong_base_url_or_site"] };
+  if (response.status === 403) return { code: "FLUENTCRM_AUTHORIZATION_FAILED", message: "FluentCRM authorization failed (403). The WordPress user authenticated, but does not have permission to access FluentCRM REST endpoints.", likelyCauses: ["wordpress_user_lacks_fluentcrm_permissions", "security_plugin_blocks_rest_api"] };
+  if (response.status === 404) return { code: "FLUENTCRM_ENDPOINT_NOT_FOUND", message: `FluentCRM endpoint was not found at /wp-json/fluent-crm/v2${path}. Verify FLUENTCRM_BASE_URL and that FluentCRM is installed and REST API endpoints are enabled.`, likelyCauses: ["wrong_base_url", "fluentcrm_plugin_missing_or_inactive", "rest_route_unavailable"] };
+  return { code: "FLUENTCRM_REQUEST_FAILED", message: `FluentCRM request failed (${response.status})`, likelyCauses: [] };
+}
+
 async function requestFluentCrm(path, { method = "GET", query, body } = {}) {
   const config = getFluentCrmConfig();
   const url = new URL(`${config.baseUrl}/wp-json/fluent-crm/v2${path}`);
   if (query) Object.entries(query).forEach(([key, value]) => value != null && url.searchParams.set(key, value));
-  const response = await fetch(url, {
-    method,
-    headers: { Accept: "application/json", "Content-Type": "application/json", Authorization: buildAuthHeader(config) },
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
+  let response;
+  try {
+    response = await fetch(url, {
+      method,
+      headers: { Accept: "application/json", "Content-Type": "application/json", Authorization: buildAuthHeader(config) },
+      body: body ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error?.name === "AbortError") throw new FluentCrmError(`FluentCRM request timed out after ${config.timeoutMs}ms`, { status: 504, code: "FLUENTCRM_TIMEOUT", diagnostic: { timeoutMs: config.timeoutMs, path }, request: { method, path } });
+    throw new FluentCrmError("FluentCRM network request failed", { status: 502, code: "FLUENTCRM_NETWORK_ERROR", body: error, request: { method, path } });
+  } finally {
+    clearTimeout(timeout);
+  }
   const text = await response.text();
   let parsed = null;
   if (text) {
     try {
       parsed = JSON.parse(text);
     } catch (error) {
-      throw new FluentCrmError("FluentCRM returned invalid JSON", { status: response.status, body: { responseBody: text }, code: "FLUENTCRM_INVALID_JSON" });
+      throw new FluentCrmError("FluentCRM returned invalid JSON", { status: response.status, body: { responseBody: text }, code: "FLUENTCRM_INVALID_JSON", request: { method, path } });
     }
   }
-  if (!response.ok) throw new FluentCrmError("FluentCRM request failed", { status: response.status, body: parsed, code: "FLUENTCRM_REQUEST_FAILED" });
+  if (!response.ok) {
+    const diagnostic = getFluentCrmDiagnostic(response, parsed, path);
+    throw new FluentCrmError(diagnostic.message, { status: response.status, body: parsed, code: diagnostic.code, diagnostic, request: { method, path } });
+  }
   return parsed;
 }
 
@@ -275,15 +299,38 @@ async function ensureOrganizationTagsAndLists({ logtoOrganizationId, slug, name 
   };
 }
 
-async function searchContacts({ email, externalId } = {}) {
-  const query = externalId || normalizeEmail(email);
-  if (!query) return [];
-  const body = await requestFluentCrm("/subscribers", { query: { search: query, per_page: 20 } });
+function contactExternalId(contact = {}) {
+  return contact.external_id ?? contact.externalId ?? contact.custom_values?.external_id ?? contact.meta?.external_id ?? null;
+}
+
+function contactEmail(contact = {}) {
+  return normalizeEmail(contact.email ?? contact.primary_email ?? contact.primaryEmail);
+}
+
+function extractContacts(body) {
   if (Array.isArray(body)) return body;
   if (Array.isArray(body?.subscribers)) return body.subscribers;
   if (Array.isArray(body?.contacts)) return body.contacts;
   if (Array.isArray(body?.data)) return body.data;
   return [];
+}
+
+async function searchContacts({ email, externalId } = {}) {
+  const normalizedEmail = normalizeEmail(email);
+  if (externalId) {
+    const body = await requestFluentCrm("/subscribers", { query: { search: externalId, per_page: 20 } });
+    const matches = extractContacts(body).filter((contact) => String(contactExternalId(contact) || "") === String(externalId));
+    if (matches.length > 0) return matches;
+  }
+  if (!normalizedEmail) return [];
+  const body = await requestFluentCrm("/subscribers", { query: { search: normalizedEmail, per_page: 20 } });
+  return extractContacts(body).filter((contact) => contactEmail(contact) === normalizedEmail);
+}
+
+async function validateFluentCrmConfiguration() {
+  const config = getFluentCrmConfig();
+  await requestFluentCrm("/subscribers", { query: { per_page: 1 } });
+  return { status: "ok", baseUrl: config.baseUrl, endpoint: `${config.baseUrl}/wp-json/fluent-crm/v2`, timeoutMs: config.timeoutMs };
 }
 
 const contactId = (contact = {}) => contact.id ?? contact.ID ?? contact.subscriber_id ?? null;
@@ -513,4 +560,4 @@ async function getOrCreateCompanyForOrganization(profile, organization = {}, { a
   }
 }
 
-module.exports = { CRM_CLEANUP_STRATEGIES, FluentCrmError, buildCleanupPolicy, buildOrganizationCrmTaxonomy, cleanupContactInFluentCrm, createCompany, createContact, deleteContact, ensureOrganizationTagsAndLists, findCompanyCandidates, findReliableCompanyMatch, getFluentCrmConfig, getFluentCrmRoleSyncMapping, getOrCreateCompanyForOrganization, mapOrganizationRolesToCrmTaxonomy, normalizeBaseUrl, normalizeCrmCompanyInput, sanitizeForDiagnostics, searchCompanies, searchContacts, syncOrganizationContactsToFluentCrm, updateContact, updateContactEmailAfterLogtoChange, upsertContactFromLogtoIdentity };
+module.exports = { CRM_CLEANUP_STRATEGIES, FluentCrmError, buildCleanupPolicy, buildOrganizationCrmTaxonomy, cleanupContactInFluentCrm, createCompany, createContact, deleteContact, ensureOrganizationTagsAndLists, findCompanyCandidates, findReliableCompanyMatch, getFluentCrmConfig, getFluentCrmRoleSyncMapping, getOrCreateCompanyForOrganization, mapOrganizationRolesToCrmTaxonomy, normalizeBaseUrl, normalizeCrmCompanyInput, sanitizeForDiagnostics, searchCompanies, searchContacts, validateFluentCrmConfiguration, syncOrganizationContactsToFluentCrm, updateContact, updateContactEmailAfterLogtoChange, upsertContactFromLogtoIdentity };
