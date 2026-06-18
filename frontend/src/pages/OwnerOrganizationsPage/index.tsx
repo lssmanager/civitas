@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Country, State } from "country-state-city";
-import { Alert, Badge, Button, Collapse, Form } from "react-bootstrap";
+import { Alert, Badge, Button, Form } from "react-bootstrap";
 import { ApiRequestError } from "../../api/base";
 import { useOwnerApi } from "../../api/owner";
 import { ORGANIZATION_BOOTSTRAP_ADMIN_ROLE, ORGANIZATION_JIT_DEFAULT_ROLE } from "../../authLayers";
@@ -144,7 +144,6 @@ export function OwnerOrganizationsPage() {
   const [submitWarning, setSubmitWarning] = useState<string | null>(null);
   const [submitHints, setSubmitHints] = useState<string[]>([]);
   const [createdCrmStatus, setCreatedCrmStatus] = useState<string | null>(null);
-  const [showHelp, setShowHelp] = useState(false);
   const [crmHealthMessage, setCrmHealthMessage] = useState<string | null>(null);
   const [crmHealthHints, setCrmHealthHints] = useState<string[]>([]);
   const [crmHealthVariant, setCrmHealthVariant] = useState<"success" | "danger" | "warning" | null>(null);
@@ -549,10 +548,6 @@ export function OwnerOrganizationsPage() {
       <div className="row g-4"><div className="col-12"><PageCard title="Nueva organización" subtitle="Logto es la fuente canónica; la base local queda fuera del camino obligatorio de creación.">
         {templateResource.isLoading ? <LoadingState title="Cargando plantilla" description="Consultando roles de la organization template de Logto." /> : templateResource.error ? <ErrorState title="No se pudo cargar la plantilla" message={templateResource.error} action={<Button onClick={templateResource.retry}>Reintentar</Button>} /> : (
           <Form onSubmit={(event) => event.preventDefault()} className="d-flex flex-column gap-4">
-            <div className="d-flex flex-column gap-2">
-              <div className="d-inline-flex align-items-center gap-2"><Form.Check type="switch" id="ownerOrganizationHelpToggle" label="help" checked={showHelp} onChange={(event) => setShowHelp(event.target.checked)} /></div>
-              <Collapse in={showHelp}><div className="d-flex flex-column gap-3"><div><h3 className="h6 text-uppercase text-secondary mb-1">Asistente de creación</h3><p className="text-secondary mb-0">Primero se crea la organización y su bootstrap en Logto. Después se enlaza la capa comercial en FluentCRM sin reescribir identidad ni permisos.</p></div><div className="d-flex flex-wrap gap-2"><Badge bg="light" text="dark" className="border">Paso 1: Logto canónico</Badge><Badge bg="light" text="dark" className="border">Paso 2: CRM downstream</Badge><Badge bg="light" text="dark" className="border">Sin retyping cuando el dato ya existe</Badge></div><Alert variant="light" className="mb-0 border">El alta crea o reconcilia la organización en Logto, crea o resuelve el admin base en Logto, lo agrega como miembro, le asigna Admin-org y configura en la API de Logto el dominio institucional con Student-org como rol JIT predeterminado. <code>customData</code> queda solo como metadata auxiliar.</Alert><Alert variant="light" className="mb-0 border"><ol className="text-secondary mb-0 d-flex flex-column gap-2 ps-3"><li>Crear o reconciliar primero la organización canónica en Logto.</li><li>Enviar <code>customData</code> derivado de slug, subdominio y dominio directamente a Logto.</li><li>Persistir <code>organization_profiles</code> solo después de Logto para referencias externas, sync y auditoría.</li><li>Crear o resolver el admin base por <code>logtoUserId</code> o por correo y nombre.</li><li>Crear o resolver Director y Responsables primero en Logto, asignarles rol organizacional y después sincronizarlos como contactos FluentCRM.</li><li>FluentCRM recibe downstream la Company y los contactos CRM; sus tags/lists son segmentación comercial, no permisos.</li><li>Agregarlo como miembro y asignarle <code>{ORGANIZATION_BOOTSTRAP_ADMIN_ROLE}</code> sin usar al owner global como sustituto.</li><li>Configurar JIT real en Logto con el dominio institucional y el rol por defecto <code>{ORGANIZATION_JIT_DEFAULT_ROLE}</code>.</li><li>Si dejas campos CRM vacíos, Civitas reutiliza datos del paso 1 para evitar retyping.</li></ol></Alert></div></Collapse>
-            </div>
             <div className="d-flex flex-column flex-lg-row gap-2">
               {wizardSteps.map((item) => <button key={item.step} type="button" className={`btn flex-fill text-start border ${currentStep === item.step ? "btn-primary" : "btn-light"}`} onClick={() => goToStep(item.step)}><span className="d-block fw-semibold">{item.title}</span><span className={currentStep === item.step ? "small text-white-50" : "small text-secondary"}>{item.description}</span></button>)}
             </div>
