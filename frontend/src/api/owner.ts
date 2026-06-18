@@ -126,6 +126,8 @@ export type FluentCrmCompanyInput = {
   type?: string;
   companyOwner?: string;
   description?: string;
+  nit?: number;
+  verificationDigit?: number;
 };
 
 export type CreateOwnerOrganizationInput = {
