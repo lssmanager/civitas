@@ -181,14 +181,25 @@ export function OwnerOrganizationsPage() {
     setFormData((current) => ({ ...current, crm: { ...current.crm, [field]: value } }));
   };
 
-  const getDefaultAdministrativeEmail = (key: AdministrativeContactKey, domain: string) => domain ? `${key === "director" ? "director" : key.replace("responsible", "responsable")}@${domain}` : "";
+  const getInstitutionalEmailSuffix = () => formData.adminDomain.trim() ? `@${formData.adminDomain.trim()}` : "";
+  const getAdministrativeEmailPlaceholder = (key: AdministrativeContactKey) => formData.adminDomain.trim() ? `${key === "director" ? "director" : key.replace("responsible", "responsable")}@${formData.adminDomain.trim()}` : "correo@dominio.edu";
+  const isOnlyInstitutionalEmailSuffix = (email: string) => Boolean(getInstitutionalEmailSuffix()) && email.trim().toLowerCase() === getInstitutionalEmailSuffix().toLowerCase();
+  const normalizeAdministrativeEmail = (email: string) => isOnlyInstitutionalEmailSuffix(email) ? "" : email.trim();
+  const normalizeAdministrativeContactForSubmission = (contact: AdministrativeContact): { value?: { kind: AdministrativeContactKey; name: string; email: string; phone?: string; position?: string; organizationRoleName: string }; error?: string } | null => {
+    const name = contact.name.trim();
+    const email = normalizeAdministrativeEmail(contact.email);
+    const phone = contact.phone.trim();
+    const position = contact.position.trim();
+    const organizationRoleName = contact.organizationRoleName.trim();
+    const hasAnyUserInput = Boolean(name || email || phone || position);
+    if (!hasAnyUserInput) return null;
+    if (!name || !email || !organizationRoleName) return { error: `${contact.label}: completa nombre, email real y rol Logto, o deja el bloque vacío.` };
+    return { value: { kind: contact.key, name, email, phone: phone || undefined, position: position || undefined, organizationRoleName } };
+  };
 
-  useEffect(() => {
-    setFormData((current) => ({
-      ...current,
-      administrativeContacts: current.administrativeContacts.map((contact) => contact.email.trim() || !current.adminDomain.trim() ? contact : { ...contact, email: getDefaultAdministrativeEmail(contact.key, current.adminDomain.trim()) }),
-    }));
-  }, [formData.adminDomain]);
+  const getNormalizedAdministrativeContacts = () => formData.administrativeContacts.map(normalizeAdministrativeContactForSubmission);
+  const getAdministrativeContactValidationError = () => getNormalizedAdministrativeContacts().find((result) => result?.error)?.error || null;
+  const getAdministrativeContactsPayload = () => getNormalizedAdministrativeContacts().map((result) => result?.value).filter((value): value is { kind: AdministrativeContactKey; name: string; email: string; phone?: string; position?: string; organizationRoleName: string } => Boolean(value));
 
   const updateAdministrativeContact = (key: AdministrativeContactKey, field: "name" | "email" | "phone" | "position" | "organizationRoleName", value: string) => {
     setStepError(null);
@@ -198,7 +209,6 @@ export function OwnerOrganizationsPage() {
     }));
   };
 
-  const activeAdministrativeContacts = formData.administrativeContacts.filter((contact) => contact.name.trim() || contact.email.trim() || contact.phone.trim());
 
   const addCollectionValue = (collection: "tags" | "lists", value: string) => {
     const normalized = value.trim();
@@ -239,6 +249,13 @@ export function OwnerOrganizationsPage() {
   const goNext = () => {
     if (currentStep === 1) {
       const validationError = validateStepOne();
+      if (validationError) {
+        setStepError(validationError);
+        return;
+      }
+    }
+    if (currentStep === 2) {
+      const validationError = getAdministrativeContactValidationError();
       if (validationError) {
         setStepError(validationError);
         return;
@@ -285,6 +302,12 @@ export function OwnerOrganizationsPage() {
       setCurrentStep(1);
       return;
     }
+    const administrativeValidationError = getAdministrativeContactValidationError();
+    if (administrativeValidationError) {
+      setStepError(administrativeValidationError);
+      setCurrentStep(2);
+      return;
+    }
     setSubmitError(null);
     setSubmitWarning(null);
     setSubmitHints([]);
@@ -324,7 +347,7 @@ export function OwnerOrganizationsPage() {
           tags: formData.crm.tags,
           lists: formData.crm.lists,
         },
-        administrativeContacts: activeAdministrativeContacts.map(({ key, name, email, phone, position, organizationRoleName }) => ({ kind: key, name, email, phone: phone || undefined, position: position || undefined, organizationRoleName })),
+        administrativeContacts: getAdministrativeContactsPayload(),
       });
 
       const fluentCrmStep = result.fluentcrm as Record<string, unknown> | undefined;
@@ -455,7 +478,7 @@ export function OwnerOrganizationsPage() {
                 </div>
                 <div className="row g-3">
                   <Form.Group className="col-12 col-xl-6" controlId={`ownerOrganizationAdminContactName-${contact.key}`}><Form.Label>{contact.label} nombre</Form.Label><Form.Control value={contact.name} onChange={(event) => updateAdministrativeContact(contact.key, "name", event.target.value)} /></Form.Group>
-                  <Form.Group className="col-12 col-xl-6" controlId={`ownerOrganizationAdminContactEmail-${contact.key}`}><Form.Label>{contact.label} email</Form.Label><Form.Control type="email" value={contact.email} onChange={(event) => updateAdministrativeContact(contact.key, "email", event.target.value)} placeholder={getDefaultAdministrativeEmail(contact.key, formData.adminDomain)} /></Form.Group>
+                  <Form.Group className="col-12 col-xl-6" controlId={`ownerOrganizationAdminContactEmail-${contact.key}`}><Form.Label>{contact.label} email</Form.Label><Form.Control type="email" value={contact.email} onChange={(event) => updateAdministrativeContact(contact.key, "email", event.target.value)} placeholder={getAdministrativeEmailPlaceholder(contact.key)} /><Form.Text>{getInstitutionalEmailSuffix() ? `Sugerencia: usa el sufijo ${getInstitutionalEmailSuffix()}. El sufijo solo no cuenta como email completo.` : "Define primero el dominio institucional para ver el sufijo sugerido."}</Form.Text></Form.Group>
                   <Form.Group className="col-12 col-xl-4" controlId={`ownerOrganizationAdminContactPhone-${contact.key}`}><Form.Label>{contact.label} teléfono</Form.Label><Form.Control type="tel" value={contact.phone} onChange={(event) => updateAdministrativeContact(contact.key, "phone", event.target.value)} /></Form.Group>
                   <Form.Group className="col-12 col-xl-4" controlId={`ownerOrganizationAdminContactPosition-${contact.key}`}><Form.Label>{contact.label} cargo</Form.Label><Form.Control value={contact.position} onChange={(event) => updateAdministrativeContact(contact.key, "position", event.target.value)} placeholder={contact.label} /></Form.Group>
                   <Form.Group className="col-12 col-xl-4" controlId={`ownerOrganizationAdminContactRole-${contact.key}`}><Form.Label>{contact.label} rol Logto</Form.Label><Form.Select value={contact.organizationRoleName} onChange={(event) => updateAdministrativeContact(contact.key, "organizationRoleName", event.target.value)} disabled={roles.length === 0}>{!roles.some((role) => role.name === contact.organizationRoleName) ? <option value={contact.organizationRoleName}>{contact.organizationRoleName}</option> : null}{roles.map((role) => <option value={role.name} key={`${contact.key}-${role.id}`}>{role.name}</option>)}</Form.Select><Form.Text>Rol organizacional real de Logto; tags CRM son solo segmentación.</Form.Text></Form.Group>

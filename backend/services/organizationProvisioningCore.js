@@ -24,18 +24,26 @@ const normalizeRoleNames = (value, fallback = DEFAULT_JIT_ROLE_NAMES) => {
   const roles = input.map((role) => (typeof role === "string" ? role.trim() : "")).filter(Boolean);
   return Array.from(new Set(roles.length > 0 ? roles : fallback));
 };
-const normalizeAdministrativeContacts = (value) => {
+const normalizeAdministrativeContacts = (value, institutionalDomain = null) => {
   if (!Array.isArray(value)) return [];
+  const suffix = institutionalDomain ? `@${String(institutionalDomain).trim().toLowerCase()}` : null;
+  const normalizeContactEmail = (email) => {
+    const normalized = emptyToNull(email)?.toLowerCase() || null;
+    if (!normalized) return null;
+    if (suffix && normalized === suffix) return null;
+    return normalized;
+  };
   return value
     .map((contact, index) => ({
       key: typeof (contact?.key ?? contact?.kind) === "string" && (contact.key ?? contact.kind).trim() ? (contact.key ?? contact.kind).trim() : `administrative_contact_${index + 1}`,
       name: emptyToNull(contact?.name),
-      email: emptyToNull(contact?.email)?.toLowerCase() || null,
+      email: normalizeContactEmail(contact?.email),
+      rawEmail: emptyToNull(contact?.email)?.toLowerCase() || null,
       phone: emptyToNull(contact?.phone),
       position: emptyToNull(contact?.position ?? contact?.cargo),
       organizationRoleName: emptyToNull(contact?.organizationRoleName),
     }))
-    .filter((contact) => contact.name || contact.email || contact.organizationRoleName);
+    .filter((contact) => contact.name || contact.email || contact.phone || contact.position);
 };
 const looksLikeRoleName = (value) => [ORGANIZATION_ADMIN_ROLE_NAME, JIT_DEFAULT_ORGANIZATION_ROLE_NAME].includes(value);
 
@@ -54,7 +62,7 @@ function normalizeCanonicalProvisioningInput(body = {}) {
   const jitProvisioning = body.jitProvisioning && typeof body.jitProvisioning === "object" ? body.jitProvisioning : {};
   const jitProvisioningDomain = emptyToNull(jitProvisioning.domain ?? body.adminDomain ?? body.institutionalProvisioningDomain)?.toLowerCase() || null;
   const jitDefaultRoleNames = normalizeRoleNames(jitProvisioning.defaultRoleNames ?? body.defaultRoleNames, DEFAULT_JIT_ROLE_NAMES);
-  const administrativeContacts = normalizeAdministrativeContacts(body.administrativeContacts);
+  const administrativeContacts = normalizeAdministrativeContacts(body.administrativeContacts, jitProvisioningDomain);
   const errors = [];
 
   if (!name) errors.push({ field: "name", message: "Organization name is required" });
@@ -68,7 +76,7 @@ function normalizeCanonicalProvisioningInput(body = {}) {
   administrativeContacts.forEach((contact, index) => {
     const prefix = `administrativeContacts.${index}`;
     if (!contact.name) errors.push({ field: `${prefix}.name`, message: "Administrative contact name is required when adding a contact" });
-    if (!contact.email) errors.push({ field: `${prefix}.email`, message: "Administrative contact email is required when adding a contact" });
+    if (!contact.email) errors.push({ field: `${prefix}.email`, message: "Administrative contact email is required and must include a local part before the institutional suffix" });
     if (contact.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact.email)) errors.push({ field: `${prefix}.email`, message: "Administrative contact email must be a valid email address" });
     if (!contact.organizationRoleName) errors.push({ field: `${prefix}.organizationRoleName`, message: "Administrative contact organization role is required" });
   });
