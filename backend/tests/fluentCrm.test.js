@@ -232,6 +232,8 @@ test("normalizeCrmCompanyInput maps minimal FluentCRM company fields without ide
     companyOwner: "Owner",
     about: "About",
     description: "Description",
+    nit: null,
+    verificationDigit: null,
   });
 });
 
@@ -458,5 +460,32 @@ test("FluentCRM 401 reports authentication diagnostic instead of generic request
     assert.match(error.message, /authentication failed \(401\)/i);
     assert.ok(error.diagnostic.likelyCauses.includes("invalid_application_password"));
     return true;
+  });
+});
+
+test("normalizeCrmCompanyInput accepts owner tax fields for FluentCRM companies", () => {
+  const { normalizeCrmCompanyInput } = require("../services/fluentCrm");
+  const normalized = normalizeCrmCompanyInput({
+    companyName: "Colegio San Jose",
+    nit: "900123456",
+    verificationDigit: "7",
+  });
+
+  assert.equal(normalized.nit, 900123456);
+  assert.equal(normalized.verificationDigit, 7);
+});
+
+test("buildFluentCrmCompanyPayload maps NIT and verification digit to custom values", () => {
+  const { buildFluentCrmCompanyPayload } = require("../services/fluentCrm");
+  const payload = buildFluentCrmCompanyPayload({
+    companyName: "Colegio San Jose",
+    companyEmail: "contacto@colegio.edu.co",
+    nit: 900123456,
+    verificationDigit: 5,
+  });
+
+  assert.deepEqual(payload.custom_values, {
+    nit: 900123456,
+    "digito_de_verificación": 5,
   });
 });
