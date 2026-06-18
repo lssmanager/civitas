@@ -130,6 +130,22 @@ export type FluentCrmCompanyInput = {
   verificationDigit?: number;
 };
 
+export type OwnerFluentCrmHealthResponse = {
+  integration: "fluentcrm";
+  status: "ok" | "error";
+  baseUrl?: string;
+  endpoint?: string;
+  timeoutMs?: number;
+  message?: string;
+  code?: string | null;
+  diagnostic?: {
+    code?: string;
+    message?: string;
+    likelyCauses?: string[];
+  } | null;
+  details?: Record<string, unknown> | null;
+};
+
 export type CreateOwnerOrganizationInput = {
   name: string;
   description?: string;
@@ -154,6 +170,7 @@ export const useOwnerApi = () => {
       getOwnerMe: async (): Promise<OwnerMeResponse> => fetchWithToken("/owner/me"),
       getOrganizations: async (): Promise<{ organizations: OwnerOrganization[] }> => fetchWithToken("/owner/organizations"),
       getOrganizationTemplate: async (): Promise<OwnerOrganizationTemplate> => fetchWithToken("/owner/organization-template"),
+      getFluentCrmHealth: async (): Promise<OwnerFluentCrmHealthResponse> => fetchWithToken("/owner/integrations/fluentcrm/health"),
       getAuditLogs: async (pagination: OwnerAuditPagination = {}): Promise<OwnerAuditResponse> => {
         const params = new URLSearchParams();
         if (pagination.limit !== undefined) params.set("limit", String(pagination.limit));
