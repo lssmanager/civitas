@@ -10,15 +10,20 @@ export type ApiError = {
   message?: string;
   error?: string;
   status?: number;
+  code?: string | null;
+  diagnostic?: Record<string, unknown> | null;
+  details?: Record<string, unknown> | null;
 };
 
 export class ApiRequestError extends Error {
   status?: number;
+  payload?: ApiError | null;
 
-  constructor(message: string, status?: number) {
+  constructor(message: string, status?: number, payload?: ApiError | null) {
     super(message);
     this.name = "ApiRequestError";
     this.status = status;
+    this.payload = payload ?? null;
   }
 }
 
@@ -72,7 +77,8 @@ export const useApi = () => {
               const apiMessage = errorPayload?.message || errorPayload?.error;
               throw new ApiRequestError(
                 apiMessage ? `API request failed: ${apiMessage}` : `API request failed: ${response.statusText || response.status}`,
-                response.status
+                response.status,
+                errorPayload
               );
             }
 
