@@ -31,8 +31,23 @@ const {
 } = require("./services/auditLogs");
 const { normalizeCanonicalProvisioningInput, runCanonicalOrganizationBootstrap } = require("./services/organizationProvisioningCore");
 const { buildLogtoOrganizationCustomData, normalizeExtendedProvisioningInput } = require("./services/organizationProvisioningSettings");
-const { FluentCrmError, cleanupContactInFluentCrm, ensureOrganizationTagsAndLists, getOrCreateCompanyForOrganization, normalizeCrmCompanyInput, searchContacts, syncOrganizationContactsToFluentCrm, validateFluentCrmConfiguration, updateContactEmailAfterLogtoChange } = require("./services/fluentCrm");
-const { buildRoleMappingResponse, getEffectiveCrmRoleMapping, resetCrmRoleMappings, upsertCrmRoleMappings } = require("./services/crmRoleMappings");
+const {
+  FluentCrmError,
+  cleanupContactInFluentCrm,
+  ensureOrganizationTagsAndLists,
+  getOrCreateCompanyForOrganization,
+  normalizeCrmCompanyInput,
+  searchContacts,
+  syncOrganizationContactsToFluentCrm,
+  validateFluentCrmConfiguration,
+  updateContactEmailAfterLogtoChange,
+} = require("./services/fluentCrm");
+const {
+  buildRoleMappingResponse,
+  getEffectiveCrmRoleMapping,
+  resetCrmRoleMappings,
+  upsertCrmRoleMappings,
+} = require("./services/crmRoleMappings");
 const { db } = require("./db/client");
 const { crmRoleMappings } = require("./db/schema");
 const { getCommercialStatusForOrganization, getLatestCommercialEventsForOrganization, processCommercialEvent, verifyCommercialWebhookSignature } = require("./services/commercialEvents");

@@ -1,5 +1,9 @@
 const { AUDIT_ACTIONS, AUDIT_RESULTS, recordAuditLogBestEffort } = require("./auditLogs");
-const { DEFAULT_CRM_ROLE_MAPPINGS, getEffectiveCrmRoleMapping, parseEnvRoleMappings } = require("./crmRoleMappings");
+const {
+  DEFAULT_CRM_ROLE_MAPPINGS,
+  getEffectiveCrmRoleMapping,
+  parseEnvRoleMappings,
+} = require("./crmRoleMappings");
 const { FLUENTCRM_SYNC_STATUSES, markOrganizationProfileFluentCrmSync } = require("./organizationProfiles");
 
 class FluentCrmError extends Error {
@@ -89,7 +93,6 @@ function normalizeEmail(value) {
 function normalizeName(value) {
   return value ? String(value).normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim() || null : null;
 }
-
 
 const normalizeString = (value) => (typeof value === "string" && value.trim() ? value.trim() : null);
 const normalizeInteger = (value) => {
@@ -252,7 +255,6 @@ async function createCompany(organization = {}) {
   const body = await requestFluentCrm("/companies", { method: "POST", body: payload });
   return extractCompanies(body)[0] || body;
 }
-
 
 async function searchFluentCrmCollection(path, { search } = {}) {
   const body = await requestFluentCrm(path, { query: { search, per_page: 50 } });
