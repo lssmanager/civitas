@@ -88,7 +88,8 @@ function App() {
             <Route path="organizations/:organizationId/settings" element={<OwnerOrganizationSettingsPage />} />
             <Route path="logs" element={<OwnerAuditPage />} />
             <Route path="audit" element={<Navigate to="/owner/logs" replace />} />
-            <Route path="settings" element={<OwnerSettingsPage />} />
+            <Route path="settings" element={<Navigate to="/owner/settings/role-mapping" replace />} />
+            <Route path="settings/role-mapping" element={<OwnerSettingsPage />} />
           </Route>
           <Route path="select-organization" element={<SelectOrganizationPage />} />
           <Route path="account" element={<AccountPage />} />
