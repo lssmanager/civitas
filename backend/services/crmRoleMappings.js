@@ -22,6 +22,13 @@ const DEFAULT_CRM_ROLE_MAPPINGS = Object.freeze({
 });
 
 const normalizeStringArray = (value) => Array.isArray(value) ? [...new Set(value.map((item) => String(item || "").trim()).filter(Boolean))] : [];
+
+function normalizeEnvRoleMappingJsonValue(rawValue) {
+  const value = String(rawValue || "").trim();
+  const prefix = "FLUENTCRM_ROLE_SYNC_MAPPING_JSON=";
+  if (value.startsWith(prefix)) return { value: value.slice(prefix.length).trim(), hadKeyPrefix: true };
+  return { value, hadKeyPrefix: false };
+}
 const isMappableRoleName = (name) => Boolean(name) && !PROHIBITED_ROLE_NAMES.has(name);
 
 function normalizeMappingEntry(roleName, entry = {}, source = CRM_ROLE_MAPPING_SOURCES.DEFAULT) {
@@ -37,11 +44,15 @@ function normalizeMappingEntry(roleName, entry = {}, source = CRM_ROLE_MAPPING_S
 
 function parseEnvRoleMappings(logger = console) {
   if (!process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON) return { mapping: {}, warning: null };
+  const normalized = normalizeEnvRoleMappingJsonValue(process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON);
   try {
-    const parsed = JSON.parse(process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON);
-    return { mapping: parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {}, warning: null };
+    const parsed = JSON.parse(normalized.value);
+    const mapping = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    const warning = normalized.hadKeyPrefix ? "FLUENTCRM_ROLE_SYNC_MAPPING_JSON included a KEY= prefix; Civitas ignored the prefix and used the JSON object value" : null;
+    if (warning) logger.warn?.(warning);
+    return { mapping, warning };
   } catch (error) {
-    const warning = "FLUENTCRM_ROLE_SYNC_MAPPING_JSON is malformed; using persisted mappings or defaults";
+    const warning = "FLUENTCRM_ROLE_SYNC_MAPPING_JSON is malformed; using persisted mappings or defaults. Provide only the JSON object value, not a KEY= prefix.";
     logger.warn?.(warning, error.message);
     return { mapping: {}, warning };
   }
@@ -108,4 +119,4 @@ async function resetCrmRoleMappings({ database = db } = {}) {
   await database.delete(crmRoleMappings);
 }
 
-module.exports = { CRM_ROLE_MAPPING_SOURCES, DEFAULT_CRM_ROLE_MAPPINGS, PROHIBITED_ROLE_NAMES, buildRoleMappingResponse, getEffectiveCrmRoleMapping, isMappableRoleName, normalizeMappingEntry, parseEnvRoleMappings, resetCrmRoleMappings, upsertCrmRoleMappings };
+module.exports = { CRM_ROLE_MAPPING_SOURCES, DEFAULT_CRM_ROLE_MAPPINGS, PROHIBITED_ROLE_NAMES, buildRoleMappingResponse, getEffectiveCrmRoleMapping, isMappableRoleName, normalizeEnvRoleMappingJsonValue, normalizeMappingEntry, parseEnvRoleMappings, resetCrmRoleMappings, upsertCrmRoleMappings };
