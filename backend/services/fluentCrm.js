@@ -24,16 +24,16 @@ const CRM_CLEANUP_STRATEGIES = Object.freeze({
   FAILED: "failed",
 });
 const DEFAULT_ROLE_SYNC_MAPPING = Object.freeze({
-  "Admin-org": { tags: ["civitas-role-admin-org"], lists: ["Civitas Admins"], roleType: "organizational" },
-  "Student-org": { tags: ["civitas-role-student-org"], lists: ["Civitas Students"], roleType: "organizational" },
-  "Teacher-org": { tags: ["civitas-role-teacher-org"], lists: ["Civitas Teachers"], roleType: "organizational" },
-  "Tutor-org": { tags: ["civitas-role-tutor-org"], lists: ["Civitas Tutors"], roleType: "organizational" },
-  "Beginner Student": { tags: ["civitas-role-beginner-student"], lists: ["Civitas Beginner Students"], roleType: "organizational" },
-  "Pro Student": { tags: ["civitas-role-pro-student"], lists: ["Civitas Pro Students"], roleType: "organizational" },
-  "Expert-Student": { tags: ["civitas-role-expert-student"], lists: ["Civitas Expert Students"], roleType: "organizational" },
-  admin: { tags: ["civitas-legacy-admin"], lists: ["Civitas Legacy Admins"], roleType: "legacy_alias" },
-  student: { tags: ["civitas-legacy-student"], lists: ["Civitas Legacy Students"], roleType: "legacy_alias" },
-  teacher: { tags: ["civitas-legacy-teacher"], lists: ["Civitas Legacy Teachers"], roleType: "legacy_alias" },
+  "Admin-org": { tags: ["admin-org"], lists: ["Civitas Admins"], roleType: "organizational" },
+  "Student-org": { tags: ["student-org"], lists: ["Civitas Students"], roleType: "organizational" },
+  "Teacher-org": { tags: ["teacher-org"], lists: ["Civitas Teachers"], roleType: "organizational" },
+  "Tutor-org": { tags: ["tutor-org"], lists: ["Civitas Tutors"], roleType: "organizational" },
+  "Beginner Student": { tags: ["beginner-student"], lists: ["Civitas Beginner Students"], roleType: "organizational" },
+  "Pro Student": { tags: ["pro-student"], lists: ["Civitas Pro Students"], roleType: "organizational" },
+  "Expert-Student": { tags: ["expert-student"], lists: ["Civitas Expert Students"], roleType: "organizational" },
+  admin: { tags: ["admin"], lists: ["Civitas Legacy Admins"], roleType: "legacy_alias" },
+  student: { tags: ["student"], lists: ["Civitas Legacy Students"], roleType: "legacy_alias" },
+  teacher: { tags: ["teacher"], lists: ["Civitas Legacy Teachers"], roleType: "legacy_alias" },
 });
 
 function sanitizeForDiagnostics(value, depth = 0) {
@@ -109,6 +109,15 @@ const normalizeInteger = (value) => {
   return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
 };
 
+const buildStructuredAddress = (company = {}) => [
+  company.addressLine1,
+  company.addressLine2,
+  company.city,
+  company.state,
+  company.postalCode,
+  company.country,
+].map(normalizeString).filter(Boolean).join(", ") || null;
+
 function normalizeCrmCompanyInput(input = {}, fallback = {}) {
   const companyName = normalizeString(input.companyName ?? input.name) || normalizeString(fallback.name ?? fallback.nameCache);
   return {
@@ -116,7 +125,13 @@ function normalizeCrmCompanyInput(input = {}, fallback = {}) {
     companyEmail: normalizeEmail(input.companyEmail ?? input.email),
     companyPhone: normalizeString(input.companyPhone ?? input.phone),
     website: normalizeString(input.website ?? fallback.website ?? fallback.adminDomain),
-    address: normalizeString(input.address ?? input.billingAddress ?? input.companyAddress),
+    address: normalizeString(input.address ?? input.billingAddress ?? input.companyAddress) || buildStructuredAddress(input),
+    addressLine1: normalizeString(input.addressLine1),
+    addressLine2: normalizeString(input.addressLine2),
+    city: normalizeString(input.city),
+    state: normalizeString(input.state ?? input.department),
+    postalCode: normalizeString(input.postalCode ?? input.zip),
+    country: normalizeString(input.country),
     numberOfEmployees: normalizeInteger(input.numberOfEmployees),
     industry: normalizeString(input.industry),
     type: normalizeString(input.type),
@@ -140,7 +155,7 @@ function buildFluentCrmCompanyPayload(company = {}) {
     email: company.companyEmail || company.email || company.billingEmail || company.contactEmail || undefined,
     phone: company.companyPhone || company.phone || undefined,
     website: company.website || company.adminDomain || undefined,
-    address: company.address || undefined,
+    address: company.address || buildStructuredAddress(company) || undefined,
     number_of_employees: company.numberOfEmployees ?? undefined,
     industry: company.industry || undefined,
     type: company.type || undefined,
