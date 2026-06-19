@@ -125,6 +125,7 @@ export type OwnerCrmRoleMappingsResponse = {
   effectiveSource: string;
   envWarning?: string | null;
   warnings?: string[];
+  unmappedRoles?: OwnerOrganizationTemplateRole[];
   note: string;
 };
 

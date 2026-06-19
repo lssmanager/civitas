@@ -46,6 +46,7 @@ const {
 const {
   buildRoleMappingResponse,
   getEffectiveCrmRoleMapping,
+  loadCrmRoleMappingReadModel,
   resetCrmRoleMappings,
   upsertCrmRoleMappings,
 } = require("./services/crmRoleMappings");
@@ -591,12 +592,15 @@ app.get("/owner/organization-template", requireAuth(API_RESOURCE), requireOwner,
 
 app.get("/owner/integrations/fluentcrm/role-mappings", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
   try {
-    const [logtoRoles, persistedRows] = await Promise.all([listLogtoOrganizationRoles(), db.select().from(crmRoleMappings)]);
-    const effective = await getEffectiveCrmRoleMapping({ logtoRoles });
-    return res.json(buildRoleMappingResponse({ logtoRoles, persistedRows, effective }));
+    const response = await loadCrmRoleMappingReadModel({ listRoles: listLogtoOrganizationRoles });
+    return res.json(response);
   } catch (error) {
     console.error("Failed to load FluentCRM role mappings", error);
-    return res.status(error.status || 502).json({ error: "Bad Gateway", message: "Failed to load FluentCRM role mappings" });
+    return res.status(500).json({
+      error: "Role mappings unavailable",
+      message: "Unable to load FluentCRM role mappings",
+      details: process.env.NODE_ENV === "production" ? undefined : error.message,
+    });
   }
 });
 
