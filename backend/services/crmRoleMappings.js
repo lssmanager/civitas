@@ -68,6 +68,13 @@ async function listPersistedCrmRoleMappings(database = db) {
   return database.select().from(crmRoleMappings);
 }
 
+function isMissingCrmRoleMappingsTable(error) {
+  if (!error) return false;
+  if (error.code === "42P01") return true;
+  const message = String(error.message || "");
+  return /crm_role_mappings/i.test(message) && /(does not exist|relation|no existe)/i.test(message);
+}
+
 function rowsToMapping(rows = []) {
   return Object.fromEntries(rows.filter((row) => row.logtoRoleId && isMappableRoleName(row.organizationRoleName)).map((row) => [row.logtoRoleId, {
     logtoRoleId: row.logtoRoleId,
@@ -143,7 +150,13 @@ async function loadCrmRoleMappingReadModel({ database = db, logger = console, li
   const roleLoader = typeof listRoles === "function" ? listRoles : async () => [];
   const [rolesResult, rowsResult] = await Promise.allSettled([roleLoader(), listPersistedCrmRoleMappings(database)]);
 
-  if (rowsResult.status === "rejected") {
+  let persistedRows = [];
+  if (rowsResult.status === "fulfilled") {
+    persistedRows = rowsResult.value;
+  } else if (isMissingCrmRoleMappingsTable(rowsResult.reason)) {
+    logger.warn?.("crm_role_mappings table is missing; using env/default role mappings until the migration is applied", rowsResult.reason?.message);
+    warnings.push("La tabla crm_role_mappings todavía no existe en PostgreSQL. Civitas mostrará defaults temporales hasta aplicar la migración 0011_create_crm_role_mappings.sql.");
+  } else {
     const error = new Error("Unable to load persisted CRM role mappings from database");
     error.cause = rowsResult.reason;
     error.status = 500;
@@ -159,9 +172,9 @@ async function loadCrmRoleMappingReadModel({ database = db, logger = console, li
     warnings.push("No se pudieron cargar los roles organizacionales desde Logto; se muestran mappings persistidos si existen.");
   }
 
-  const effective = await getEffectiveCrmRoleMapping({ database, logger, logtoRoles, persistedRows: rowsResult.value });
+  const effective = await getEffectiveCrmRoleMapping({ database, logger, logtoRoles, persistedRows });
   effective.warnings = [...warnings, ...(effective.warnings || [])];
-  return buildRoleMappingResponse({ logtoRoles, persistedRows: rowsResult.value, effective });
+  return buildRoleMappingResponse({ logtoRoles, persistedRows, effective });
 }
 
 async function upsertCrmRoleMappings({ mappings = [], database = db } = {}) {
