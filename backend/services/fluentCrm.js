@@ -1,5 +1,5 @@
 const { AUDIT_ACTIONS, AUDIT_RESULTS, recordAuditLogBestEffort } = require("./auditLogs");
-const { DEFAULT_CRM_ROLE_MAPPINGS, getEffectiveCrmRoleMapping } = require("./crmRoleMappings");
+const { DEFAULT_CRM_ROLE_MAPPINGS, getEffectiveCrmRoleMapping, parseEnvRoleMappings } = require("./crmRoleMappings");
 const { FLUENTCRM_SYNC_STATUSES, markOrganizationProfileFluentCrmSync } = require("./organizationProfiles");
 
 class FluentCrmError extends Error {
@@ -440,13 +440,8 @@ async function updateContactEmailAfterLogtoChange({ previousEmail, newEmail, log
 
 
 function getFluentCrmRoleSyncMapping() {
-  if (!process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON) return DEFAULT_ROLE_SYNC_MAPPING;
-  try {
-    return { ...DEFAULT_ROLE_SYNC_MAPPING, ...JSON.parse(process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON) };
-  } catch (error) {
-    console.warn("FLUENTCRM_ROLE_SYNC_MAPPING_JSON must be valid JSON; using default CRM role mappings", error.message);
-    return DEFAULT_ROLE_SYNC_MAPPING;
-  }
+  const env = parseEnvRoleMappings(console);
+  return Object.keys(env.mapping).length ? { ...DEFAULT_ROLE_SYNC_MAPPING, ...env.mapping } : DEFAULT_ROLE_SYNC_MAPPING;
 }
 
 function mapOrganizationRolesToCrmTaxonomy(roleNames = [], mapping = getFluentCrmRoleSyncMapping()) {

@@ -6,6 +6,7 @@ const {
   findCompanyCandidates,
   findReliableCompanyMatch,
   getFluentCrmConfig,
+  getFluentCrmRoleSyncMapping,
   getOrCreateCompanyForOrganization,
   sanitizeForDiagnostics,
   searchCompanies,
@@ -488,4 +489,15 @@ test("buildFluentCrmCompanyPayload maps NIT and verification digit to custom val
     nit: 900123456,
     "digito_de_verificación": 5,
   });
+});
+
+
+test("legacy FluentCRM role sync mapping accepts accidental KEY= prefix", () => {
+  configureFluentCrmEnv({
+    FLUENTCRM_ROLE_SYNC_MAPPING_JSON: 'FLUENTCRM_ROLE_SYNC_MAPPING_JSON={"Teacher-org":{"tags":["teacher-prefixed"],"lists":["Teachers"]}}',
+  });
+
+  const mapping = getFluentCrmRoleSyncMapping();
+
+  assert.deepEqual(mapping["Teacher-org"].tags, ["teacher-prefixed"]);
 });
