@@ -6,6 +6,7 @@ const CRM_ROLE_MAPPING_SOURCES = Object.freeze({
   DEFAULT: "default",
   GUI_OVERRIDE: "gui_override",
   ENV_MIGRATED: "env_migrated",
+  UNMAPPED: "unmapped",
 });
 
 const DEFAULT_CRM_ROLE_MAPPINGS = Object.freeze({
@@ -22,6 +23,9 @@ const DEFAULT_CRM_ROLE_MAPPINGS = Object.freeze({
 });
 
 const normalizeStringArray = (value) => Array.isArray(value) ? [...new Set(value.map((item) => String(item || "").trim()).filter(Boolean))] : [];
+const getRoleName = (role = {}) => String(role.name || role.organizationRoleName || role.nameCache || role.key || "").trim();
+const getRoleId = (role = {}) => String(role.id || role.logtoRoleId || role.logto_role_id || role.organizationRoleId || role.roleId || "").trim();
+const isMappableRoleName = (name) => Boolean(name) && !PROHIBITED_ROLE_NAMES.has(name);
 
 function normalizeEnvRoleMappingJsonValue(rawValue) {
   const value = String(rawValue || "").trim();
@@ -29,13 +33,15 @@ function normalizeEnvRoleMappingJsonValue(rawValue) {
   if (value.startsWith(prefix)) return { value: value.slice(prefix.length).trim(), hadKeyPrefix: true };
   return { value, hadKeyPrefix: false };
 }
-const isMappableRoleName = (name) => Boolean(name) && !PROHIBITED_ROLE_NAMES.has(name);
 
-function normalizeMappingEntry(roleName, entry = {}, source = CRM_ROLE_MAPPING_SOURCES.DEFAULT) {
+function normalizeMappingEntry(role, entry = {}, source = CRM_ROLE_MAPPING_SOURCES.DEFAULT) {
+  const organizationRoleName = typeof role === "string" ? role : getRoleName(role);
+  const logtoRoleId = typeof role === "string" ? String(entry.logtoRoleId || entry.logto_role_id || "").trim() : getRoleId(role);
   return {
-    organizationRoleName: String(roleName || "").trim(),
-    tags: normalizeStringArray(entry.tags),
-    lists: normalizeStringArray(entry.lists),
+    logtoRoleId,
+    organizationRoleName,
+    tags: normalizeStringArray(entry.tags ?? entry.tagsJson),
+    lists: normalizeStringArray(entry.lists ?? entry.listsJson),
     roleType: String(entry.roleType || "organizational").trim() || "organizational",
     isActive: entry.isActive !== false,
     source,
@@ -63,7 +69,9 @@ async function listPersistedCrmRoleMappings(database = db) {
 }
 
 function rowsToMapping(rows = []) {
-  return Object.fromEntries(rows.filter((row) => isMappableRoleName(row.organizationRoleName)).map((row) => [row.organizationRoleName, {
+  return Object.fromEntries(rows.filter((row) => row.logtoRoleId && isMappableRoleName(row.organizationRoleName)).map((row) => [row.logtoRoleId, {
+    logtoRoleId: row.logtoRoleId,
+    organizationRoleName: row.organizationRoleName,
     tags: normalizeStringArray(row.tagsJson),
     lists: normalizeStringArray(row.listsJson),
     roleType: row.roleType || "organizational",
@@ -72,35 +80,64 @@ function rowsToMapping(rows = []) {
   }]));
 }
 
-async function getEffectiveCrmRoleMapping({ database = db, logger = console } = {}) {
-  const rows = await listPersistedCrmRoleMappings(database);
-  if (rows.length) return { mapping: rowsToMapping(rows), source: "database", envWarning: null };
-  const env = parseEnvRoleMappings(logger);
-  if (Object.keys(env.mapping).length) {
-    const mapping = Object.fromEntries(Object.entries({ ...DEFAULT_CRM_ROLE_MAPPINGS, ...env.mapping }).filter(([name]) => isMappableRoleName(name)).map(([name, entry]) => [name, normalizeMappingEntry(name, entry, CRM_ROLE_MAPPING_SOURCES.ENV_MIGRATED)]));
-    return { mapping, source: CRM_ROLE_MAPPING_SOURCES.ENV_MIGRATED, envWarning: env.warning };
+function buildRoleIndexes(logtoRoles = []) {
+  const roles = logtoRoles.map((role) => ({ logtoRoleId: getRoleId(role), organizationRoleName: getRoleName(role) })).filter((role) => role.logtoRoleId && isMappableRoleName(role.organizationRoleName));
+  const byId = new Map(roles.map((role) => [role.logtoRoleId, role]));
+  const byName = new Map();
+  const duplicateNames = new Set();
+  for (const role of roles) {
+    if (byName.has(role.organizationRoleName)) duplicateNames.add(role.organizationRoleName);
+    byName.set(role.organizationRoleName, role);
   }
-  return { mapping: DEFAULT_CRM_ROLE_MAPPINGS, source: CRM_ROLE_MAPPING_SOURCES.DEFAULT, envWarning: env.warning };
+  return { roles, byId, byName, duplicateNames };
+}
+
+function resolveLegacyNameMappings({ namedMappings = {}, roleIndexes, source, warnings = [] }) {
+  const resolved = {};
+  for (const [name, entry] of Object.entries(namedMappings)) {
+    if (!isMappableRoleName(name)) continue;
+    const role = roleIndexes.byName.get(name);
+    if (!role) { warnings.push(`Legacy CRM role mapping for '${name}' was ignored because no Logto role with that name exists.`); continue; }
+    if (roleIndexes.duplicateNames.has(name)) { warnings.push(`Legacy CRM role mapping for '${name}' was ignored because the Logto role name is ambiguous.`); continue; }
+    resolved[role.logtoRoleId] = normalizeMappingEntry(role, entry, source);
+  }
+  return resolved;
+}
+
+async function getEffectiveCrmRoleMapping({ database = db, logger = console, logtoRoles = [] } = {}) {
+  const warnings = [];
+  const roleIndexes = buildRoleIndexes(logtoRoles);
+  const rows = await listPersistedCrmRoleMappings(database);
+  const persisted = rowsToMapping(rows);
+  const env = parseEnvRoleMappings(logger);
+  if (env.warning) warnings.push(env.warning);
+  const defaultById = resolveLegacyNameMappings({ namedMappings: DEFAULT_CRM_ROLE_MAPPINGS, roleIndexes, source: CRM_ROLE_MAPPING_SOURCES.DEFAULT, warnings: [] });
+  const envById = resolveLegacyNameMappings({ namedMappings: env.mapping, roleIndexes, source: CRM_ROLE_MAPPING_SOURCES.ENV_MIGRATED, warnings });
+  const mapping = {};
+  for (const role of roleIndexes.roles) {
+    mapping[role.logtoRoleId] = persisted[role.logtoRoleId] || envById[role.logtoRoleId] || defaultById[role.logtoRoleId] || normalizeMappingEntry(role, { isActive: false }, CRM_ROLE_MAPPING_SOURCES.UNMAPPED);
+    mapping[role.logtoRoleId].logtoRoleId = role.logtoRoleId;
+    mapping[role.logtoRoleId].organizationRoleName = role.organizationRoleName;
+  }
+  if (!roleIndexes.roles.length) Object.assign(mapping, persisted);
+  const source = Object.keys(persisted).length ? "database" : Object.keys(envById).length ? CRM_ROLE_MAPPING_SOURCES.ENV_MIGRATED : CRM_ROLE_MAPPING_SOURCES.DEFAULT;
+  return { mapping, source, envWarning: env.warning, warnings };
 }
 
 function buildRoleMappingResponse({ logtoRoles = [], persistedRows = [], effective }) {
-  const roleNames = [...new Set([...logtoRoles.map((role) => role.name || role.nameCache || role.key).filter(isMappableRoleName), ...Object.keys(effective.mapping).filter(isMappableRoleName)])];
+  const roleIndexes = buildRoleIndexes(logtoRoles);
   const persisted = rowsToMapping(persistedRows);
-  return {
-    roles: roleNames.map((name) => ({ id: logtoRoles.find((role) => (role.name || role.nameCache || role.key) === name)?.id || name, name })),
-    mappings: roleNames.map((name) => {
-      const mapping = effective.mapping[name] || normalizeMappingEntry(name, {}, CRM_ROLE_MAPPING_SOURCES.DEFAULT);
-      return { organizationRoleName: name, tags: mapping.tags || [], lists: mapping.lists || [], roleType: mapping.roleType || "organizational", isActive: mapping.isActive !== false, source: persisted[name]?.source || mapping.source || effective.source, isCustomized: Boolean(persisted[name]) };
-    }),
-    effectiveSource: effective.source,
-    envWarning: effective.envWarning,
-    note: "Civitas stores only operational CRM segmentation mappings; Logto remains canonical for roles and memberships.",
-  };
+  const mappings = roleIndexes.roles.map((role) => {
+    const mapping = effective.mapping[role.logtoRoleId] || normalizeMappingEntry(role, { isActive: false }, CRM_ROLE_MAPPING_SOURCES.UNMAPPED);
+    return { logtoRoleId: role.logtoRoleId, organizationRoleName: role.organizationRoleName, tags: mapping.tags || [], lists: mapping.lists || [], roleType: mapping.roleType || "organizational", isActive: mapping.isActive !== false, source: persisted[role.logtoRoleId]?.source || mapping.source || effective.source, isCustomized: Boolean(persisted[role.logtoRoleId]) };
+  });
+  return { roles: roleIndexes.roles.map((role) => ({ id: role.logtoRoleId, name: role.organizationRoleName })), mappings, effectiveSource: effective.source, envWarning: effective.envWarning, warnings: effective.warnings || [], note: "Civitas stores only operational CRM segmentation mappings keyed by Logto role id; Logto remains canonical for roles and memberships." };
 }
 
 async function upsertCrmRoleMappings({ mappings = [], database = db } = {}) {
   const now = new Date();
-  const rows = mappings.filter((item) => isMappableRoleName(item.organizationRoleName)).map((item) => ({
+  const rows = mappings.filter((item) => item.logtoRoleId && isMappableRoleName(item.organizationRoleName)).map((item) => ({
+    logtoRoleId: item.logtoRoleId,
     organizationRoleName: item.organizationRoleName,
     tagsJson: normalizeStringArray(item.tags),
     listsJson: normalizeStringArray(item.lists),
@@ -110,7 +147,7 @@ async function upsertCrmRoleMappings({ mappings = [], database = db } = {}) {
     updatedAt: now,
   }));
   for (const row of rows) {
-    await database.insert(crmRoleMappings).values({ ...row, createdAt: now }).onConflictDoUpdate({ target: crmRoleMappings.organizationRoleName, set: row });
+    await database.insert(crmRoleMappings).values({ ...row, createdAt: now }).onConflictDoUpdate({ target: crmRoleMappings.logtoRoleId, set: row });
   }
   return rows;
 }

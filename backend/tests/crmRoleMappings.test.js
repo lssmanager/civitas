@@ -2,26 +2,57 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const { buildRoleMappingResponse, getEffectiveCrmRoleMapping, parseEnvRoleMappings } = require("../services/crmRoleMappings");
 
-test("CRM role mapping falls back to defaults and excludes owner_global", async () => {
+function restoreEnv(previous) {
+  if (previous === undefined) delete process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON;
+  else process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON = previous;
+}
+
+const roles = [
+  { id: "role-admin", name: "Admin-org" },
+  { id: "role-student", name: "Student-org" },
+  { id: "role-teacher", name: "Teacher-org" },
+  { id: "role-new", name: "New Role" },
+  { id: "owner", name: "owner_global" },
+];
+
+test("CRM role mapping falls back to defaults by Logto role id and excludes owner_global", async () => {
   const previous = process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON;
   delete process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON;
   const database = { select: () => ({ from: async () => [] }) };
-  const result = await getEffectiveCrmRoleMapping({ database });
+  const result = await getEffectiveCrmRoleMapping({ database, logtoRoles: roles });
   assert.equal(result.source, "default");
-  assert.ok(result.mapping["Admin-org"]);
-  const response = buildRoleMappingResponse({ logtoRoles: [{ id: "owner", name: "owner_global" }, { id: "student", name: "Student-org" }], persistedRows: [], effective: result });
-  assert.deepEqual(response.roles.map((role) => role.name), ["Student-org", "Admin-org", "Teacher-org", "Tutor-org", "Beginner Student", "Pro Student", "Expert-Student", "admin", "student", "teacher"]);
-  process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON = previous;
+  assert.deepEqual(result.mapping["role-admin"].tags, ["civitas-role-admin-org"]);
+  const response = buildRoleMappingResponse({ logtoRoles: roles, persistedRows: [], effective: result });
+  assert.deepEqual(response.roles.map((role) => role.name), ["Admin-org", "Student-org", "Teacher-org", "New Role"]);
+  assert.equal(response.mappings.find((item) => item.logtoRoleId === "role-new").source, "unmapped");
+  restoreEnv(previous);
 });
 
-test("CRM role mapping uses env only when database has no persisted config", async () => {
+test("CRM role mapping preserves overrides across Logto role rename because key is logto_role_id", async () => {
+  const database = { select: () => ({ from: async () => [{ logtoRoleId: "role-teacher", organizationRoleName: "Teacher-org", tagsJson: ["teacher-custom"], listsJson: ["Teachers"], roleType: "instruction", isActive: true, source: "gui_override" }] }) };
+  const result = await getEffectiveCrmRoleMapping({ database, logtoRoles: [{ id: "role-teacher", name: "Instructor-org" }] });
+  assert.deepEqual(result.mapping["role-teacher"].tags, ["teacher-custom"]);
+  assert.equal(result.mapping["role-teacher"].organizationRoleName, "Instructor-org");
+});
+
+test("CRM role mapping resolves legacy env names against current Logto roles", async () => {
   const previous = process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON;
   process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON = JSON.stringify({ "Teacher-org": { tags: ["teacher-custom"], lists: ["Teachers"], roleType: "instruction" } });
   const database = { select: () => ({ from: async () => [] }) };
-  const result = await getEffectiveCrmRoleMapping({ database });
+  const result = await getEffectiveCrmRoleMapping({ database, logtoRoles: roles });
   assert.equal(result.source, "env_migrated");
-  assert.deepEqual(result.mapping["Teacher-org"].tags, ["teacher-custom"]);
-  process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON = previous;
+  assert.deepEqual(result.mapping["role-teacher"].tags, ["teacher-custom"]);
+  restoreEnv(previous);
+});
+
+test("CRM role mapping warns and ignores unresolvable legacy env names", async () => {
+  const previous = process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON;
+  process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON = JSON.stringify({ "Missing Role": { tags: ["missing"] } });
+  const database = { select: () => ({ from: async () => [] }) };
+  const result = await getEffectiveCrmRoleMapping({ database, logtoRoles: roles });
+  assert.match(result.warnings.join("\n"), /Missing Role/);
+  assert.equal(Object.values(result.mapping).some((entry) => entry.tags.includes("missing")), false);
+  restoreEnv(previous);
 });
 
 test("malformed CRM role mapping env warns without throwing", () => {
@@ -32,9 +63,8 @@ test("malformed CRM role mapping env warns without throwing", () => {
   assert.deepEqual(result.mapping, {});
   assert.match(result.warning, /malformed/);
   assert.equal(warnings.length, 1);
-  process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON = previous;
+  restoreEnv(previous);
 });
-
 
 test("CRM role mapping env accepts accidental KEY= prefix", () => {
   const previous = process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON;
@@ -44,5 +74,5 @@ test("CRM role mapping env accepts accidental KEY= prefix", () => {
   assert.deepEqual(result.mapping["Teacher-org"].tags, ["teacher-prefixed"]);
   assert.match(result.warning, /KEY= prefix/);
   assert.equal(warnings.length, 1);
-  process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON = previous;
+  restoreEnv(previous);
 });

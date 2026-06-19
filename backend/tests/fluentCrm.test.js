@@ -501,3 +501,20 @@ test("legacy FluentCRM role sync mapping accepts accidental KEY= prefix", () => 
 
   assert.deepEqual(mapping["Teacher-org"].tags, ["teacher-prefixed"]);
 });
+
+test("mapOrganizationRolesToCrmTaxonomy maps by logtoRoleId and treats inactive as unmapped", () => {
+  const { mapOrganizationRolesToCrmTaxonomy } = require("../services/fluentCrm");
+  const taxonomy = mapOrganizationRolesToCrmTaxonomy([
+    { logtoRoleId: "role-student", organizationRoleName: "Renamed Student" },
+    { logtoRoleId: "role-inactive", organizationRoleName: "Inactive" },
+    { logtoRoleId: "role-owner", organizationRoleName: "owner_global" },
+  ], {
+    "role-student": { tags: ["student-by-id"], lists: ["Students"], roleType: "organizational", isActive: true },
+    "role-inactive": { tags: ["inactive"], lists: ["Inactive"], roleType: "organizational", isActive: false },
+  });
+
+  assert.deepEqual(taxonomy.tags, ["student-by-id"]);
+  assert.deepEqual(taxonomy.lists, ["Students"]);
+  assert.deepEqual(taxonomy.unmappedRoles, ["role-inactive"]);
+  assert.deepEqual(taxonomy.excludedRoles, ["owner_global"]);
+});
