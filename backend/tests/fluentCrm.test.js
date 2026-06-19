@@ -278,7 +278,7 @@ test("mapOrganizationRolesToCrmTaxonomy maps configured org roles and excludes o
   const { mapOrganizationRolesToCrmTaxonomy } = require("../services/fluentCrm");
   const taxonomy = mapOrganizationRolesToCrmTaxonomy(["Admin-org", "Teacher-org", "owner_global", "unknown-role"]);
 
-  assert.deepEqual(taxonomy.tags.sort(), ["admin-org", "teacher-org"].sort());
+  assert.deepEqual(taxonomy.tags.sort(), ["civitas-role-admin-org", "civitas-role-teacher-org"].sort());
   assert.deepEqual(taxonomy.lists.sort(), ["Civitas Admins", "Civitas Teachers"].sort());
   assert.deepEqual(taxonomy.excludedRoles, ["owner_global"]);
   assert.deepEqual(taxonomy.unmappedRoles, ["unknown-role"]);
@@ -293,10 +293,12 @@ test("getFluentCrmRoleSyncMapping sanitizes duplicated env key prefix", () => {
   delete process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON;
 });
 
-test("getFluentCrmRoleSyncMapping rejects non JSON env with actionable error", () => {
+test("getFluentCrmRoleSyncMapping falls back to defaults when env JSON is malformed", () => {
   const { getFluentCrmRoleSyncMapping } = require("../services/fluentCrm");
   process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON = "not-json";
-  assert.throws(() => getFluentCrmRoleSyncMapping(), /Provide only the JSON object value/);
+  const mapping = getFluentCrmRoleSyncMapping();
+  assert.deepEqual(mapping["Admin-org"].tags, ["civitas-role-admin-org"]);
+  assert.equal(Object.hasOwn(mapping, "owner_global"), false);
   delete process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON;
 });
 
