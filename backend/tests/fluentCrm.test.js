@@ -277,7 +277,7 @@ test("mapOrganizationRolesToCrmTaxonomy maps configured org roles and excludes o
   const { mapOrganizationRolesToCrmTaxonomy } = require("../services/fluentCrm");
   const taxonomy = mapOrganizationRolesToCrmTaxonomy(["Admin-org", "Teacher-org", "owner_global", "unknown-role"]);
 
-  assert.deepEqual(taxonomy.tags.sort(), ["civitas-role-admin-org", "civitas-role-teacher-org"].sort());
+  assert.deepEqual(taxonomy.tags.sort(), ["admin-org", "teacher-org"].sort());
   assert.deepEqual(taxonomy.lists.sort(), ["Civitas Admins", "Civitas Teachers"].sort());
   assert.deepEqual(taxonomy.excludedRoles, ["owner_global"]);
   assert.deepEqual(taxonomy.unmappedRoles, ["unknown-role"]);

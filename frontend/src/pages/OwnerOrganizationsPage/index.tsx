@@ -211,11 +211,11 @@ const deriveOrganizationTags = (organizationName: string) =>
   uniqueValues([organizationName]);
 const deriveContactTag = (roleName: string) =>
   roleName && roleName !== "owner_global"
-    ? `civitas-role-${roleName
+    ? roleName
         .trim()
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-|-$/g, "")}`
+        .replace(/^-|-$/g, "")
     : null;
 const displayValue = (value?: string | null) => value?.trim() || "—";
 const slugify = (value: string) =>

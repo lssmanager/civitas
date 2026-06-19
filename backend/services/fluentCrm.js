@@ -24,16 +24,16 @@ const CRM_CLEANUP_STRATEGIES = Object.freeze({
   FAILED: "failed",
 });
 const DEFAULT_ROLE_SYNC_MAPPING = Object.freeze({
-  "Admin-org": { tags: ["civitas-role-admin-org"], lists: ["Civitas Admins"], roleType: "organizational" },
-  "Student-org": { tags: ["civitas-role-student-org"], lists: ["Civitas Students"], roleType: "organizational" },
-  "Teacher-org": { tags: ["civitas-role-teacher-org"], lists: ["Civitas Teachers"], roleType: "organizational" },
-  "Tutor-org": { tags: ["civitas-role-tutor-org"], lists: ["Civitas Tutors"], roleType: "organizational" },
-  "Beginner Student": { tags: ["civitas-role-beginner-student"], lists: ["Civitas Beginner Students"], roleType: "organizational" },
-  "Pro Student": { tags: ["civitas-role-pro-student"], lists: ["Civitas Pro Students"], roleType: "organizational" },
-  "Expert-Student": { tags: ["civitas-role-expert-student"], lists: ["Civitas Expert Students"], roleType: "organizational" },
-  admin: { tags: ["civitas-legacy-admin"], lists: ["Civitas Legacy Admins"], roleType: "legacy_alias" },
-  student: { tags: ["civitas-legacy-student"], lists: ["Civitas Legacy Students"], roleType: "legacy_alias" },
-  teacher: { tags: ["civitas-legacy-teacher"], lists: ["Civitas Legacy Teachers"], roleType: "legacy_alias" },
+  "Admin-org": { tags: ["admin-org"], lists: ["Civitas Admins"], roleType: "organizational" },
+  "Student-org": { tags: ["student-org"], lists: ["Civitas Students"], roleType: "organizational" },
+  "Teacher-org": { tags: ["teacher-org"], lists: ["Civitas Teachers"], roleType: "organizational" },
+  "Tutor-org": { tags: ["tutor-org"], lists: ["Civitas Tutors"], roleType: "organizational" },
+  "Beginner Student": { tags: ["beginner-student"], lists: ["Civitas Beginner Students"], roleType: "organizational" },
+  "Pro Student": { tags: ["pro-student"], lists: ["Civitas Pro Students"], roleType: "organizational" },
+  "Expert-Student": { tags: ["expert-student"], lists: ["Civitas Expert Students"], roleType: "organizational" },
+  admin: { tags: ["admin"], lists: ["Civitas Legacy Admins"], roleType: "legacy_alias" },
+  student: { tags: ["student"], lists: ["Civitas Legacy Students"], roleType: "legacy_alias" },
+  teacher: { tags: ["teacher"], lists: ["Civitas Legacy Teachers"], roleType: "legacy_alias" },
 });
 
 function sanitizeForDiagnostics(value, depth = 0) {
