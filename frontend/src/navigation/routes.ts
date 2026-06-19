@@ -27,7 +27,12 @@ export const appRoutes = {
   ownerSettings: {
     path: "/owner/settings",
     label: "Settings",
-    description: "Scaffold para configuración owner futura.",
+    description: "Configuración owner agrupada por submódulos.",
+  },
+  ownerRoleMapping: {
+    path: "/owner/settings/role-mapping",
+    label: "Role Mapping",
+    description: "Mapeo operativo de roles Logto hacia FluentCRM.",
   },
   selectOrganization: {
     path: "/select-organization",
@@ -57,7 +62,12 @@ export const ownerNavigationTree: NavigationNode[] = [
     description: "Trazabilidad operativa del portal owner.",
     children: [appRoutes.ownerLogs],
   },
-  appRoutes.ownerSettings,
+  {
+    path: "/owner/settings-section",
+    label: appRoutes.ownerSettings.label,
+    description: appRoutes.ownerSettings.description,
+    children: [appRoutes.ownerRoleMapping],
+  },
 ];
 
 export const ownerNavigation: AppRoute[] = [
@@ -65,7 +75,7 @@ export const ownerNavigation: AppRoute[] = [
   appRoutes.ownerOrganizations,
   appRoutes.selectOrganization,
   appRoutes.ownerLogs,
-  appRoutes.ownerSettings,
+  appRoutes.ownerRoleMapping,
 ];
 
 export type RouteMetadata = { label: string; parentPath?: string };
@@ -76,6 +86,7 @@ export const routeMetadata: Record<string, RouteMetadata> = {
   "/owner/logs": { label: appRoutes.ownerLogs.label, parentPath: appRoutes.owner.path },
   "/owner/audit": { label: appRoutes.ownerLogs.label, parentPath: appRoutes.owner.path },
   "/owner/settings": { label: appRoutes.ownerSettings.label, parentPath: appRoutes.owner.path },
+  "/owner/settings/role-mapping": { label: appRoutes.ownerRoleMapping.label, parentPath: appRoutes.ownerSettings.path },
   "/select-organization": { label: appRoutes.selectOrganization.label, parentPath: appRoutes.ownerOrganizations.path },
   "/account": { label: appRoutes.account.label },
 };
