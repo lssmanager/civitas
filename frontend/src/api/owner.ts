@@ -141,6 +141,12 @@ export type FluentCrmCompanyInput = {
   companyPhone?: string;
   about?: string;
   website?: string;
+  addressLine1?: string;
+  addressLine2?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+  country?: string;
   numberOfEmployees?: number;
   industry?: string;
   type?: string;
@@ -148,6 +154,8 @@ export type FluentCrmCompanyInput = {
   description?: string;
   nit?: number;
   verificationDigit?: number;
+  tags?: string[];
+  lists?: string[];
 };
 
 export type OwnerFluentCrmHealthResponse = {
@@ -180,6 +188,7 @@ export type CreateOwnerOrganizationInput = {
   jitProvisioning?: { domain?: string; defaultRoleNames?: string[] };
   settings?: Record<string, unknown>;
   crm?: FluentCrmCompanyInput;
+  administrativeContacts?: Array<{ kind?: string; name: string; email: string; phone?: string; position?: string; organizationRoleName: string }>;
 };
 
 export const useOwnerApi = () => {
