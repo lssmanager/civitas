@@ -5,6 +5,8 @@ Este directorio reúne decisiones arquitectónicas estables de Civitas que deben
 ## ADRs actuales
 
 - [ADR 0001: Multi-tenant auth, tenant resolution, and owner/global boundaries](./0001-multi-tenant-auth-tenant-resolution-owner-boundaries.md)
+- [ADR 0002: Cloudflare wildcard, reverse proxy, and trusted host model](./0002-cloudflare-wildcard-reverse-proxy-trusted-host-model.md)
+- [ADR 0003: Organization branding sync between Civitas and Logto](./0003-organization-branding-sync-between-civitas-and-logto.md)
 
 ## Uso esperado
 
