@@ -39,6 +39,7 @@ const {
   normalizeCrmCompanyInput,
   searchContacts,
   syncOrganizationContactsToFluentCrm,
+  upsertContactFromLogtoIdentity,
   validateFluentCrmConfiguration,
   updateContactEmailAfterLogtoChange,
 } = require("./services/fluentCrm");
@@ -130,7 +131,6 @@ const sortProfilesByNewest = (profiles) =>
   [...profiles].sort((left, right) => toMillis(right.updatedAt) - toMillis(left.updatedAt) || toMillis(right.createdAt) - toMillis(left.createdAt));
 
 const getCanonicalLogtoOrganizationName = (organization) => getLogtoOrganizationName(organization);
-
 
 const normalizeLogtoUserToClaims = (logtoUser = {}) => ({
   sub: logtoUser.id || logtoUser.userId || logtoUser.sub,
@@ -282,20 +282,15 @@ function buildLogtoOrganizationDirectory({ logtoOrganizations, profiles }) {
   return {
     organizations,
     reconciliationIncidents,
-    // Backwards-compatible alias for older clients; these are incidents, not operational organizations.
     unreconciledProfiles: reconciliationIncidents.map((incident) => incident.profile),
   };
 }
 
 function reconcileProfilesWithLogtoOrganizations({ profiles }) {
-  // Read-scoped directory requests must not mutate local reconciliation state.
-  // Orphaning/linking decisions are detected in buildLogtoOrganizationDirectory and
-  // should be persisted only by an explicit write-scoped reconciliation job/endpoint.
   return profiles;
 }
 
-
-async function runFluentCrmOrganizationStep({ logtoOrganization, logtoOrganizationId, canonical, extended, crmInput, internalUser, authUser }) {
+async function runFluentCrmOrganizationStep({ logtoOrganization, logtoOrganizationId, canonical, extended, crmInput, administrativeContactAssignments = [], internalUser, authUser }) {
   const profile = await upsertOrganizationProfile({
     logtoOrganizationId,
     nameCache: getLogtoOrganizationName(logtoOrganization) || canonical.name,
@@ -328,21 +323,49 @@ async function runFluentCrmOrganizationStep({ logtoOrganization, logtoOrganizati
     };
   }
 
+  const companyId = companyResult.company?.id ?? companyResult.company?.ID ?? companyResult.company?.company_id ?? null;
   const taxonomy = await ensureOrganizationTagsAndLists({
     logtoOrganizationId,
     slug: extended.slug,
     name: canonical.name,
   });
+  const organizationLists = [...new Set([...(normalizedCrm.lists || []), taxonomy.list?.title].filter(Boolean))];
+  const administrativeContacts = [];
+
+  for (const assignment of administrativeContactAssignments) {
+    const contactSync = await upsertContactFromLogtoIdentity({
+      identity: {
+        logtoUserId: assignment.logtoUserId,
+        email: assignment.email,
+        name: assignment.name,
+        phone: assignment.phone,
+        position: assignment.position,
+      },
+      companyId,
+      roleNames: [assignment.roleName || assignment.organizationRoleName].filter(Boolean),
+      extraLists: organizationLists,
+    });
+    administrativeContacts.push({
+      key: assignment.key,
+      name: assignment.name,
+      email: assignment.email,
+      phone: assignment.phone,
+      position: assignment.position,
+      logtoUserId: assignment.logtoUserId,
+      roleName: assignment.roleName || assignment.organizationRoleName,
+      contactSync,
+    });
+  }
 
   return {
     profile,
     status: companyResult.status,
-    companyId: companyResult.company?.id ?? companyResult.company?.ID ?? companyResult.company?.company_id ?? null,
+    companyId,
     reason: companyResult.reason,
     taxonomy,
+    administrativeContacts,
   };
 }
-
 
 const getLogtoUserIdentityFields = (user = {}) => ({
   logtoUserId: user.id || user.userId || user.logtoUserId || user.sub || null,
@@ -436,7 +459,29 @@ const getSafeErrorMessage = (error) => {
   return `${error.message || "Logto synchronization failed"}${status}${requestPath}`;
 };
 
-// Local base healthcheck. It intentionally does not depend on Logto or any external integration.
+const buildPendingReconciliationSettings = (profile, { failedStep, error, retryRecommended = true }) => ({
+  ...(profile?.settings || {}),
+  pendingReconciliation: {
+    failedStep,
+    lastError: getSafeErrorMessage(error),
+    lastAttemptAt: new Date().toISOString(),
+    retryRecommended,
+  },
+});
+
+async function persistPendingReconciliation({ logtoOrganizationId, profile, failedStep, error }) {
+  const resolvedProfile = profile || (logtoOrganizationId ? (await listOrganizationProfiles()).find((item) => item.logtoOrganizationId === logtoOrganizationId) : null);
+  if (!resolvedProfile) return null;
+  return markOrganizationProfileFluentCrmSync({
+    id: resolvedProfile.id,
+    companyId: resolvedProfile.fluentcrmCompanyId,
+    status: "error",
+    errorMessage: getSafeErrorMessage(error),
+    synced: false,
+    settings: buildPendingReconciliationSettings(resolvedProfile, { failedStep, error }),
+  });
+}
+
 app.get("/health", async (req, res) => {
   const database = await checkDatabaseConnection();
   const healthy = database.ok;
@@ -490,14 +535,8 @@ app.get("/me", requireAuth(API_RESOURCE), async (req, res) => {
       },
     });
   } catch (error) {
-    if (error.status === 401) {
-      return res.status(401).json({ error: "Unauthorized", message: error.message });
-    }
-
-    if (error.status === 403) {
-      return res.status(403).json({ error: "Forbidden", message: error.message });
-    }
-
+    if (error.status === 401) return res.status(401).json({ error: "Unauthorized", message: error.message });
+    if (error.status === 403) return res.status(403).json({ error: "Forbidden", message: error.message });
     console.error("Failed to resolve internal user", error);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to resolve internal user" });
   }
@@ -506,7 +545,6 @@ app.get("/me", requireAuth(API_RESOURCE), async (req, res) => {
 app.get("/owner/me", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
   try {
     const internalUser = await getOrCreateInternalUser(req.user);
-
     return res.json({
       owner: {
         logtoUserId: req.user.sub,
@@ -517,14 +555,8 @@ app.get("/owner/me", requireAuth(API_RESOURCE), requireOwner, async (req, res) =
       },
     });
   } catch (error) {
-    if (error.status === 401) {
-      return res.status(401).json({ error: "Unauthorized", message: error.message });
-    }
-
-    if (error.status === 403) {
-      return res.status(403).json({ error: "Forbidden", message: error.message });
-    }
-
+    if (error.status === 401) return res.status(401).json({ error: "Unauthorized", message: error.message });
+    if (error.status === 403) return res.status(403).json({ error: "Forbidden", message: error.message });
     console.error("Failed to resolve owner metadata", error);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to resolve owner metadata" });
   }
@@ -556,7 +588,6 @@ app.get("/owner/organization-template", requireAuth(API_RESOURCE), requireOwner,
     return res.status(502).json({ error: "Bad Gateway", message: "Failed to inspect Logto organization template" });
   }
 });
-
 
 app.get("/owner/integrations/fluentcrm/role-mappings", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
   try {
@@ -654,6 +685,7 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireOwner, async 
         canonical: canonicalInput.value,
         extended: extendedInput.value,
         crmInput: req.body?.crm || req.body?.fluentcrm || {},
+        administrativeContactAssignments: result.administrativeContactAssignments || [],
         internalUser,
         authUser: req.user,
       });
@@ -661,7 +693,8 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireOwner, async 
     } catch (crmError) {
       const crmMessage = getSafeErrorMessage(crmError);
       crmWarning = `Organization was created in Logto, but FluentCRM sync failed: ${crmMessage}`;
-      fluentCrmStep = { status: "error", message: crmMessage, code: crmError.code || null, diagnostic: crmError.diagnostic || null, statusCode: crmError.status || null, body: crmError.body || null };
+      const pendingProfile = await persistPendingReconciliation({ logtoOrganizationId, profile: fluentCrmStep.profile, failedStep: "fluentcrm_company_or_contacts_sync", error: crmError });
+      fluentCrmStep = { status: "error", message: crmMessage, code: crmError.code || null, diagnostic: crmError.diagnostic || null, statusCode: crmError.status || null, body: crmError.body || null, profile: pendingProfile || fluentCrmStep.profile || null, pendingReconciliation: pendingProfile?.settings?.pendingReconciliation || null };
     }
 
     return res.status(201).json({
@@ -675,6 +708,7 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireOwner, async 
         baseAdminUser: { status: result.adminAssignment?.userCreated ? "created" : "resolved", logtoUserId: result.adminAssignment?.logtoUserId, source: result.adminAssignment?.userSource },
         baseAdminMembership: { status: result.adminAssignment?.membershipAdded ? "added" : "not_added" },
         baseAdminRole: { status: result.adminAssignment?.roleAssigned ? "assigned" : "not_assigned", roleName: result.adminAssignment?.roleName },
+        administrativeContacts: { status: result.administrativeContactAssignments?.length ? "assigned" : "not_requested", contacts: result.administrativeContactAssignments || [] },
         jitProvisioning: { status: result.jitProvisioning?.status, domainConfigured: result.jitProvisioning?.domainConfigured, domain: result.jitProvisioning?.domain },
         jitDefaultRoles: { status: result.jitProvisioning?.defaultRolesConfigured ? "configured" : "not_configured", roleNames: result.jitProvisioning?.defaultRoleNames },
         fluentcrm: fluentCrmStep,
@@ -682,6 +716,7 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireOwner, async 
       fluentcrm: fluentCrmStep,
       warning: crmWarning || undefined,
       adminAssignment: result.adminAssignment,
+      administrativeContactAssignments: result.administrativeContactAssignments || [],
       jitProvisioning: result.jitProvisioning,
     });
   } catch (error) {
@@ -713,12 +748,14 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireOwner, async 
 
     console.error("Organization creation through Logto failed", error);
     if (canonicalCreated && logtoOrganizationId) {
+      const failedStep = error.request?.path?.includes("/jit/email-domains") ? "jit_email_domain_configuration" : error.request?.path?.includes("/jit/roles") ? "jit_default_roles_configuration" : error.request?.path?.includes("/users") ? "base_admin_user_resolution" : error.request?.path?.includes("/roles") ? "base_admin_role_assignment" : error.code === "LOGTO_ORGANIZATION_TEMPLATE_MISSING_ROLES" ? "organization_template_validation" : "base_admin_or_jit_followup";
+      await persistPendingReconciliation({ logtoOrganizationId, failedStep, error }).catch(() => null);
       return res.status(201).json({
         organization: serializeLogtoOwnerOrganization(logtoOrganization, logtoOrganizationId),
         status: "created_in_logto_with_followup_failure",
         sourceOfTruth: "logto",
         warning: `Organization was created canonically in Logto, but a non-canonical follow-up step failed: ${errorMessage}`,
-        failedStep: error.request?.path?.includes("/jit/email-domains") ? "jit_email_domain_configuration" : error.request?.path?.includes("/jit/roles") ? "jit_default_roles_configuration" : error.request?.path?.includes("/users") ? "base_admin_user_resolution" : error.request?.path?.includes("/roles") ? "base_admin_role_assignment" : error.code === "LOGTO_ORGANIZATION_TEMPLATE_MISSING_ROLES" ? "organization_template_validation" : "base_admin_or_jit_followup",
+        failedStep,
         followUpError: { message: errorMessage, status: error.status || null, request: error.request || null, body: error.body || null },
       });
     }
@@ -736,7 +773,6 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireOwner, async 
     });
   }
 });
-
 
 app.patch("/owner/organizations/:organizationId/fluentcrm", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
   let internalUser = null;
@@ -840,9 +876,8 @@ app.post("/owner/organizations/:organizationId/members/:logtoUserId/deprovision"
     const logtoUser = await getLogtoUserById(req.params.logtoUserId);
     const beforeMembers = await listLogtoOrganizationUsers({ organizationId: profile.logtoOrganizationId });
     const wasMember = beforeMembers.some((member) => (member.id || member.userId || member.logtoUserId || member.sub) === req.params.logtoUserId);
-    if (wasMember) {
-      await removeUserFromLogtoOrganization({ organizationId: profile.logtoOrganizationId, userId: req.params.logtoUserId });
-    }
+    if (wasMember) await removeUserFromLogtoOrganization({ organizationId: profile.logtoOrganizationId, userId: req.params.logtoUserId });
+
     await recordAuditLogBestEffort({
       actorUserId: internalUser.id,
       organizationId: profile.logtoOrganizationId,
@@ -878,6 +913,7 @@ app.post("/owner/organizations/:organizationId/members/:logtoUserId/deprovision"
       result: cleanupResult,
       metadata: { stage: "fluentcrm_member_cleanup", logtoUserId: req.params.logtoUserId, strategy: cleanup.strategy, cleanupStatus: cleanup.status, message: cleanup.message, operations: cleanup.operations, remainingOrganizationCount: remainingMemberships.length },
     });
+
     await markOrganizationProfileFluentCrmSync({
       id: profile.id,
       companyId: profile.fluentcrmCompanyId,
@@ -914,8 +950,6 @@ app.post("/owner/organizations/:organizationId/members/:logtoUserId/deprovision"
     return res.status(error.status || 502).json({ error: "Bad Gateway", message: getSafeErrorMessage(error), integration: error instanceof FluentCrmError ? "fluentcrm" : "logto_management_api", logtoRequest: error.request || null, logtoErrorBody: error.body || null });
   }
 });
-
-
 
 async function resolveOrganizationProfileForRequest(organizationId) {
   const profiles = await listOrganizationProfiles();
@@ -1000,7 +1034,6 @@ app.get("/organizations/:organizationId/directory", requireOrganizationAccess({ 
 app.get("/owner/audit", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
   try {
     await getOrCreateInternalUser(req.user);
-
     const logtoOrganizations = await listLogtoOrganizations().catch((error) => {
       console.error("Failed to enrich audit logs with Logto organization names", error);
       return [];
@@ -1011,43 +1044,29 @@ app.get("/owner/audit", requireAuth(API_RESOURCE), requireOwner, async (req, res
     );
     return res.json(result);
   } catch (error) {
-    if (error.status === 401) {
-      return res.status(401).json({ error: "Unauthorized", message: error.message });
-    }
-
-    if (error.status === 403) {
-      return res.status(403).json({ error: "Forbidden", message: error.message });
-    }
-
+    if (error.status === 401) return res.status(401).json({ error: "Unauthorized", message: error.message });
+    if (error.status === 403) return res.status(403).json({ error: "Forbidden", message: error.message });
     console.error("Failed to list audit logs", error);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to list audit logs" });
   }
 });
 
-app.get(
-  "/organizations/:organizationId/documents",
-  requireOrganizationAccess({ requiredScopes: ["documents:read"] }),
-  async (req, res) => {
-    return res.json({
-      organizationId: req.user.organizationId,
-      documents: [],
-      source: "organization_token",
-    });
-  }
-);
+app.get("/organizations/:organizationId/documents", requireOrganizationAccess({ requiredScopes: ["documents:read"] }), async (req, res) => {
+  return res.json({
+    organizationId: req.user.organizationId,
+    documents: [],
+    source: "organization_token",
+  });
+});
 
-app.post(
-  "/organizations/:organizationId/documents",
-  requireOrganizationAccess({ requiredScopes: ["documents:create"] }),
-  async (req, res) => {
-    return res.status(201).json({
-      organizationId: req.user.organizationId,
-      document: null,
-      source: "organization_token",
-      message: "Organization-scoped document creation placeholder",
-    });
-  }
-);
+app.post("/organizations/:organizationId/documents", requireOrganizationAccess({ requiredScopes: ["documents:create"] }), async (req, res) => {
+  return res.status(201).json({
+    organizationId: req.user.organizationId,
+    document: null,
+    source: "organization_token",
+    message: "Organization-scoped document creation placeholder",
+  });
+});
 
 app.get("/", (req, res) => {
   res.json({ message: "Welcome to the Civitas API", health: "/health" });
