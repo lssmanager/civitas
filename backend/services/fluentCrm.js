@@ -446,23 +446,33 @@ function getFluentCrmRoleSyncMapping() {
   return Object.keys(env.mapping).length ? { ...DEFAULT_ROLE_SYNC_MAPPING, ...env.mapping } : DEFAULT_ROLE_SYNC_MAPPING;
 }
 
+function normalizeRoleReference(role) {
+  if (typeof role === "string") return { logtoRoleId: null, organizationRoleName: role };
+  return {
+    logtoRoleId: role?.logtoRoleId || role?.id || role?.organizationRoleId || role?.roleId || null,
+    organizationRoleName: role?.organizationRoleName || role?.name || role?.nameCache || role?.key || null,
+  };
+}
+
 function mapOrganizationRolesToCrmTaxonomy(roleNames = [], mapping = getFluentCrmRoleSyncMapping()) {
   const tags = new Set();
   const lists = new Set();
   const excludedRoles = [];
   const unmappedRoles = [];
   const mappedRoles = [];
-  for (const roleName of roleNames) {
+  for (const role of roleNames) {
+    const roleRef = normalizeRoleReference(role);
+    const roleName = roleRef.organizationRoleName;
     if (PROHIBITED_ROLE_NAMES.has(roleName)) {
       excludedRoles.push(roleName);
       continue;
     }
-    const mapped = mapping[roleName];
+    const mapped = (roleRef.logtoRoleId && mapping[roleRef.logtoRoleId]) || (roleName && mapping[roleName]);
     if (!mapped || mapped.isActive === false) {
-      unmappedRoles.push(roleName);
+      unmappedRoles.push(roleRef.logtoRoleId || roleName);
       continue;
     }
-    mappedRoles.push({ roleName, roleType: mapped.roleType || "organizational" });
+    mappedRoles.push({ logtoRoleId: roleRef.logtoRoleId || mapped.logtoRoleId || null, roleName: roleName || mapped.organizationRoleName || null, roleType: mapped.roleType || "organizational" });
     (mapped.tags || []).forEach((tag) => tags.add(tag));
     (mapped.lists || []).forEach((list) => lists.add(list));
   }

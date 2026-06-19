@@ -560,7 +560,8 @@ app.get("/owner/organization-template", requireAuth(API_RESOURCE), requireOwner,
 
 app.get("/owner/integrations/fluentcrm/role-mappings", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
   try {
-    const [logtoRoles, persistedRows, effective] = await Promise.all([listLogtoOrganizationRoles(), db.select().from(crmRoleMappings), getEffectiveCrmRoleMapping()]);
+    const [logtoRoles, persistedRows] = await Promise.all([listLogtoOrganizationRoles(), db.select().from(crmRoleMappings)]);
+    const effective = await getEffectiveCrmRoleMapping({ logtoRoles });
     return res.json(buildRoleMappingResponse({ logtoRoles, persistedRows, effective }));
   } catch (error) {
     console.error("Failed to load FluentCRM role mappings", error);
@@ -573,10 +574,12 @@ app.put("/owner/integrations/fluentcrm/role-mappings", requireAuth(API_RESOURCE)
   try {
     internalUser = await getOrCreateInternalUser(req.user);
     const mappings = Array.isArray(req.body?.mappings) ? req.body.mappings : [];
-    const before = await getEffectiveCrmRoleMapping();
+    const logtoRolesForBefore = await listLogtoOrganizationRoles();
+    const before = await getEffectiveCrmRoleMapping({ logtoRoles: logtoRolesForBefore });
     await upsertCrmRoleMappings({ mappings });
-    const [logtoRoles, persistedRows, effective] = await Promise.all([listLogtoOrganizationRoles(), db.select().from(crmRoleMappings), getEffectiveCrmRoleMapping()]);
-    await recordAuditLogBestEffort({ actorUserId: internalUser.id, action: AUDIT_ACTIONS.OWNER_FLUENTCRM_ROLE_MAPPING_UPDATE, result: AUDIT_RESULTS.SUCCESS, metadata: { changedRoleNames: mappings.map((item) => item.organizationRoleName).filter(Boolean), beforeSource: before.source, afterSource: effective.source } });
+    const [logtoRoles, persistedRows] = await Promise.all([listLogtoOrganizationRoles(), db.select().from(crmRoleMappings)]);
+    const effective = await getEffectiveCrmRoleMapping({ logtoRoles });
+    await recordAuditLogBestEffort({ actorUserId: internalUser.id, action: AUDIT_ACTIONS.OWNER_FLUENTCRM_ROLE_MAPPING_UPDATE, result: AUDIT_RESULTS.SUCCESS, metadata: { changedLogtoRoleIds: mappings.map((item) => item.logtoRoleId).filter(Boolean), changedRoleNames: mappings.map((item) => item.organizationRoleName).filter(Boolean), beforeSource: before.source, afterSource: effective.source } });
     return res.json(buildRoleMappingResponse({ logtoRoles, persistedRows, effective }));
   } catch (error) {
     await recordAuditLogBestEffort({ actorUserId: internalUser?.id ?? null, action: AUDIT_ACTIONS.OWNER_FLUENTCRM_ROLE_MAPPING_UPDATE, result: AUDIT_RESULTS.ERROR, metadata: { error } });
@@ -589,7 +592,8 @@ app.post("/owner/integrations/fluentcrm/role-mappings/reset", requireAuth(API_RE
   try {
     internalUser = await getOrCreateInternalUser(req.user);
     await resetCrmRoleMappings();
-    const [logtoRoles, persistedRows, effective] = await Promise.all([listLogtoOrganizationRoles(), db.select().from(crmRoleMappings), getEffectiveCrmRoleMapping()]);
+    const [logtoRoles, persistedRows] = await Promise.all([listLogtoOrganizationRoles(), db.select().from(crmRoleMappings)]);
+    const effective = await getEffectiveCrmRoleMapping({ logtoRoles });
     await recordAuditLogBestEffort({ actorUserId: internalUser.id, action: AUDIT_ACTIONS.OWNER_FLUENTCRM_ROLE_MAPPING_RESET, result: AUDIT_RESULTS.SUCCESS, metadata: { effectiveSource: effective.source } });
     return res.json(buildRoleMappingResponse({ logtoRoles, persistedRows, effective }));
   } catch (error) {
@@ -939,12 +943,13 @@ app.post("/owner/organizations/:organizationId/fluentcrm/sync-contacts", require
     const profile = await resolveOrganizationProfileForRequest(req.params.organizationId);
     if (!profile) return res.status(404).json({ error: "Not Found", message: "Organization profile not found" });
     const members = await listLogtoOrganizationUsers({ organizationId: profile.logtoOrganizationId });
-    const roleMapping = (await getEffectiveCrmRoleMapping()).mapping;
+    const logtoRoles = await listLogtoOrganizationRoles();
+    const roleMapping = (await getEffectiveCrmRoleMapping({ logtoRoles })).mapping;
     const summary = await syncOrganizationContactsToFluentCrm({
       profile,
       roleMapping,
       members,
-      getMemberRoles: async (logtoUserId) => (await listLogtoOrganizationUserRoles({ organizationId: profile.logtoOrganizationId, userId: logtoUserId })).map((role) => role.name).filter(Boolean),
+      getMemberRoles: async (logtoUserId) => (await listLogtoOrganizationUserRoles({ organizationId: profile.logtoOrganizationId, userId: logtoUserId })).map((role) => ({ logtoRoleId: role.id || role.organizationRoleId || role.roleId, organizationRoleName: role.name || role.nameCache || role.key })).filter((role) => role.logtoRoleId || role.organizationRoleName),
       audit: async (event) => recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: profile.logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_FLUENTCRM_CONTACT_SYNC, result: event.result === "success" ? AUDIT_RESULTS.SUCCESS : AUDIT_RESULTS.ERROR, metadata: { stage: "fluentcrm_contact_sync", ...event } }),
       markOrganizationSync: async (summaryToPersist) => markOrganizationProfileFluentCrmSync({ id: profile.id, companyId: profile.fluentcrmCompanyId, status: summaryToPersist.status === "synced" ? "linked" : summaryToPersist.status === "conflict" ? "conflict" : "error", errorMessage: summaryToPersist.errors?.[0]?.reason || null, synced: summaryToPersist.status === "synced", settings: buildContactSyncSettings(profile, summaryToPersist) }),
     });

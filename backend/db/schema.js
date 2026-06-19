@@ -29,7 +29,8 @@ const crmRoleMappings = pgTable(
   "crm_role_mappings",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    organizationRoleName: varchar("organization_role_name", { length: 255 }).notNull().unique(),
+    logtoRoleId: varchar("logto_role_id", { length: 255 }).notNull().unique(),
+    organizationRoleName: varchar("organization_role_name", { length: 255 }).notNull(),
     tagsJson: jsonb("tags_json").notNull().default([]),
     listsJson: jsonb("lists_json").notNull().default([]),
     roleType: varchar("role_type", { length: 64 }).notNull().default("organizational"),
@@ -39,7 +40,8 @@ const crmRoleMappings = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
-    roleNameIdx: uniqueIndex("crm_role_mappings_role_name_unique").on(table.organizationRoleName),
+    logtoRoleIdx: uniqueIndex("crm_role_mappings_logto_role_id_unique").on(table.logtoRoleId),
+    roleNameIdx: index("crm_role_mappings_role_name_idx").on(table.organizationRoleName),
     activeIdx: index("crm_role_mappings_active_idx").on(table.isActive),
   })
 );

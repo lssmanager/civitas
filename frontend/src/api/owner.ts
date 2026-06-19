@@ -109,6 +109,7 @@ export type OwnerMemberDeprovisionResponse = {
 export type OwnerOrganizationTemplateRole = { id: string; name: string };
 
 export type OwnerCrmRoleMapping = {
+  logtoRoleId: string;
   organizationRoleName: string;
   tags: string[];
   lists: string[];
@@ -123,6 +124,7 @@ export type OwnerCrmRoleMappingsResponse = {
   mappings: OwnerCrmRoleMapping[];
   effectiveSource: string;
   envWarning?: string | null;
+  warnings?: string[];
   note: string;
 };
 
