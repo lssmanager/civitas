@@ -104,10 +104,10 @@ function resolveLegacyNameMappings({ namedMappings = {}, roleIndexes, source, wa
   return resolved;
 }
 
-async function getEffectiveCrmRoleMapping({ database = db, logger = console, logtoRoles = [] } = {}) {
+async function getEffectiveCrmRoleMapping({ database = db, logger = console, logtoRoles = [], persistedRows } = {}) {
   const warnings = [];
   const roleIndexes = buildRoleIndexes(logtoRoles);
-  const rows = await listPersistedCrmRoleMappings(database);
+  const rows = Array.isArray(persistedRows) ? persistedRows : await listPersistedCrmRoleMappings(database);
   const persisted = rowsToMapping(rows);
   const env = parseEnvRoleMappings(logger);
   if (env.warning) warnings.push(env.warning);
@@ -127,11 +127,41 @@ async function getEffectiveCrmRoleMapping({ database = db, logger = console, log
 function buildRoleMappingResponse({ logtoRoles = [], persistedRows = [], effective }) {
   const roleIndexes = buildRoleIndexes(logtoRoles);
   const persisted = rowsToMapping(persistedRows);
-  const mappings = roleIndexes.roles.map((role) => {
-    const mapping = effective.mapping[role.logtoRoleId] || normalizeMappingEntry(role, { isActive: false }, CRM_ROLE_MAPPING_SOURCES.UNMAPPED);
+  const mappingRoles = roleIndexes.roles.length
+    ? roleIndexes.roles
+    : Object.values(persisted).map((mapping) => ({ logtoRoleId: mapping.logtoRoleId, organizationRoleName: mapping.organizationRoleName }));
+  const mappings = mappingRoles.map((role) => {
+    const mapping = effective.mapping[role.logtoRoleId] || persisted[role.logtoRoleId] || normalizeMappingEntry(role, { isActive: false }, CRM_ROLE_MAPPING_SOURCES.UNMAPPED);
     return { logtoRoleId: role.logtoRoleId, organizationRoleName: role.organizationRoleName, tags: mapping.tags || [], lists: mapping.lists || [], roleType: mapping.roleType || "organizational", isActive: mapping.isActive !== false, source: persisted[role.logtoRoleId]?.source || mapping.source || effective.source, isCustomized: Boolean(persisted[role.logtoRoleId]) };
   });
-  return { roles: roleIndexes.roles.map((role) => ({ id: role.logtoRoleId, name: role.organizationRoleName })), mappings, effectiveSource: effective.source, envWarning: effective.envWarning, warnings: effective.warnings || [], note: "Civitas stores only operational CRM segmentation mappings keyed by Logto role id; Logto remains canonical for roles and memberships." };
+  const unmappedRoles = mappings.filter((mapping) => mapping.isActive === false || mapping.source === CRM_ROLE_MAPPING_SOURCES.UNMAPPED).map((mapping) => ({ id: mapping.logtoRoleId, name: mapping.organizationRoleName }));
+  return { roles: roleIndexes.roles.map((role) => ({ id: role.logtoRoleId, name: role.organizationRoleName })), mappings, warnings: effective.warnings || [], unmappedRoles, effectiveSource: effective.source, envWarning: effective.envWarning, note: "Civitas stores only operational CRM segmentation mappings keyed by Logto role id; Logto remains canonical for roles and memberships." };
+}
+
+async function loadCrmRoleMappingReadModel({ database = db, logger = console, listRoles } = {}) {
+  const warnings = [];
+  const roleLoader = typeof listRoles === "function" ? listRoles : async () => [];
+  const [rolesResult, rowsResult] = await Promise.allSettled([roleLoader(), listPersistedCrmRoleMappings(database)]);
+
+  if (rowsResult.status === "rejected") {
+    const error = new Error("Unable to load persisted CRM role mappings from database");
+    error.cause = rowsResult.reason;
+    error.status = 500;
+    throw error;
+  }
+
+  let logtoRoles = [];
+  if (rolesResult.status === "fulfilled") {
+    logtoRoles = Array.isArray(rolesResult.value) ? rolesResult.value : [];
+    if (!Array.isArray(rolesResult.value)) warnings.push("Logto organization roles response was not an array; showing persisted mappings only.");
+  } else {
+    logger.warn?.("Unable to load Logto organization roles for FluentCRM role mappings", rolesResult.reason);
+    warnings.push("No se pudieron cargar los roles organizacionales desde Logto; se muestran mappings persistidos si existen.");
+  }
+
+  const effective = await getEffectiveCrmRoleMapping({ database, logger, logtoRoles, persistedRows: rowsResult.value });
+  effective.warnings = [...warnings, ...(effective.warnings || [])];
+  return buildRoleMappingResponse({ logtoRoles, persistedRows: rowsResult.value, effective });
 }
 
 async function upsertCrmRoleMappings({ mappings = [], database = db } = {}) {
@@ -156,4 +186,4 @@ async function resetCrmRoleMappings({ database = db } = {}) {
   await database.delete(crmRoleMappings);
 }
 
-module.exports = { CRM_ROLE_MAPPING_SOURCES, DEFAULT_CRM_ROLE_MAPPINGS, PROHIBITED_ROLE_NAMES, buildRoleMappingResponse, getEffectiveCrmRoleMapping, isMappableRoleName, normalizeEnvRoleMappingJsonValue, normalizeMappingEntry, parseEnvRoleMappings, resetCrmRoleMappings, upsertCrmRoleMappings };
+module.exports = { CRM_ROLE_MAPPING_SOURCES, DEFAULT_CRM_ROLE_MAPPINGS, PROHIBITED_ROLE_NAMES, buildRoleMappingResponse, getEffectiveCrmRoleMapping, isMappableRoleName, loadCrmRoleMappingReadModel, normalizeEnvRoleMappingJsonValue, normalizeMappingEntry, parseEnvRoleMappings, resetCrmRoleMappings, upsertCrmRoleMappings };
