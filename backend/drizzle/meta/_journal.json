@@ -92,6 +92,20 @@
       "when": 1781712060000,
       "tag": "0012_harden_crm_role_mappings",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1781712120000,
+      "tag": "0013_repair_crm_role_mappings_schema",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1781712180000,
+      "tag": "0014_create_wordpress_role_mappings",
+      "breakpoints": true
     }
   ]
 }

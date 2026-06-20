@@ -1,6 +1,7 @@
 const { AUDIT_ACTIONS, AUDIT_RESULTS, recordAuditLogBestEffort } = require("./auditLogs");
 const {
   DEFAULT_CRM_ROLE_MAPPINGS,
+  getDatabaseErrorDiagnostic,
   getEffectiveCrmRoleMapping,
   parseEnvRoleMappings,
 } = require("./crmRoleMappings");
@@ -537,7 +538,7 @@ async function syncOrganizationContactsToFluentCrm({ profile, members, getMember
     try {
       effectiveRoleMapping = (await getEffectiveCrmRoleMapping()).mapping;
     } catch (error) {
-      console.warn("Falling back to legacy/default FluentCRM role mapping because persisted mapping could not be loaded", error.message);
+      console.warn("Falling back to legacy/default FluentCRM role mapping because persisted mapping could not be loaded", { diagnostic: getDatabaseErrorDiagnostic(error), error });
       effectiveRoleMapping = getFluentCrmRoleSyncMapping();
     }
   }

@@ -31,6 +31,8 @@ const AUDIT_ACTIONS = Object.freeze({
   OWNER_ORGANIZATION_MEMBER_DEPROVISION_FLUENTCRM: "owner.organization.member_deprovision_fluentcrm",
   OWNER_FLUENTCRM_ROLE_MAPPING_UPDATE: "owner.fluentcrm.role_mapping.update",
   OWNER_FLUENTCRM_ROLE_MAPPING_RESET: "owner.fluentcrm.role_mapping.reset",
+  OWNER_WORDPRESS_ROLE_MAPPING_UPDATE: "owner.wordpress.role_mapping.update",
+  OWNER_WORDPRESS_ROLE_MAPPING_RESET: "owner.wordpress.role_mapping.reset",
   COMMERCIAL_EVENT_RECEIVED: "commercial.event.received",
   COMMERCIAL_EVENT_APPLIED: "commercial.event.applied",
   COMMERCIAL_EVENT_FAILED: "commercial.event.failed",

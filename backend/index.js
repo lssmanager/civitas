@@ -50,8 +50,14 @@ const {
   resetCrmRoleMappings,
   upsertCrmRoleMappings,
 } = require("./services/crmRoleMappings");
+const {
+  loadWordPressRoleMappingReadModel,
+  listWordPressRoles,
+  resetWordPressRoleMappings,
+  upsertWordPressRoleMappings,
+} = require("./services/wordpressRoles");
 const { db } = require("./db/client");
-const { crmRoleMappings } = require("./db/schema");
+const { crmRoleMappings, wordpressRoleMappings } = require("./db/schema");
 const { getCommercialStatusForOrganization, getLatestCommercialEventsForOrganization, processCommercialEvent, verifyCommercialWebhookSignature } = require("./services/commercialEvents");
 
 const app = express();
@@ -587,6 +593,66 @@ app.get("/owner/organization-template", requireAuth(API_RESOURCE), requireOwner,
   } catch (error) {
     console.error("Failed to inspect Logto organization template", error);
     return res.status(502).json({ error: "Bad Gateway", message: "Failed to inspect Logto organization template" });
+  }
+});
+
+
+app.get("/owner/integrations/wordpress/roles", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  try {
+    const roles = await listWordPressRoles();
+    return res.json({ roles, note: "WordPress roles are a supplemental synchronization catalog only; Logto remains canonical for Civitas authorization." });
+  } catch (error) {
+    console.error("Failed to load WordPress role catalog", error);
+    return res.status(error.status || 502).json({ error: "WordPress roles unavailable", message: getSafeErrorMessage(error), diagnostic: error.diagnostic || null });
+  }
+});
+
+app.get("/owner/integrations/wordpress/role-mappings", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  try {
+    const response = await loadWordPressRoleMappingReadModel({ listRoles: listLogtoOrganizationRoles });
+    return res.json(response);
+  } catch (error) {
+    console.error("Failed to load WordPress role mappings", error);
+    return res.status(500).json({ error: "WordPress role mappings unavailable", message: "Unable to load WordPress role mappings", details: process.env.NODE_ENV === "production" ? undefined : error.message });
+  }
+});
+
+app.put("/owner/integrations/wordpress/role-mappings", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  let internalUser = null;
+  try {
+    internalUser = await getOrCreateInternalUser(req.user);
+    const mappings = Array.isArray(req.body?.mappings) ? req.body.mappings : [];
+    const [logtoRolesForBefore, beforeRows, wordpressRoles] = await Promise.all([listLogtoOrganizationRoles(), db.select().from(wordpressRoleMappings), listWordPressRoles().catch(() => [])]);
+    const beforeById = Object.fromEntries(beforeRows.map((row) => [row.logtoRoleId, row]));
+    await upsertWordPressRoleMappings({ mappings, wordpressRoles });
+    const [logtoRoles, persistedRows] = await Promise.all([listLogtoOrganizationRoles(), db.select().from(wordpressRoleMappings)]);
+    const changedMappings = mappings.map((item) => ({
+      logtoRoleId: item.logtoRoleId,
+      organizationRoleName: item.organizationRoleName,
+      before: beforeById[item.logtoRoleId]?.wordpressRoleSlug || "",
+      after: item.wordpressRoleSlug || "",
+    })).filter((item) => item.before !== item.after);
+    await recordAuditLogBestEffort({ actorUserId: internalUser.id, action: AUDIT_ACTIONS.OWNER_WORDPRESS_ROLE_MAPPING_UPDATE, result: AUDIT_RESULTS.SUCCESS, metadata: { changedMappings, changedLogtoRoleIds: changedMappings.map((item) => item.logtoRoleId), note: "WordPress role mappings are operational sync configuration; Logto remains canonical for authorization." } });
+    const response = await loadWordPressRoleMappingReadModel({ listRoles: async () => logtoRoles, listWpRoles: async () => wordpressRoles, database: { select: () => ({ from: async () => persistedRows }) } });
+    return res.json(response);
+  } catch (error) {
+    await recordAuditLogBestEffort({ actorUserId: internalUser?.id ?? null, action: AUDIT_ACTIONS.OWNER_WORDPRESS_ROLE_MAPPING_UPDATE, result: AUDIT_RESULTS.ERROR, metadata: { error } });
+    return res.status(error.status || 400).json({ error: "Bad Request", message: getSafeErrorMessage(error) });
+  }
+});
+
+app.post("/owner/integrations/wordpress/role-mappings/reset", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  let internalUser = null;
+  try {
+    internalUser = await getOrCreateInternalUser(req.user);
+    const beforeRows = await db.select().from(wordpressRoleMappings);
+    await resetWordPressRoleMappings();
+    const response = await loadWordPressRoleMappingReadModel({ listRoles: listLogtoOrganizationRoles });
+    await recordAuditLogBestEffort({ actorUserId: internalUser.id, action: AUDIT_ACTIONS.OWNER_WORDPRESS_ROLE_MAPPING_RESET, result: AUDIT_RESULTS.SUCCESS, metadata: { clearedLogtoRoleIds: beforeRows.map((row) => row.logtoRoleId), note: "Cleared operational WordPress mappings only; Logto roles were not modified." } });
+    return res.json(response);
+  } catch (error) {
+    await recordAuditLogBestEffort({ actorUserId: internalUser?.id ?? null, action: AUDIT_ACTIONS.OWNER_WORDPRESS_ROLE_MAPPING_RESET, result: AUDIT_RESULTS.ERROR, metadata: { error } });
+    return res.status(error.status || 400).json({ error: "Bad Request", message: getSafeErrorMessage(error) });
   }
 });
 
