@@ -66,13 +66,13 @@ test("malformed CRM role mapping env warns without throwing", () => {
   restoreEnv(previous);
 });
 
-test("CRM role mapping env accepts accidental KEY= prefix", () => {
+test("CRM role mapping env rejects accidental KEY= prefix", () => {
   const previous = process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON;
   const warnings = [];
   process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON = 'FLUENTCRM_ROLE_SYNC_MAPPING_JSON={"Teacher-org":{"tags":["teacher-prefixed"],"lists":["Teachers"]}}';
   const result = parseEnvRoleMappings({ warn: (...args) => warnings.push(args) });
-  assert.deepEqual(result.mapping["Teacher-org"].tags, ["teacher-prefixed"]);
-  assert.match(result.warning, /KEY= prefix/);
+  assert.deepEqual(result.mapping, {});
+  assert.match(result.warning, /includes its variable name/);
   assert.equal(warnings.length, 1);
   restoreEnv(previous);
 });

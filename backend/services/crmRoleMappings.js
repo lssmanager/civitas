@@ -52,11 +52,14 @@ function parseEnvRoleMappings(logger = console) {
   if (!process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON) return { mapping: {}, warning: null };
   const normalized = normalizeEnvRoleMappingJsonValue(process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON);
   try {
+    if (normalized.hadKeyPrefix) {
+      const warning = "FLUENTCRM_ROLE_SYNC_MAPPING_JSON is malformed because it includes its variable name. Configure the value as only the JSON object, for example {\"Teacher-org\":{\"tags\":[\"teacher\"],\"lists\":[]}}.";
+      logger.warn?.(warning);
+      return { mapping: {}, warning };
+    }
     const parsed = JSON.parse(normalized.value);
     const mapping = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
-    const warning = normalized.hadKeyPrefix ? "FLUENTCRM_ROLE_SYNC_MAPPING_JSON included a KEY= prefix; Civitas ignored the prefix and used the JSON object value" : null;
-    if (warning) logger.warn?.(warning);
-    return { mapping, warning };
+    return { mapping, warning: null };
   } catch (error) {
     const warning = "FLUENTCRM_ROLE_SYNC_MAPPING_JSON is malformed; using persisted mappings or defaults. Provide only the JSON object value, not a KEY= prefix.";
     logger.warn?.(warning, error.message);

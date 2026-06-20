@@ -138,3 +138,18 @@ test("listLogtoOrganizationUserRoles reads only organization roles", async () =>
   const roles = await listLogtoOrganizationUserRoles({ organizationId: "org-1", userId: "user-1" });
   assert.deepEqual(roles, [{ id: "role-admin", name: "Admin-org" }]);
 });
+
+test("Logto Management API request timeout is controlled", async () => {
+  process.env.LOGTO_MANAGEMENT_TIMEOUT_MS = "10";
+  const { listLogtoOrganizations } = require("../services/logtoManagement");
+  global.fetch = async (_url, options = {}) => new Promise((_resolve, reject) => {
+    options.signal.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })));
+  });
+
+  await assert.rejects(listLogtoOrganizations(), (error) => {
+    assert.match(error.code, /LOGTO_MANAGEMENT_(TOKEN|REQUEST)_TIMEOUT/);
+    assert.match(error.diagnostic, /Network timeout/);
+    return true;
+  });
+  delete process.env.LOGTO_MANAGEMENT_TIMEOUT_MS;
+});
