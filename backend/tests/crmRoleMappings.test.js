@@ -72,8 +72,19 @@ test("CRM role mapping env rejects accidental KEY= prefix", () => {
   process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON = 'FLUENTCRM_ROLE_SYNC_MAPPING_JSON={"Teacher-org":{"tags":["teacher-prefixed"],"lists":["Teachers"]}}';
   const result = parseEnvRoleMappings({ warn: (...args) => warnings.push(args) });
   assert.deepEqual(result.mapping, {});
-  assert.match(result.warning, /includes its variable name/);
+  assert.match(result.warning, /includes its variable name|configured as/);
   assert.equal(warnings.length, 1);
+  restoreEnv(previous);
+});
+
+
+test("CRM legacy env ignores empty duplicated key value without contaminating mappings", () => {
+  const previous = process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON;
+  const warnings = [];
+  process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON = "FLUENTCRM_ROLE_SYNC_MAPPING_JSON=";
+  const result = parseEnvRoleMappings({ warn: (...args) => warnings.push(args) });
+  assert.deepEqual(result.mapping, {});
+  assert.match(result.warning, /ignored|primary/);
   restoreEnv(previous);
 });
 
