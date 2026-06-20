@@ -36,7 +36,9 @@ const normalizeAdministrativeContacts = (value, institutionalDomain = null) => {
   return value
     .map((contact, index) => ({
       key: typeof (contact?.key ?? contact?.kind) === "string" && (contact.key ?? contact.kind).trim() ? (contact.key ?? contact.kind).trim() : `administrative_contact_${index + 1}`,
-      name: emptyToNull(contact?.name),
+      firstName: emptyToNull(contact?.firstName),
+      lastName: emptyToNull(contact?.lastName),
+      name: emptyToNull(contact?.name) || [emptyToNull(contact?.firstName), emptyToNull(contact?.lastName)].filter(Boolean).join(" ") || null,
       email: normalizeContactEmail(contact?.email),
       rawEmail: emptyToNull(contact?.email)?.toLowerCase() || null,
       phone: emptyToNull(contact?.phone),
@@ -52,14 +54,13 @@ function normalizeUsernameSeed(value) {
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
-    .replace(/[^a-z0-9]/g, "");
+    .replace(/[^a-z0-9._-]/g, "")
+    .replace(/^[._-]+|[._-]+$/g, "");
 }
 
-function buildLogtoUsername({ subdomain, firstName, lastName }) {
-  const normalizedSubdomain = normalizeUsernameSeed(subdomain);
-  const firstInitial = normalizeUsernameSeed(firstName).charAt(0);
-  const lastInitial = normalizeUsernameSeed(lastName).charAt(0);
-  return normalizedSubdomain && firstInitial && lastInitial ? `${normalizedSubdomain}${firstInitial}${lastInitial}` : null;
+function buildLogtoUsername({ email }) {
+  const localPart = String(email || "").split("@")[0] || "";
+  return normalizeUsernameSeed(localPart) || null;
 }
 
 const normalizePhoneE164 = (value) => {
@@ -120,7 +121,7 @@ function normalizeCanonicalProvisioningInput(body = {}) {
   const jitProvisioningDomain = emptyToNull(jitProvisioning.domain ?? body.adminDomain ?? body.institutionalProvisioningDomain)?.toLowerCase() || null;
   const jitDefaultRoleNames = normalizeRoleNames(jitProvisioning.defaultRoleNames ?? body.defaultRoleNames, DEFAULT_JIT_ROLE_NAMES);
   const administrativeContacts = normalizeAdministrativeContacts(body.administrativeContacts, jitProvisioningDomain).map((contact) => ({ ...contact, phone: normalizePhoneE164(contact.phone) || contact.phone }));
-  const baseAdminUsername = emptyToNull(baseAdmin.username ?? body.baseAdminUsername) || buildLogtoUsername({ subdomain: body.subdomain ?? body.appSubdomain ?? body.slug, firstName: baseAdminFirstName || baseAdminName, lastName: baseAdminLastName });
+  const baseAdminUsername = emptyToNull(baseAdmin.username ?? body.baseAdminUsername) || buildLogtoUsername({ email: baseAdminEmail });
   const errors = [];
 
   if (!name) errors.push({ field: "name", message: "Organization name is required" });
@@ -130,7 +131,7 @@ function normalizeCanonicalProvisioningInput(body = {}) {
   if (!baseAdminEmail) errors.push({ field: "baseAdmin.email", message: "Base admin email is required" });
   if (baseAdminEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(baseAdminEmail)) errors.push({ field: "baseAdmin.email", message: "Base admin email must be a valid email address" });
   if (baseAdminPhoneRaw && !baseAdminPhone) errors.push({ field: "baseAdmin.phone", message: "Base admin phone must include country calling code and a valid national number" });
-  if (!baseAdminUsername) errors.push({ field: "baseAdmin.username", message: "Base admin username could not be built; provide first name, last name and app subdomain" });
+  if (!baseAdminUsername) errors.push({ field: "baseAdmin.username", message: "Base admin username could not be built from the base admin email local part" });
   if (baseAdminLogtoUserId && looksLikeRoleName(baseAdminLogtoUserId)) errors.push({ field: "baseAdmin.logtoUserId", message: "Base admin Logto user id cannot be an organization role name" });
   if (baseAdminInitialOrganizationRole !== ORGANIZATION_ADMIN_ROLE_NAME) errors.push({ field: "baseAdmin.initialOrganizationRole", message: `Base admin initial organization role must be ${ORGANIZATION_ADMIN_ROLE_NAME}` });
   if (!jitProvisioningDomain) errors.push({ field: "jitProvisioning.domain", message: "JIT provisioning domain is required" });
