@@ -462,6 +462,114 @@ export function OwnerOrganizationsPage() {
         crm: { ...current.crm, [field]: true },
       }));
     }
+<<<<<<< HEAD
+=======
+    setFormData((current) => ({
+      ...current,
+      crm: {
+        ...current.crm,
+        [field]: value,
+        ...(field === "country" ? { state: "", city: "" } : {}),
+      },
+    }));
+  };
+
+  const getInstitutionalEmailSuffix = () =>
+    formData.adminDomain.trim() ? `@${formData.adminDomain.trim()}` : "";
+  const getEmailDomainExample = () =>
+    formData.adminDomain.trim() || "ejemplo.com.co";
+  const getAdministrativeEmailPlaceholder = (key: AdministrativeContactKey) =>
+    `${key === "director" ? "director" : key.replace("responsible", "responsable")}@${getEmailDomainExample()}`;
+  const isOnlyInstitutionalEmailSuffix = (email: string) =>
+    Boolean(getInstitutionalEmailSuffix()) &&
+    email.trim().toLowerCase() === getInstitutionalEmailSuffix().toLowerCase();
+  const normalizeAdministrativeEmail = (email: string) =>
+    isOnlyInstitutionalEmailSuffix(email) ? "" : email.trim();
+  const normalizeAdministrativeContactForSubmission = (
+    contact: AdministrativeContact,
+  ): {
+    value?: {
+      kind: AdministrativeContactKey;
+      name: string;
+      email: string;
+      phone?: string;
+      position?: string;
+      organizationRoleName: string;
+    };
+    error?: string;
+  } | null => {
+    const name = contact.name.trim();
+    const email = normalizeAdministrativeEmail(contact.email);
+    const phone = contact.phone.trim();
+    const position = contact.position.trim();
+    const organizationRoleName = contact.organizationRoleName.trim();
+    const hasAnyUserInput = Boolean(name || email || phone || position);
+    if (!hasAnyUserInput) return null;
+    if (!name || !email || !organizationRoleName)
+      return {
+        error: `${contact.label}: completa nombre, email real y rol Logto, o deja el bloque vacío.`,
+      };
+    return {
+      value: {
+        kind: contact.key,
+        name,
+        email,
+        phone: phone || undefined,
+        position: position || undefined,
+        organizationRoleName,
+      },
+    };
+  };
+
+  const getNormalizedAdministrativeContacts = () =>
+    formData.administrativeContacts.map(
+      normalizeAdministrativeContactForSubmission,
+    );
+  const getAdministrativeContactValidationError = () => {
+    const normalized = getNormalizedAdministrativeContacts();
+    const fieldError = normalized.find((result) => result?.error)?.error;
+    if (fieldError) return fieldError;
+
+    const seen = new Map<string, { label: string; name: string; position: string; role: string }>();
+    for (const result of normalized) {
+      if (!result?.value) continue;
+      const emailKey = result.value.email.trim().toLowerCase();
+      const previous = seen.get(emailKey);
+      if (previous) {
+        const current = {
+          label: String(result.value.kind),
+          name: result.value.name.trim(),
+          position: (result.value.position || "").trim(),
+          role: result.value.organizationRoleName.trim(),
+        };
+        const differs = previous.name !== current.name || previous.position !== current.position || previous.role !== current.role;
+        return differs
+          ? `El email ${result.value.email} está repetido con nombre, cargo o rol distinto. Usa un contacto administrativo único por email antes de enviar.`
+          : `El email ${result.value.email} está repetido en contactos administrativos. Elimina el duplicado antes de enviar.`;
+      }
+      seen.set(emailKey, { label: String(result.value.kind), name: result.value.name.trim(), position: (result.value.position || "").trim(), role: result.value.organizationRoleName.trim() });
+    }
+    return null;
+  };
+  const getAdministrativeContactsPayload = () =>
+    getNormalizedAdministrativeContacts()
+      .map((result) => result?.value)
+      .filter(
+        (
+          value,
+        ): value is {
+          kind: AdministrativeContactKey;
+          name: string;
+          email: string;
+          phone?: string;
+          position?: string;
+          organizationRoleName: string;
+        } => Boolean(value),
+      );
+
+  const addAdministrativeContact = () => {
+    setStepError(null);
+>>>>>>> 3bdc9c1 (Validate administrative contact uniqueness before CRM sync)
     setFormData((current) => {
       const next = {
         ...current,

@@ -50,6 +50,7 @@ const normalizeAdministrativeContacts = (value, institutionalDomain = null) => {
     .filter((contact) => contact.name || contact.email || contact.phone || contact.position);
 };
 const looksLikeRoleName = (value) => [ORGANIZATION_ADMIN_ROLE_NAME, JIT_DEFAULT_ORGANIZATION_ROLE_NAME].includes(value);
+<<<<<<< HEAD
 function normalizeUsernameSeed(value) {
   return String(value || "")
     .normalize("NFKD")
@@ -74,6 +75,8 @@ const normalizePhoneE164 = (value) => {
   return compact.startsWith("+") ? compact : `+${compact}`;
 };
 
+=======
+>>>>>>> 3bdc9c1 (Validate administrative contact uniqueness before CRM sync)
 function getAdministrativeContactUniquenessErrors(administrativeContacts = []) {
   const byEmail = new Map();
   const errors = [];
@@ -102,6 +105,10 @@ function getAdministrativeContactUniquenessErrors(administrativeContacts = []) {
   }
   return errors;
 }
+<<<<<<< HEAD
+=======
+
+>>>>>>> 3bdc9c1 (Validate administrative contact uniqueness before CRM sync)
 
 const getLogtoOrganizationId = (organization) => organization.id || organization.organizationId || organization.logtoOrganizationId;
 const getOrganizationRoleId = (role = {}) => role.id || role.organizationRoleId || role.roleId || null;
@@ -396,4 +403,8 @@ async function resumeOrganizationBootstrap(options) {
   return runCanonicalOrganizationBootstrap(options);
 }
 
+<<<<<<< HEAD
 module.exports = { buildLogtoUsername, getAdministrativeContactUniquenessErrors, normalizeCanonicalProvisioningInput, normalizePhoneE164, resumeOrganizationBootstrap, runCanonicalOrganizationBootstrap };
+=======
+module.exports = { getAdministrativeContactUniquenessErrors, normalizeCanonicalProvisioningInput, resumeOrganizationBootstrap, runCanonicalOrganizationBootstrap };
+>>>>>>> 3bdc9c1 (Validate administrative contact uniqueness before CRM sync)

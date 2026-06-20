@@ -51,6 +51,7 @@ test("organization provisioning explains duplicate administrative email with dif
   assert.deepEqual(duplicate.differingFields, ["organizationRoleName"]);
   assert.match(duplicate.message, /different organizationRoleName/);
 });
+<<<<<<< HEAD
 
 test("organization provisioning builds Logto username from the email local part", () => {
   const result = normalizeCanonicalProvisioningInput({
@@ -98,3 +99,5 @@ test("organization provisioning rejects invalid base admin phone", () => {
 
   assert.equal(result.errors.some((error) => error.field === "baseAdmin.phone"), true);
 });
+=======
+>>>>>>> 3bdc9c1 (Validate administrative contact uniqueness before CRM sync)
