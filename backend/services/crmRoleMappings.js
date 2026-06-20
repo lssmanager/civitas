@@ -157,10 +157,8 @@ async function loadCrmRoleMappingReadModel({ database = db, logger = console, li
     logger.warn?.("crm_role_mappings table is missing; using env/default role mappings until the migration is applied", rowsResult.reason?.message);
     warnings.push("La tabla crm_role_mappings todavía no existe en PostgreSQL. Civitas mostrará defaults temporales hasta aplicar la migración 0011_create_crm_role_mappings.sql.");
   } else {
-    const error = new Error("Unable to load persisted CRM role mappings from database");
-    error.cause = rowsResult.reason;
-    error.status = 500;
-    throw error;
+    logger.warn?.("Unable to load persisted CRM role mappings; falling back to env/default role mappings", rowsResult.reason);
+    warnings.push("No se pudieron cargar los overrides persistidos desde PostgreSQL. Civitas mostrará defaults temporales hasta corregir la lectura de base de datos.");
   }
 
   let logtoRoles = [];
