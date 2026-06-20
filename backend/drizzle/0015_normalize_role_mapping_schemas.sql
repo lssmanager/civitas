@@ -24,8 +24,8 @@ UPDATE "crm_role_mappings" SET "organization_role_name" = COALESCE("organization
 UPDATE "crm_role_mappings" SET "role_name_cache" = COALESCE("role_name_cache", "organization_role_name") WHERE "role_name_cache" IS NULL;
 UPDATE "crm_role_mappings" SET "tags_json" = COALESCE("tags_json", "fluentcrm_tags", '[]'::jsonb), "fluentcrm_tags" = COALESCE("fluentcrm_tags", "tags_json", '[]'::jsonb), "lists_json" = COALESCE("lists_json", "fluentcrm_lists", '[]'::jsonb), "fluentcrm_lists" = COALESCE("fluentcrm_lists", "lists_json", '[]'::jsonb);
 
-DROP INDEX IF EXISTS "crm_role_mappings_logto_role_id_unique";
-CREATE UNIQUE INDEX "crm_role_mappings_logto_role_id_unique" ON "crm_role_mappings" USING btree ("logto_role_id") WHERE "logto_role_id" IS NOT NULL;
+-- Keep an existing unique constraint/index if production already has one; dropping it can fail when the index is constraint-owned.
+CREATE UNIQUE INDEX IF NOT EXISTS "crm_role_mappings_logto_role_id_unique" ON "crm_role_mappings" USING btree ("logto_role_id") WHERE "logto_role_id" IS NOT NULL;
 CREATE INDEX IF NOT EXISTS "crm_role_mappings_role_name_idx" ON "crm_role_mappings" USING btree ("organization_role_name");
 CREATE INDEX IF NOT EXISTS "crm_role_mappings_role_name_cache_idx" ON "crm_role_mappings" USING btree ("role_name_cache");
 CREATE INDEX IF NOT EXISTS "crm_role_mappings_active_idx" ON "crm_role_mappings" USING btree ("is_active");
@@ -41,8 +41,8 @@ ALTER TABLE "wordpress_role_mappings" ADD COLUMN IF NOT EXISTS "is_active" boole
 ALTER TABLE "wordpress_role_mappings" ADD COLUMN IF NOT EXISTS "source" varchar(32) DEFAULT 'gui_override' NOT NULL;
 ALTER TABLE "wordpress_role_mappings" ADD COLUMN IF NOT EXISTS "created_at" timestamp with time zone DEFAULT now() NOT NULL;
 ALTER TABLE "wordpress_role_mappings" ADD COLUMN IF NOT EXISTS "updated_at" timestamp with time zone DEFAULT now() NOT NULL;
-DROP INDEX IF EXISTS "wordpress_role_mappings_logto_role_id_unique";
-CREATE UNIQUE INDEX "wordpress_role_mappings_logto_role_id_unique" ON "wordpress_role_mappings" USING btree ("logto_role_id") WHERE "logto_role_id" IS NOT NULL;
+-- Keep an existing unique constraint/index if production already has one; dropping it can fail when the index is constraint-owned.
+CREATE UNIQUE INDEX IF NOT EXISTS "wordpress_role_mappings_logto_role_id_unique" ON "wordpress_role_mappings" USING btree ("logto_role_id") WHERE "logto_role_id" IS NOT NULL;
 CREATE INDEX IF NOT EXISTS "wordpress_role_mappings_role_name_idx" ON "wordpress_role_mappings" USING btree ("organization_role_name");
 CREATE INDEX IF NOT EXISTS "wordpress_role_mappings_wp_role_idx" ON "wordpress_role_mappings" USING btree ("wordpress_role_slug");
 CREATE INDEX IF NOT EXISTS "wordpress_role_mappings_active_idx" ON "wordpress_role_mappings" USING btree ("is_active");
