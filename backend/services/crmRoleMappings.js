@@ -68,6 +68,29 @@ async function listPersistedCrmRoleMappings(database = db) {
   return database.select().from(crmRoleMappings);
 }
 
+function getDatabaseErrorDiagnostic(error) {
+  const message = String(error?.message || error || "Unknown PostgreSQL error");
+  const errorCode = error?.code || error?.cause?.code;
+  const causeMessage = error?.cause?.message ? `; cause: ${error.cause.message}` : "";
+  const code = errorCode ? ` (${errorCode})` : "";
+  if (errorCode === "42P01" || /relation .*crm_role_mappings.*does not exist|crm_role_mappings.*does not exist/i.test(message)) {
+    return `PostgreSQL table crm_role_mappings is missing${code}: ${message}${causeMessage}`;
+  }
+  if (errorCode === "42703" || /column .*does not exist/i.test(message)) {
+    return `PostgreSQL crm_role_mappings schema is missing an expected column${code}: ${message}${causeMessage}`;
+  }
+  if (errorCode === "42501" || /permission denied/i.test(message)) {
+    return `PostgreSQL user cannot read crm_role_mappings${code}: ${message}${causeMessage}`;
+  }
+  if (errorCode === "22P02" || /invalid input syntax/i.test(message)) {
+    return `PostgreSQL returned invalid crm_role_mappings data${code}: ${message}${causeMessage}`;
+  }
+  if (/database_url|connection|connect|ECONNREFUSED|ENOTFOUND|password authentication failed/i.test(message)) {
+    return `PostgreSQL connection/DATABASE_URL error${code}: ${message}${causeMessage}`;
+  }
+  return `PostgreSQL crm_role_mappings read failed${code}: ${message}${causeMessage}`;
+}
+
 function isMissingCrmRoleMappingsTable(error) {
   if (!error) return false;
   if (error.code === "42P01") return true;
@@ -75,8 +98,30 @@ function isMissingCrmRoleMappingsTable(error) {
   return /crm_role_mappings/i.test(message) && /(does not exist|relation|no existe)/i.test(message);
 }
 
+function getRowValue(row, camelName, snakeName) {
+  return row?.[camelName] ?? row?.[snakeName];
+}
+
+function normalizePersistedRow(row = {}) {
+  const logtoRoleId = String(getRowValue(row, "logtoRoleId", "logto_role_id") || "").trim();
+  const organizationRoleName = String(
+    getRowValue(row, "organizationRoleName", "organization_role_name")
+    || getRowValue(row, "roleNameCache", "role_name_cache")
+    || ""
+  ).trim();
+  return {
+    logtoRoleId,
+    organizationRoleName,
+    tagsJson: getRowValue(row, "tagsJson", "tags_json") ?? getRowValue(row, "fluentcrmTags", "fluentcrm_tags"),
+    listsJson: getRowValue(row, "listsJson", "lists_json") ?? getRowValue(row, "fluentcrmLists", "fluentcrm_lists"),
+    roleType: getRowValue(row, "roleType", "role_type") || "organizational",
+    isActive: getRowValue(row, "isActive", "is_active") !== false,
+    source: getRowValue(row, "source", "source") || CRM_ROLE_MAPPING_SOURCES.GUI_OVERRIDE,
+  };
+}
+
 function rowsToMapping(rows = []) {
-  return Object.fromEntries(rows.filter((row) => row.logtoRoleId && isMappableRoleName(row.organizationRoleName)).map((row) => [row.logtoRoleId, {
+  return Object.fromEntries(rows.map(normalizePersistedRow).filter((row) => row.logtoRoleId && isMappableRoleName(row.organizationRoleName)).map((row) => [row.logtoRoleId, {
     logtoRoleId: row.logtoRoleId,
     organizationRoleName: row.organizationRoleName,
     tags: normalizeStringArray(row.tagsJson),
@@ -154,11 +199,13 @@ async function loadCrmRoleMappingReadModel({ database = db, logger = console, li
   if (rowsResult.status === "fulfilled") {
     persistedRows = rowsResult.value;
   } else if (isMissingCrmRoleMappingsTable(rowsResult.reason)) {
-    logger.warn?.("crm_role_mappings table is missing; using env/default role mappings until the migration is applied", rowsResult.reason?.message);
-    warnings.push("La tabla crm_role_mappings todavía no existe en PostgreSQL. Civitas mostrará defaults temporales hasta aplicar la migración 0011_create_crm_role_mappings.sql.");
+    const diagnostic = getDatabaseErrorDiagnostic(rowsResult.reason);
+    logger.error?.("Failed to read persisted CRM role mappings from PostgreSQL", { diagnostic, error: rowsResult.reason });
+    warnings.push(`${diagnostic}. Aplica la migración correctiva de crm_role_mappings y confirma que DATABASE_URL apunta a la base correcta.`);
   } else {
-    logger.warn?.("Unable to load persisted CRM role mappings; falling back to env/default role mappings", rowsResult.reason);
-    warnings.push("No se pudieron cargar los overrides persistidos desde PostgreSQL. Civitas mostrará defaults temporales hasta corregir la lectura de base de datos.");
+    const diagnostic = getDatabaseErrorDiagnostic(rowsResult.reason);
+    logger.error?.("Failed to read persisted CRM role mappings from PostgreSQL", { diagnostic, error: rowsResult.reason });
+    warnings.push(`${diagnostic}. Civitas mostrará defaults temporales hasta corregir la lectura de base de datos.`);
   }
 
   let logtoRoles = [];
@@ -180,8 +227,11 @@ async function upsertCrmRoleMappings({ mappings = [], database = db } = {}) {
   const rows = mappings.filter((item) => item.logtoRoleId && isMappableRoleName(item.organizationRoleName)).map((item) => ({
     logtoRoleId: item.logtoRoleId,
     organizationRoleName: item.organizationRoleName,
+    roleNameCache: item.organizationRoleName,
     tagsJson: normalizeStringArray(item.tags),
     listsJson: normalizeStringArray(item.lists),
+    fluentcrmTags: normalizeStringArray(item.tags),
+    fluentcrmLists: normalizeStringArray(item.lists),
     roleType: item.roleType || "organizational",
     isActive: item.isActive !== false,
     source: CRM_ROLE_MAPPING_SOURCES.GUI_OVERRIDE,
@@ -197,4 +247,4 @@ async function resetCrmRoleMappings({ database = db } = {}) {
   await database.delete(crmRoleMappings);
 }
 
-module.exports = { CRM_ROLE_MAPPING_SOURCES, DEFAULT_CRM_ROLE_MAPPINGS, PROHIBITED_ROLE_NAMES, buildRoleMappingResponse, getEffectiveCrmRoleMapping, isMappableRoleName, loadCrmRoleMappingReadModel, normalizeEnvRoleMappingJsonValue, normalizeMappingEntry, parseEnvRoleMappings, resetCrmRoleMappings, upsertCrmRoleMappings };
+module.exports = { CRM_ROLE_MAPPING_SOURCES, DEFAULT_CRM_ROLE_MAPPINGS, PROHIBITED_ROLE_NAMES, buildRoleMappingResponse, getDatabaseErrorDiagnostic, getEffectiveCrmRoleMapping, isMappableRoleName, loadCrmRoleMappingReadModel, normalizeEnvRoleMappingJsonValue, normalizeMappingEntry, parseEnvRoleMappings, resetCrmRoleMappings, rowsToMapping, upsertCrmRoleMappings };

@@ -32,7 +32,7 @@ export const appRoutes = {
   ownerRoleMapping: {
     path: "/owner/settings/role-mapping",
     label: "Role Mapping",
-    description: "Mapeo operativo de roles Logto hacia FluentCRM.",
+    description: "Mapeo operativo de roles Logto hacia FluentCRM y WordPress.",
   },
   selectOrganization: {
     path: "/select-organization",
