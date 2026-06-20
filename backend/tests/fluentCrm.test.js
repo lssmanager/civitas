@@ -285,11 +285,12 @@ test("mapOrganizationRolesToCrmTaxonomy maps configured org roles and excludes o
 });
 
 
-test("getFluentCrmRoleSyncMapping sanitizes duplicated env key prefix", () => {
+test("getFluentCrmRoleSyncMapping rejects duplicated env key prefix", () => {
   const { getFluentCrmRoleSyncMapping } = require("../services/fluentCrm");
   process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON = 'FLUENTCRM_ROLE_SYNC_MAPPING_JSON={"Custom-role":{"tags":["custom-tag"],"lists":[]}}';
   const mapping = getFluentCrmRoleSyncMapping();
-  assert.deepEqual(mapping["Custom-role"], { tags: ["custom-tag"], lists: [] });
+  assert.equal(mapping["Custom-role"], undefined);
+  assert.deepEqual(mapping["Admin-org"].tags, ["civitas-role-admin-org"]);
   delete process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON;
 });
 
@@ -539,14 +540,14 @@ test("buildFluentCrmCompanyPayload maps NIT and verification digit to custom val
 });
 
 
-test("legacy FluentCRM role sync mapping accepts accidental KEY= prefix", () => {
+test("legacy FluentCRM role sync mapping rejects accidental KEY= prefix", () => {
   configureFluentCrmEnv({
     FLUENTCRM_ROLE_SYNC_MAPPING_JSON: 'FLUENTCRM_ROLE_SYNC_MAPPING_JSON={"Teacher-org":{"tags":["teacher-prefixed"],"lists":["Teachers"]}}',
   });
 
   const mapping = getFluentCrmRoleSyncMapping();
 
-  assert.deepEqual(mapping["Teacher-org"].tags, ["teacher-prefixed"]);
+  assert.deepEqual(mapping["Teacher-org"].tags, ["civitas-role-teacher-org"]);
 });
 
 test("mapOrganizationRolesToCrmTaxonomy maps by logtoRoleId and treats inactive as unmapped", () => {

@@ -68,3 +68,43 @@ test("upsert WordPress role mappings writes operational rows only for mappable L
   assert.equal(inserted[0].wordpressRoleName, "Subscriber");
   assert.equal(inserted[0].logtoRoleId, "role-student");
 });
+
+
+test("WordPress roles endpoint reports empty catalog as operational error", async () => {
+  await assert.rejects(
+    listWordPressRoles({
+      config: { baseUrl: "https://wp.example", username: "owner", appPassword: "secret", rolesPath: "/wp-json/civitas/v1/roles", timeoutMs: 1000 },
+      fetchImpl: async () => makeResponse({ body: { roles: [] } }),
+    }),
+    (error) => {
+      assert.equal(error.code, "WORDPRESS_ROLES_EMPTY");
+      return true;
+    }
+  );
+});
+
+test("WordPress roles endpoint reports authentication failure precisely", async () => {
+  await assert.rejects(
+    listWordPressRoles({
+      config: { baseUrl: "https://wp.example", username: "owner", appPassword: "bad", rolesPath: "/wp-json/civitas/v1/roles", timeoutMs: 1000 },
+      fetchImpl: async () => makeResponse({ ok: false, status: 401, body: { code: "rest_not_logged_in" } }),
+    }),
+    (error) => {
+      assert.equal(error.code, "WORDPRESS_AUTHENTICATION_FAILED");
+      return true;
+    }
+  );
+});
+
+test("WordPress roles endpoint timeout is controlled", async () => {
+  await assert.rejects(
+    listWordPressRoles({
+      config: { baseUrl: "https://wp.example", username: "owner", appPassword: "secret", rolesPath: "/wp-json/civitas/v1/roles", timeoutMs: 10 },
+      fetchImpl: async (_url, options) => new Promise((_resolve, reject) => options.signal.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })))),
+    }),
+    (error) => {
+      assert.equal(error.code, "WORDPRESS_ROLES_TIMEOUT");
+      return true;
+    }
+  );
+});

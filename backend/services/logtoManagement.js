@@ -4,7 +4,11 @@ const JIT_DEFAULT_ORGANIZATION_ROLE_NAME = "Student-org";
 const REQUIRED_ORGANIZATION_ROLE_NAMES = [ORGANIZATION_ADMIN_ROLE_NAME, JIT_DEFAULT_ORGANIZATION_ROLE_NAME];
 const PROHIBITED_ORGANIZATION_USER_GLOBAL_ROLE_NAMES = ["owner_global"];
 
+const { getTimeoutMs, withTimeout } = require("./timeouts");
+
 let tokenCache = null;
+
+const getLogtoTimeoutMs = () => getTimeoutMs("LOGTO_MANAGEMENT_TIMEOUT_MS", 8000);
 
 class LogtoManagementApiError extends Error {
   constructor(message, { status, body, request } = {}) {
@@ -46,7 +50,9 @@ async function fetchLogtoManagementApiAccessToken() {
   }
 
   const config = getLogtoManagementConfig();
-  const response = await fetch(config.tokenEndpoint, {
+  let response;
+  try {
+    response = await withTimeout((signal) => fetch(config.tokenEndpoint, {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
@@ -57,7 +63,17 @@ async function fetchLogtoManagementApiAccessToken() {
       resource: config.resource,
       scope: MANAGEMENT_TOKEN_SCOPE,
     }).toString(),
-  });
+    signal,
+  }), { timeoutMs: getLogtoTimeoutMs(), label: "Logto Management API token request" });
+  } catch (error) {
+    if (error.code === "INTEGRATION_TIMEOUT") {
+      const timeoutError = new LogtoManagementApiError("Logto Management API token request timed out", { status: 504, body: { reason: "logto_management_token_timeout", timeoutMs: error.timeoutMs } });
+      timeoutError.code = "LOGTO_MANAGEMENT_TOKEN_TIMEOUT";
+      timeoutError.diagnostic = `Network timeout while requesting Logto M2M token after ${error.timeoutMs}ms.`;
+      throw timeoutError;
+    }
+    throw error;
+  }
 
   const tokenResponse = await response.json().catch(() => ({}));
 
@@ -123,14 +139,26 @@ async function callLogtoManagementApi(path, options = {}) {
   const accessToken = await fetchLogtoManagementApiAccessToken();
   const { endpoint } = getLogtoManagementConfig();
   const request = { method: options.method || "GET", path, payload: parseRequestBodyForDiagnostics(options.body) };
-  const response = await fetch(`${endpoint}/api${path}`, {
+  let response;
+  try {
+    response = await withTimeout((signal) => fetch(`${endpoint}/api${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${accessToken}`,
       ...options.headers,
     },
-  });
+    signal,
+  }), { timeoutMs: getLogtoTimeoutMs(), label: `Logto Management API ${request.method} ${path}` });
+  } catch (error) {
+    if (error.code === "INTEGRATION_TIMEOUT") {
+      const timeoutError = new LogtoManagementApiError("Logto Management API request timed out", { status: 504, body: { reason: "logto_management_request_timeout", timeoutMs: error.timeoutMs }, request });
+      timeoutError.code = "LOGTO_MANAGEMENT_REQUEST_TIMEOUT";
+      timeoutError.diagnostic = `Network timeout while calling Logto Management API ${request.method} ${path} after ${error.timeoutMs}ms.`;
+      throw timeoutError;
+    }
+    throw error;
+  }
 
   const parsedBody = await parseLogtoManagementApiResponse(response);
 

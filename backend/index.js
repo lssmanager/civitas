@@ -153,7 +153,7 @@ async function getLogtoIdentityClaimsBestEffort(logtoUserId) {
   try {
     return normalizeLogtoUserToClaims(await getLogtoUserById(logtoUserId));
   } catch (error) {
-    console.error("Failed to enrich identity from Logto Management API", error);
+    console.error("Failed to enrich identity from Logto Management API", { code: error?.code, status: error?.status, diagnostic: error?.diagnostic, message: error?.message });
     return {};
   }
 }
@@ -544,8 +544,9 @@ app.get("/me", requireAuth(API_RESOURCE), async (req, res) => {
   } catch (error) {
     if (error.status === 401) return res.status(401).json({ error: "Unauthorized", message: error.message });
     if (error.status === 403) return res.status(403).json({ error: "Forbidden", message: error.message });
-    console.error("Failed to resolve internal user", error);
-    return res.status(500).json({ error: "Internal Server Error", message: "Failed to resolve internal user" });
+    const status = error?.code === "LOGTO_MANAGEMENT_REQUEST_TIMEOUT" || error?.code === "LOGTO_MANAGEMENT_TOKEN_TIMEOUT" ? 504 : 500;
+    console.error("Failed to resolve internal user", { code: error?.code, status: error?.status, diagnostic: error?.diagnostic, message: error?.message });
+    return res.status(status).json({ error: status === 504 ? "Gateway Timeout" : "Internal Server Error", message: "Failed to resolve internal user", diagnostic: error?.diagnostic || undefined });
   }
 });
 

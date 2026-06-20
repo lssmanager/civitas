@@ -38,15 +38,15 @@ function normalizeBaseUrl(baseUrl) {
 }
 
 function getWordPressRolesConfig() {
-  const baseUrl = normalizeBaseUrl(process.env.WORDPRESS_BASE_URL || process.env.FLUENTCRM_BASE_URL);
-  const username = process.env.WORDPRESS_USERNAME || process.env.FLUENTCRM_USERNAME;
-  const appPassword = process.env.WORDPRESS_APP_PASSWORD || process.env.FLUENTCRM_APP_PASSWORD;
+  const baseUrl = normalizeBaseUrl(process.env.WORDPRESS_BASE_URL);
+  const username = process.env.WORDPRESS_USERNAME;
+  const appPassword = process.env.WORDPRESS_APP_PASSWORD;
   const rolesPath = process.env.WORDPRESS_ROLES_ENDPOINT || "/wp-json/civitas/v1/roles";
-  const timeoutMs = Number.parseInt(process.env.WORDPRESS_TIMEOUT_MS || process.env.FLUENTCRM_TIMEOUT_MS || "10000", 10);
+  const timeoutMs = Number.parseInt(process.env.WORDPRESS_TIMEOUT_MS || "10000", 10);
   const missing = [];
-  if (!baseUrl) missing.push("WORDPRESS_BASE_URL (or FLUENTCRM_BASE_URL)");
-  if (!username) missing.push("WORDPRESS_USERNAME (or FLUENTCRM_USERNAME)");
-  if (!appPassword) missing.push("WORDPRESS_APP_PASSWORD (or FLUENTCRM_APP_PASSWORD)");
+  if (!baseUrl) missing.push("WORDPRESS_BASE_URL");
+  if (!username) missing.push("WORDPRESS_USERNAME");
+  if (!appPassword) missing.push("WORDPRESS_APP_PASSWORD");
   if (missing.length) {
     throw new WordPressRolesError(`WordPress roles integration is not configured; missing ${missing.join(", ")}`, {
       code: "WORDPRESS_CONFIG_MISSING",
@@ -85,9 +85,16 @@ async function listWordPressRoles({ fetchImpl = fetch, config = getWordPressRole
       signal: controller.signal,
     });
     const text = await response.text();
-    const body = text ? JSON.parse(text) : null;
-    if (!response.ok) throw new WordPressRolesError("WordPress roles endpoint request failed", { status: response.status, body, code: "WORDPRESS_ROLES_REQUEST_FAILED", request });
-    return normalizeWordPressRolesResponse(body);
+    let body = null;
+    try { body = text ? JSON.parse(text) : null; }
+    catch (error) { throw new WordPressRolesError("WordPress roles endpoint returned invalid JSON", { status: response.status, body: text, code: "WORDPRESS_ROLES_INVALID_JSON", request, diagnostic: error.message }); }
+    if (!response.ok) {
+      const code = response.status === 401 ? "WORDPRESS_AUTHENTICATION_FAILED" : response.status === 403 ? "WORDPRESS_AUTHORIZATION_FAILED" : response.status === 404 ? "WORDPRESS_ROLES_ENDPOINT_NOT_FOUND" : "WORDPRESS_ROLES_REQUEST_FAILED";
+      throw new WordPressRolesError("WordPress roles endpoint request failed", { status: response.status, body, code, request });
+    }
+    const roles = normalizeWordPressRolesResponse(body);
+    if (!roles.length) throw new WordPressRolesError("WordPress roles endpoint returned an empty role catalog", { status: response.status, body, code: "WORDPRESS_ROLES_EMPTY", request });
+    return roles;
   } catch (error) {
     if (error instanceof WordPressRolesError) throw error;
     if (error.name === "AbortError") throw new WordPressRolesError("WordPress roles endpoint timed out", { code: "WORDPRESS_ROLES_TIMEOUT", request });
