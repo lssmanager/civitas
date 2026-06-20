@@ -54,8 +54,10 @@ function normalizeUsernameSeed(value) {
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
-    .replace(/[^a-z0-9._-]/g, "")
-    .replace(/^[._-]+|[._-]+$/g, "");
+    .replace(/[^a-z0-9_]/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^([^a-z_])/, "_$1")
+    .replace(/^_+$/, "");
 }
 
 function buildLogtoUsername({ email }) {

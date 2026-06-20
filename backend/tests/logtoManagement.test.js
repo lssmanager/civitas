@@ -65,6 +65,22 @@ test("createLogtoUser does not assign global roles", async () => {
   assert.equal(Object.hasOwn(payload, "roles"), false);
 });
 
+test("createLogtoUser sends Logto-compatible username and primary phone", async () => {
+  const requests = [];
+  global.fetch = async (url, options = {}) => {
+    requests.push({ url: String(url), options });
+    if (String(url).endsWith("/oidc/token")) return jsonResponse({ access_token: "token", expires_in: 3600 });
+    if (String(url).endsWith("/api/users")) return jsonResponse({ id: "user-1", primaryEmail: "j.doe@example.edu" });
+    throw new Error(`unexpected request: ${url}`);
+  };
+
+  await createLogtoUser({ email: "j.doe@example.edu", name: "Jane Doe", phone: "+57 300 111 2233", username: "j_doe" });
+
+  const createRequest = requests.find((request) => request.url.endsWith("/api/users"));
+  const payload = JSON.parse(createRequest.options.body);
+  assert.deepEqual(payload, { primaryEmail: "j.doe@example.edu", name: "Jane Doe", username: "j_doe", primaryPhone: "573001112233" });
+});
+
 test("organization users default to no allowed global roles", () => {
   assert.deepEqual(getAllowedOrganizationUserGlobalRoleNames(), []);
 });

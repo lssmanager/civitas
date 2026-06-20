@@ -61,7 +61,7 @@ test("organization provisioning builds Logto username from the email local part"
 
   assert.equal(result.errors.length, 0);
   assert.equal(result.value.baseAdmin.name, "Mario Báracus");
-  assert.equal(result.value.baseAdmin.username, "j.doe");
+  assert.equal(result.value.baseAdmin.username, "j_doe");
   assert.equal(result.value.baseAdmin.phone, "+573001112233");
 });
 

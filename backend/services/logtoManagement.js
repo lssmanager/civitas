@@ -294,10 +294,16 @@ async function getLogtoUserById(userId) {
   return callLogtoManagementApi(`/users/${encodeURIComponent(userId)}`);
 }
 
+
+function normalizeLogtoPrimaryPhone(phone) {
+  const digits = String(phone || "").replace(/\D/g, "");
+  return digits || undefined;
+}
+
 async function updateLogtoUser({ userId, email, name, phone, username }) {
   return callLogtoManagementApi(`/users/${encodeURIComponent(userId)}`, {
     method: "PATCH",
-    body: JSON.stringify({ primaryEmail: email || undefined, name: name || undefined, phone: phone || undefined, username: username || undefined }),
+    body: JSON.stringify({ primaryEmail: email || undefined, name: name || undefined, primaryPhone: normalizeLogtoPrimaryPhone(phone), username: username || undefined }),
   });
 }
 
@@ -412,7 +418,7 @@ async function findLogtoUserByEmail(email) {
 async function createLogtoUser({ email, name, phone, username }) {
   return callLogtoManagementApi("/users", {
     method: "POST",
-    body: JSON.stringify({ primaryEmail: email, name, username: username || undefined, ...(phone ? { primaryPhone: phone } : {}) }),
+    body: JSON.stringify({ primaryEmail: email, name, username: username || undefined, ...(normalizeLogtoPrimaryPhone(phone) ? { primaryPhone: normalizeLogtoPrimaryPhone(phone) } : {}) }),
   });
 }
 
