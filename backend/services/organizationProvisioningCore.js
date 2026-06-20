@@ -51,11 +51,15 @@ const normalizeAdministrativeContacts = (value, institutionalDomain = null) => {
 };
 const looksLikeRoleName = (value) => [ORGANIZATION_ADMIN_ROLE_NAME, JIT_DEFAULT_ORGANIZATION_ROLE_NAME].includes(value);
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> ae8003d (Align organization creation payload previews)
 function normalizeUsernameSeed(value) {
   return String(value || "")
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
+<<<<<<< HEAD
     .replace(/[^a-z0-9_]/g, "_")
     .replace(/_+/g, "_")
     .replace(/^([^a-z_])/, "_$1")
@@ -65,6 +69,16 @@ function normalizeUsernameSeed(value) {
 function buildLogtoUsername({ email }) {
   const localPart = String(email || "").split("@")[0] || "";
   return normalizeUsernameSeed(localPart) || null;
+=======
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function buildLogtoUsername({ subdomain, firstName, lastName }) {
+  const normalizedSubdomain = normalizeUsernameSeed(subdomain);
+  const firstInitial = normalizeUsernameSeed(firstName).charAt(0);
+  const lastInitial = normalizeUsernameSeed(lastName).charAt(0);
+  return normalizedSubdomain && firstInitial && lastInitial ? `${normalizedSubdomain}${firstInitial}${lastInitial}` : null;
+>>>>>>> ae8003d (Align organization creation payload previews)
 }
 
 const normalizePhoneE164 = (value) => {
@@ -75,8 +89,11 @@ const normalizePhoneE164 = (value) => {
   return compact.startsWith("+") ? compact : `+${compact}`;
 };
 
+<<<<<<< HEAD
 =======
 >>>>>>> 3bdc9c1 (Validate administrative contact uniqueness before CRM sync)
+=======
+>>>>>>> ae8003d (Align organization creation payload previews)
 function getAdministrativeContactUniquenessErrors(administrativeContacts = []) {
   const byEmail = new Map();
   const errors = [];
@@ -130,7 +147,11 @@ function normalizeCanonicalProvisioningInput(body = {}) {
   const jitProvisioningDomain = emptyToNull(jitProvisioning.domain ?? body.adminDomain ?? body.institutionalProvisioningDomain)?.toLowerCase() || null;
   const jitDefaultRoleNames = normalizeRoleNames(jitProvisioning.defaultRoleNames ?? body.defaultRoleNames, DEFAULT_JIT_ROLE_NAMES);
   const administrativeContacts = normalizeAdministrativeContacts(body.administrativeContacts, jitProvisioningDomain).map((contact) => ({ ...contact, phone: normalizePhoneE164(contact.phone) || contact.phone }));
+<<<<<<< HEAD
   const baseAdminUsername = emptyToNull(baseAdmin.username ?? body.baseAdminUsername) || buildLogtoUsername({ email: baseAdminEmail });
+=======
+  const baseAdminUsername = emptyToNull(baseAdmin.username ?? body.baseAdminUsername) || buildLogtoUsername({ subdomain: body.subdomain ?? body.appSubdomain ?? body.slug, firstName: baseAdminFirstName || baseAdminName, lastName: baseAdminLastName });
+>>>>>>> ae8003d (Align organization creation payload previews)
   const errors = [];
 
   if (!name) errors.push({ field: "name", message: "Organization name is required" });
@@ -140,7 +161,11 @@ function normalizeCanonicalProvisioningInput(body = {}) {
   if (!baseAdminEmail) errors.push({ field: "baseAdmin.email", message: "Base admin email is required" });
   if (baseAdminEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(baseAdminEmail)) errors.push({ field: "baseAdmin.email", message: "Base admin email must be a valid email address" });
   if (baseAdminPhoneRaw && !baseAdminPhone) errors.push({ field: "baseAdmin.phone", message: "Base admin phone must include country calling code and a valid national number" });
+<<<<<<< HEAD
   if (!baseAdminUsername) errors.push({ field: "baseAdmin.username", message: "Base admin username could not be built from the base admin email local part" });
+=======
+  if (!baseAdminUsername) errors.push({ field: "baseAdmin.username", message: "Base admin username could not be built; provide first name, last name and app subdomain" });
+>>>>>>> ae8003d (Align organization creation payload previews)
   if (baseAdminLogtoUserId && looksLikeRoleName(baseAdminLogtoUserId)) errors.push({ field: "baseAdmin.logtoUserId", message: "Base admin Logto user id cannot be an organization role name" });
   if (!baseAdminInitialOrganizationRole) errors.push({ field: "baseAdmin.initialOrganizationRole", message: "Base admin initial organization role is required" });
   if (!jitProvisioningDomain) errors.push({ field: "jitProvisioning.domain", message: "JIT provisioning domain is required" });
@@ -404,7 +429,11 @@ async function resumeOrganizationBootstrap(options) {
 }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 module.exports = { buildLogtoUsername, getAdministrativeContactUniquenessErrors, normalizeCanonicalProvisioningInput, normalizePhoneE164, resumeOrganizationBootstrap, runCanonicalOrganizationBootstrap };
 =======
 module.exports = { getAdministrativeContactUniquenessErrors, normalizeCanonicalProvisioningInput, resumeOrganizationBootstrap, runCanonicalOrganizationBootstrap };
 >>>>>>> 3bdc9c1 (Validate administrative contact uniqueness before CRM sync)
+=======
+module.exports = { buildLogtoUsername, getAdministrativeContactUniquenessErrors, normalizeCanonicalProvisioningInput, normalizePhoneE164, resumeOrganizationBootstrap, runCanonicalOrganizationBootstrap };
+>>>>>>> ae8003d (Align organization creation payload previews)

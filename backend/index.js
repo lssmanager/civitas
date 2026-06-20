@@ -774,7 +774,7 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireOwner, async 
         logtoOrganizationId,
         canonical: canonicalInput.value,
         extended: extendedInput.value,
-        crmInput: req.body?.crm || req.body?.fluentcrm || {},
+        crmInput: { companyOwner: canonicalInput.value.baseAdmin?.name, ...(req.body?.crm || req.body?.fluentcrm || {}) },
         administrativeContactAssignments: result.administrativeContactAssignments || [],
         internalUser,
         authUser: req.user,
