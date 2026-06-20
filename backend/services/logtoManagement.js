@@ -434,7 +434,7 @@ async function createOrResolveLogtoUserByEmail({ email, name, phone, username })
       const reconciledUser = await findLogtoUserByEmail(email);
       if (reconciledUser) return { user: reconciledUser, created: false, source: "post_create_email_lookup" };
       if (username) {
-        for (let suffix = 1; suffix <= 3; suffix += 1) {
+        for (let suffix = 1; suffix <= 20; suffix += 1) {
           try {
             const fallbackUsername = `${username}${suffix}`;
             return { user: await createLogtoUser({ email, name, phone, username: fallbackUsername }), created: true, source: "create_user_username_suffix", username: fallbackUsername };

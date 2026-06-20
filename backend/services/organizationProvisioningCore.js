@@ -60,6 +60,7 @@ function normalizeUsernameSeed(value) {
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
 <<<<<<< HEAD
+<<<<<<< HEAD
     .replace(/[^a-z0-9_]/g, "_")
     .replace(/_+/g, "_")
     .replace(/^([^a-z_])/, "_$1")
@@ -79,6 +80,15 @@ function buildLogtoUsername({ subdomain, firstName, lastName }) {
   const lastInitial = normalizeUsernameSeed(lastName).charAt(0);
   return normalizedSubdomain && firstInitial && lastInitial ? `${normalizedSubdomain}${firstInitial}${lastInitial}` : null;
 >>>>>>> ae8003d (Align organization creation payload previews)
+=======
+    .replace(/[^a-z0-9._-]/g, "")
+    .replace(/^[._-]+|[._-]+$/g, "");
+}
+
+function buildLogtoUsername({ email }) {
+  const localPart = String(email || "").split("@")[0] || "";
+  return normalizeUsernameSeed(localPart) || null;
+>>>>>>> d772389 (Fix owner provisioning username and phone inputs)
 }
 
 const normalizePhoneE164 = (value) => {
@@ -148,10 +158,14 @@ function normalizeCanonicalProvisioningInput(body = {}) {
   const jitDefaultRoleNames = normalizeRoleNames(jitProvisioning.defaultRoleNames ?? body.defaultRoleNames, DEFAULT_JIT_ROLE_NAMES);
   const administrativeContacts = normalizeAdministrativeContacts(body.administrativeContacts, jitProvisioningDomain).map((contact) => ({ ...contact, phone: normalizePhoneE164(contact.phone) || contact.phone }));
 <<<<<<< HEAD
+<<<<<<< HEAD
   const baseAdminUsername = emptyToNull(baseAdmin.username ?? body.baseAdminUsername) || buildLogtoUsername({ email: baseAdminEmail });
 =======
   const baseAdminUsername = emptyToNull(baseAdmin.username ?? body.baseAdminUsername) || buildLogtoUsername({ subdomain: body.subdomain ?? body.appSubdomain ?? body.slug, firstName: baseAdminFirstName || baseAdminName, lastName: baseAdminLastName });
 >>>>>>> ae8003d (Align organization creation payload previews)
+=======
+  const baseAdminUsername = emptyToNull(baseAdmin.username ?? body.baseAdminUsername) || buildLogtoUsername({ email: baseAdminEmail });
+>>>>>>> d772389 (Fix owner provisioning username and phone inputs)
   const errors = [];
 
   if (!name) errors.push({ field: "name", message: "Organization name is required" });
@@ -162,10 +176,14 @@ function normalizeCanonicalProvisioningInput(body = {}) {
   if (baseAdminEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(baseAdminEmail)) errors.push({ field: "baseAdmin.email", message: "Base admin email must be a valid email address" });
   if (baseAdminPhoneRaw && !baseAdminPhone) errors.push({ field: "baseAdmin.phone", message: "Base admin phone must include country calling code and a valid national number" });
 <<<<<<< HEAD
+<<<<<<< HEAD
   if (!baseAdminUsername) errors.push({ field: "baseAdmin.username", message: "Base admin username could not be built from the base admin email local part" });
 =======
   if (!baseAdminUsername) errors.push({ field: "baseAdmin.username", message: "Base admin username could not be built; provide first name, last name and app subdomain" });
 >>>>>>> ae8003d (Align organization creation payload previews)
+=======
+  if (!baseAdminUsername) errors.push({ field: "baseAdmin.username", message: "Base admin username could not be built from the base admin email local part" });
+>>>>>>> d772389 (Fix owner provisioning username and phone inputs)
   if (baseAdminLogtoUserId && looksLikeRoleName(baseAdminLogtoUserId)) errors.push({ field: "baseAdmin.logtoUserId", message: "Base admin Logto user id cannot be an organization role name" });
   if (!baseAdminInitialOrganizationRole) errors.push({ field: "baseAdmin.initialOrganizationRole", message: "Base admin initial organization role is required" });
   if (!jitProvisioningDomain) errors.push({ field: "jitProvisioning.domain", message: "JIT provisioning domain is required" });

@@ -61,16 +61,21 @@ test("organization provisioning builds Logto username from the email local part"
     baseAdmin: { firstName: "Mario", lastName: "Báracus", email: "j.doe@school.edu", phone: "+573001112233", initialOrganizationRole: "Admin-org" },
 =======
 
-test("organization provisioning builds Logto username from subdomain and initials", () => {
+test("organization provisioning builds Logto username from the email local part", () => {
   const result = normalizeCanonicalProvisioningInput({
     ...basePayload,
     subdomain: "colegiot",
+<<<<<<< HEAD
     baseAdmin: { firstName: "Mario", lastName: "Báracus", email: "admin@school.edu", phone: "+573001112233", initialOrganizationRole: "Admin-org" },
 >>>>>>> ae8003d (Align organization creation payload previews)
+=======
+    baseAdmin: { firstName: "Mario", lastName: "Báracus", email: "j.doe@school.edu", phone: "+573001112233", initialOrganizationRole: "Admin-org" },
+>>>>>>> d772389 (Fix owner provisioning username and phone inputs)
   });
 
   assert.equal(result.errors.length, 0);
   assert.equal(result.value.baseAdmin.name, "Mario Báracus");
+<<<<<<< HEAD
 <<<<<<< HEAD
   assert.equal(result.value.baseAdmin.username, "j_doe");
   assert.equal(result.value.baseAdmin.phone, "+573001112233");
@@ -106,6 +111,25 @@ test("organization provisioning allows selecting a non-default base admin organi
 });
 
 >>>>>>> ae8003d (Align organization creation payload previews)
+=======
+  assert.equal(result.value.baseAdmin.username, "j.doe");
+  assert.equal(result.value.baseAdmin.phone, "+573001112233");
+});
+
+test("organization provisioning builds administrative contact name from first and last names", () => {
+  const result = normalizeCanonicalProvisioningInput({
+    ...basePayload,
+    baseAdmin: { firstName: "Admin", lastName: "Demo", email: "admin@school.edu", initialOrganizationRole: "Admin-org" },
+    administrativeContacts: [
+      { kind: "director", firstName: "Ana", lastName: "Directora", email: "ana@school.edu", organizationRoleName: "Admin-org" },
+    ],
+  });
+
+  assert.equal(result.errors.length, 0);
+  assert.equal(result.value.administrativeContacts[0].name, "Ana Directora");
+});
+
+>>>>>>> d772389 (Fix owner provisioning username and phone inputs)
 test("organization provisioning rejects invalid base admin phone", () => {
   const result = normalizeCanonicalProvisioningInput({
     ...basePayload,
