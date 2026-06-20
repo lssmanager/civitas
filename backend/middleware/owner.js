@@ -1,4 +1,4 @@
-const { extractRoleNames, requireScope } = require("./auth");
+const { extractGlobalRoleNames, requireScope } = require("./auth");
 
 const requireOwnerScope = requireScope("owner:read");
 
@@ -10,11 +10,13 @@ const requireOwner = (req, res, next) => {
     });
   }
 
-  const roles = Array.isArray(req.user?.roles) ? req.user.roles : extractRoleNames(req.user?.claims || {});
-  if (roles.length > 0 && !roles.includes("owner_global")) {
+  const globalRoles = Array.isArray(req.user?.globalRoles)
+    ? req.user.globalRoles
+    : extractGlobalRoleNames(req.user?.claims || {});
+  if (globalRoles.length > 0 && !globalRoles.includes("owner_global")) {
     return res.status(403).json({
       error: "Forbidden",
-      message: "Owner portal requires the global Logto role owner_global when role claims are present",
+      message: "Owner portal requires the global Logto role owner_global when global role claims are present",
       requiredRole: "owner_global",
     });
   }

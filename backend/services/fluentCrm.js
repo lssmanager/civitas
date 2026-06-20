@@ -1,4 +1,10 @@
 const { AUDIT_ACTIONS, AUDIT_RESULTS, recordAuditLogBestEffort } = require("./auditLogs");
+const {
+  DEFAULT_CRM_ROLE_MAPPINGS,
+  getDatabaseErrorDiagnostic,
+  getEffectiveCrmRoleMapping,
+  parseEnvRoleMappings,
+} = require("./crmRoleMappings");
 const { FLUENTCRM_SYNC_STATUSES, markOrganizationProfileFluentCrmSync } = require("./organizationProfiles");
 
 class FluentCrmError extends Error {
@@ -23,18 +29,7 @@ const CRM_CLEANUP_STRATEGIES = Object.freeze({
   PARTIAL: "partial",
   FAILED: "failed",
 });
-const DEFAULT_ROLE_SYNC_MAPPING = Object.freeze({
-  "Admin-org": { tags: ["admin-org"], lists: ["Civitas Admins"], roleType: "organizational" },
-  "Student-org": { tags: ["student-org"], lists: ["Civitas Students"], roleType: "organizational" },
-  "Teacher-org": { tags: ["teacher-org"], lists: ["Civitas Teachers"], roleType: "organizational" },
-  "Tutor-org": { tags: ["tutor-org"], lists: ["Civitas Tutors"], roleType: "organizational" },
-  "Beginner Student": { tags: ["beginner-student"], lists: ["Civitas Beginner Students"], roleType: "organizational" },
-  "Pro Student": { tags: ["pro-student"], lists: ["Civitas Pro Students"], roleType: "organizational" },
-  "Expert-Student": { tags: ["expert-student"], lists: ["Civitas Expert Students"], roleType: "organizational" },
-  admin: { tags: ["admin"], lists: ["Civitas Legacy Admins"], roleType: "legacy_alias" },
-  student: { tags: ["student"], lists: ["Civitas Legacy Students"], roleType: "legacy_alias" },
-  teacher: { tags: ["teacher"], lists: ["Civitas Legacy Teachers"], roleType: "legacy_alias" },
-});
+const DEFAULT_ROLE_SYNC_MAPPING = DEFAULT_CRM_ROLE_MAPPINGS;
 
 function sanitizeForDiagnostics(value, depth = 0) {
   if (value == null) return value;
@@ -99,7 +94,6 @@ function normalizeEmail(value) {
 function normalizeName(value) {
   return value ? String(value).normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim() || null : null;
 }
-
 
 const normalizeString = (value) => (typeof value === "string" && value.trim() ? value.trim() : null);
 const normalizeStringList = (value) => Array.isArray(value) ? [...new Set(value.map(normalizeString).filter(Boolean))] : [];
@@ -285,7 +279,6 @@ async function createCompany(organization = {}) {
   return extractCompanies(body)[0] || body;
 }
 
-
 async function searchFluentCrmCollection(path, { search } = {}) {
   const body = await requestFluentCrm(path, { query: { search, per_page: 50 } });
   if (Array.isArray(body)) return body;
@@ -470,16 +463,17 @@ async function updateContactEmailAfterLogtoChange({ previousEmail, newEmail, log
   return { status: "updated", contact: updated, previousEmailAuditedOnly: !process.env.FLUENTCRM_PREVIOUS_EMAIL_FIELD_KEY };
 }
 
-
 function getFluentCrmRoleSyncMapping() {
-  const raw = process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON;
-  if (!raw) return DEFAULT_ROLE_SYNC_MAPPING;
-  const sanitized = String(raw).trim().replace(/^FLUENTCRM_ROLE_SYNC_MAPPING_JSON\s*=\s*/, "");
-  try {
-    return { ...DEFAULT_ROLE_SYNC_MAPPING, ...JSON.parse(sanitized) };
-  } catch (error) {
-    throw new FluentCrmError("FLUENTCRM_ROLE_SYNC_MAPPING_JSON must be valid JSON. Provide only the JSON object value, not a KEY= prefix.", { code: "FLUENTCRM_ROLE_MAPPING_INVALID", body: { hint: "Expected pure JSON, for example {\"Admin-org\":{\"tags\":[\"admin\"],\"lists\":[]}}", receivedPrefix: String(raw).slice(0, 64) } });
-  }
+  const env = parseEnvRoleMappings(console);
+  return Object.keys(env.mapping).length ? { ...DEFAULT_ROLE_SYNC_MAPPING, ...env.mapping } : DEFAULT_ROLE_SYNC_MAPPING;
+}
+
+function normalizeRoleReference(role) {
+  if (typeof role === "string") return { logtoRoleId: null, organizationRoleName: role };
+  return {
+    logtoRoleId: role?.logtoRoleId || role?.id || role?.organizationRoleId || role?.roleId || null,
+    organizationRoleName: role?.organizationRoleName || role?.name || role?.nameCache || role?.key || null,
+  };
 }
 
 function mapOrganizationRolesToCrmTaxonomy(roleNames = [], mapping = getFluentCrmRoleSyncMapping()) {
@@ -488,17 +482,19 @@ function mapOrganizationRolesToCrmTaxonomy(roleNames = [], mapping = getFluentCr
   const excludedRoles = [];
   const unmappedRoles = [];
   const mappedRoles = [];
-  for (const roleName of roleNames) {
+  for (const role of roleNames) {
+    const roleRef = normalizeRoleReference(role);
+    const roleName = roleRef.organizationRoleName;
     if (PROHIBITED_ROLE_NAMES.has(roleName)) {
       excludedRoles.push(roleName);
       continue;
     }
-    const mapped = mapping[roleName];
-    if (!mapped) {
-      unmappedRoles.push(roleName);
+    const mapped = (roleRef.logtoRoleId && mapping[roleRef.logtoRoleId]) || (roleName && mapping[roleName]);
+    if (!mapped || mapped.isActive === false) {
+      unmappedRoles.push(roleRef.logtoRoleId || roleName);
       continue;
     }
-    mappedRoles.push({ roleName, roleType: mapped.roleType || "organizational" });
+    mappedRoles.push({ logtoRoleId: roleRef.logtoRoleId || mapped.logtoRoleId || null, roleName: roleName || mapped.organizationRoleName || null, roleType: mapped.roleType || "organizational" });
     (mapped.tags || []).forEach((tag) => tags.add(tag));
     (mapped.lists || []).forEach((list) => lists.add(list));
   }
@@ -509,12 +505,12 @@ async function createContact(fields = {}) {
   return requestFluentCrm("/subscribers", { method: "POST", body: fields });
 }
 
-async function upsertContactFromLogtoIdentity({ identity, companyId, roleNames = [], extraTags = [], extraLists = [] }) {
+async function upsertContactFromLogtoIdentity({ identity, companyId, roleNames = [], extraTags = [], extraLists = [], roleMapping = getFluentCrmRoleSyncMapping() }) {
   const email = normalizeEmail(identity.email);
   if (!email) return { status: "error", reason: "missing_email", logtoUserId: identity.logtoUserId || null };
   const contacts = await searchContacts({ email });
   if (contacts.length > 1) return { status: "conflict", reason: "duplicate_contact", email, logtoUserId: identity.logtoUserId || null, candidateCount: contacts.length };
-  const taxonomy = mapOrganizationRolesToCrmTaxonomy(roleNames);
+  const taxonomy = mapOrganizationRolesToCrmTaxonomy(roleNames, roleMapping);
   const payload = {
     email,
     full_name: normalizeString(identity.name),
@@ -530,12 +526,21 @@ async function upsertContactFromLogtoIdentity({ identity, companyId, roleNames =
   return { status: contacts[0] ? "updated" : "created", contact, email, logtoUserId: identity.logtoUserId || null, taxonomy };
 }
 
-async function syncOrganizationContactsToFluentCrm({ profile, members, getMemberRoles, audit = async () => {}, markOrganizationSync = async () => {} }) {
+async function syncOrganizationContactsToFluentCrm({ profile, members, getMemberRoles, roleMapping = null, audit = async () => {}, markOrganizationSync = async () => {} }) {
   if (!profile?.fluentcrmCompanyId) {
     const summary = { status: "error", reason: "company_not_linked", total: members.length, succeeded: 0, failed: members.length, conflicts: 0, errors: [{ reason: "company_not_linked" }] };
     await markOrganizationSync(summary);
     await audit({ result: "error", summary });
     return summary;
+  }
+  let effectiveRoleMapping = roleMapping;
+  if (!effectiveRoleMapping) {
+    try {
+      effectiveRoleMapping = (await getEffectiveCrmRoleMapping()).mapping;
+    } catch (error) {
+      console.warn("Falling back to legacy/default FluentCRM role mapping because persisted mapping could not be loaded", { diagnostic: getDatabaseErrorDiagnostic(error), error });
+      effectiveRoleMapping = getFluentCrmRoleSyncMapping();
+    }
   }
   const results = [];
   for (const member of members) {
@@ -547,7 +552,7 @@ async function syncOrganizationContactsToFluentCrm({ profile, members, getMember
     };
     try {
       const roleNames = await getMemberRoles(identity.logtoUserId);
-      const result = await upsertContactFromLogtoIdentity({ identity, companyId: profile.fluentcrmCompanyId, roleNames });
+      const result = await upsertContactFromLogtoIdentity({ identity, companyId: profile.fluentcrmCompanyId, roleNames, roleMapping: effectiveRoleMapping });
       results.push(result);
       await audit({ result: result.status === "conflict" || result.status === "error" ? "error" : "success", member: { logtoUserId: identity.logtoUserId, email: identity.email }, syncResult: result });
     } catch (error) {

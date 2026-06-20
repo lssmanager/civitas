@@ -31,7 +31,33 @@ const {
 } = require("./services/auditLogs");
 const { normalizeCanonicalProvisioningInput, runCanonicalOrganizationBootstrap } = require("./services/organizationProvisioningCore");
 const { buildLogtoOrganizationCustomData, normalizeExtendedProvisioningInput } = require("./services/organizationProvisioningSettings");
-const { FluentCrmError, cleanupContactInFluentCrm, ensureOrganizationTagsAndLists, getOrCreateCompanyForOrganization, normalizeCrmCompanyInput, searchContacts, syncOrganizationContactsToFluentCrm, upsertContactFromLogtoIdentity, validateFluentCrmConfiguration, updateContactEmailAfterLogtoChange } = require("./services/fluentCrm");
+const {
+  FluentCrmError,
+  cleanupContactInFluentCrm,
+  ensureOrganizationTagsAndLists,
+  getOrCreateCompanyForOrganization,
+  normalizeCrmCompanyInput,
+  searchContacts,
+  syncOrganizationContactsToFluentCrm,
+  upsertContactFromLogtoIdentity,
+  validateFluentCrmConfiguration,
+  updateContactEmailAfterLogtoChange,
+} = require("./services/fluentCrm");
+const {
+  buildRoleMappingResponse,
+  getEffectiveCrmRoleMapping,
+  loadCrmRoleMappingReadModel,
+  resetCrmRoleMappings,
+  upsertCrmRoleMappings,
+} = require("./services/crmRoleMappings");
+const {
+  loadWordPressRoleMappingReadModel,
+  listWordPressRoles,
+  resetWordPressRoleMappings,
+  upsertWordPressRoleMappings,
+} = require("./services/wordpressRoles");
+const { db } = require("./db/client");
+const { crmRoleMappings, wordpressRoleMappings } = require("./db/schema");
 const { getCommercialStatusForOrganization, getLatestCommercialEventsForOrganization, processCommercialEvent, verifyCommercialWebhookSignature } = require("./services/commercialEvents");
 
 const app = express();
@@ -112,7 +138,6 @@ const sortProfilesByNewest = (profiles) =>
   [...profiles].sort((left, right) => toMillis(right.updatedAt) - toMillis(left.updatedAt) || toMillis(right.createdAt) - toMillis(left.createdAt));
 
 const getCanonicalLogtoOrganizationName = (organization) => getLogtoOrganizationName(organization);
-
 
 const normalizeLogtoUserToClaims = (logtoUser = {}) => ({
   sub: logtoUser.id || logtoUser.userId || logtoUser.sub,
@@ -264,18 +289,13 @@ function buildLogtoOrganizationDirectory({ logtoOrganizations, profiles }) {
   return {
     organizations,
     reconciliationIncidents,
-    // Backwards-compatible alias for older clients; these are incidents, not operational organizations.
     unreconciledProfiles: reconciliationIncidents.map((incident) => incident.profile),
   };
 }
 
 function reconcileProfilesWithLogtoOrganizations({ profiles }) {
-  // Read-scoped directory requests must not mutate local reconciliation state.
-  // Orphaning/linking decisions are detected in buildLogtoOrganizationDirectory and
-  // should be persisted only by an explicit write-scoped reconciliation job/endpoint.
   return profiles;
 }
-
 
 async function runFluentCrmOrganizationStep({ logtoOrganization, logtoOrganizationId, canonical, extended, crmInput, administrativeContactAssignments = [], internalUser, authUser }) {
   const profile = await upsertOrganizationProfile({
@@ -318,14 +338,30 @@ async function runFluentCrmOrganizationStep({ logtoOrganization, logtoOrganizati
   });
   const organizationLists = [...new Set([...(normalizedCrm.lists || []), taxonomy.list?.title].filter(Boolean))];
   const administrativeContacts = [];
+
   for (const assignment of administrativeContactAssignments) {
     const contactSync = await upsertContactFromLogtoIdentity({
-      identity: { logtoUserId: assignment.logtoUserId, email: assignment.email, name: assignment.name, phone: assignment.phone, position: assignment.position },
+      identity: {
+        logtoUserId: assignment.logtoUserId,
+        email: assignment.email,
+        name: assignment.name,
+        phone: assignment.phone,
+        position: assignment.position,
+      },
       companyId,
       roleNames: [assignment.roleName || assignment.organizationRoleName].filter(Boolean),
       extraLists: organizationLists,
     });
-    administrativeContacts.push({ key: assignment.key, name: assignment.name, email: assignment.email, phone: assignment.phone, position: assignment.position, logtoUserId: assignment.logtoUserId, roleName: assignment.roleName || assignment.organizationRoleName, contactSync });
+    administrativeContacts.push({
+      key: assignment.key,
+      name: assignment.name,
+      email: assignment.email,
+      phone: assignment.phone,
+      position: assignment.position,
+      logtoUserId: assignment.logtoUserId,
+      roleName: assignment.roleName || assignment.organizationRoleName,
+      contactSync,
+    });
   }
 
   return {
@@ -337,7 +373,6 @@ async function runFluentCrmOrganizationStep({ logtoOrganization, logtoOrganizati
     administrativeContacts,
   };
 }
-
 
 const getLogtoUserIdentityFields = (user = {}) => ({
   logtoUserId: user.id || user.userId || user.logtoUserId || user.sub || null,
@@ -454,7 +489,6 @@ async function persistPendingReconciliation({ logtoOrganizationId, profile, fail
   });
 }
 
-// Local base healthcheck. It intentionally does not depend on Logto or any external integration.
 app.get("/health", async (req, res) => {
   const database = await checkDatabaseConnection();
   const healthy = database.ok;
@@ -508,14 +542,8 @@ app.get("/me", requireAuth(API_RESOURCE), async (req, res) => {
       },
     });
   } catch (error) {
-    if (error.status === 401) {
-      return res.status(401).json({ error: "Unauthorized", message: error.message });
-    }
-
-    if (error.status === 403) {
-      return res.status(403).json({ error: "Forbidden", message: error.message });
-    }
-
+    if (error.status === 401) return res.status(401).json({ error: "Unauthorized", message: error.message });
+    if (error.status === 403) return res.status(403).json({ error: "Forbidden", message: error.message });
     console.error("Failed to resolve internal user", error);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to resolve internal user" });
   }
@@ -524,7 +552,6 @@ app.get("/me", requireAuth(API_RESOURCE), async (req, res) => {
 app.get("/owner/me", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
   try {
     const internalUser = await getOrCreateInternalUser(req.user);
-
     return res.json({
       owner: {
         logtoUserId: req.user.sub,
@@ -535,14 +562,8 @@ app.get("/owner/me", requireAuth(API_RESOURCE), requireOwner, async (req, res) =
       },
     });
   } catch (error) {
-    if (error.status === 401) {
-      return res.status(401).json({ error: "Unauthorized", message: error.message });
-    }
-
-    if (error.status === 403) {
-      return res.status(403).json({ error: "Forbidden", message: error.message });
-    }
-
+    if (error.status === 401) return res.status(401).json({ error: "Unauthorized", message: error.message });
+    if (error.status === 403) return res.status(403).json({ error: "Forbidden", message: error.message });
     console.error("Failed to resolve owner metadata", error);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to resolve owner metadata" });
   }
@@ -572,6 +593,113 @@ app.get("/owner/organization-template", requireAuth(API_RESOURCE), requireOwner,
   } catch (error) {
     console.error("Failed to inspect Logto organization template", error);
     return res.status(502).json({ error: "Bad Gateway", message: "Failed to inspect Logto organization template" });
+  }
+});
+
+
+app.get("/owner/integrations/wordpress/roles", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  try {
+    const roles = await listWordPressRoles();
+    return res.json({ roles, note: "WordPress roles are a supplemental synchronization catalog only; Logto remains canonical for Civitas authorization." });
+  } catch (error) {
+    console.error("Failed to load WordPress role catalog", error);
+    return res.status(error.status || 502).json({ error: "WordPress roles unavailable", message: getSafeErrorMessage(error), diagnostic: error.diagnostic || null });
+  }
+});
+
+app.get("/owner/integrations/wordpress/role-mappings", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  try {
+    const response = await loadWordPressRoleMappingReadModel({ listRoles: listLogtoOrganizationRoles });
+    return res.json(response);
+  } catch (error) {
+    console.error("Failed to load WordPress role mappings", error);
+    return res.status(500).json({ error: "WordPress role mappings unavailable", message: "Unable to load WordPress role mappings", details: process.env.NODE_ENV === "production" ? undefined : error.message });
+  }
+});
+
+app.put("/owner/integrations/wordpress/role-mappings", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  let internalUser = null;
+  try {
+    internalUser = await getOrCreateInternalUser(req.user);
+    const mappings = Array.isArray(req.body?.mappings) ? req.body.mappings : [];
+    const [logtoRolesForBefore, beforeRows, wordpressRoles] = await Promise.all([listLogtoOrganizationRoles(), db.select().from(wordpressRoleMappings), listWordPressRoles().catch(() => [])]);
+    const beforeById = Object.fromEntries(beforeRows.map((row) => [row.logtoRoleId, row]));
+    await upsertWordPressRoleMappings({ mappings, wordpressRoles });
+    const [logtoRoles, persistedRows] = await Promise.all([listLogtoOrganizationRoles(), db.select().from(wordpressRoleMappings)]);
+    const changedMappings = mappings.map((item) => ({
+      logtoRoleId: item.logtoRoleId,
+      organizationRoleName: item.organizationRoleName,
+      before: beforeById[item.logtoRoleId]?.wordpressRoleSlug || "",
+      after: item.wordpressRoleSlug || "",
+    })).filter((item) => item.before !== item.after);
+    await recordAuditLogBestEffort({ actorUserId: internalUser.id, action: AUDIT_ACTIONS.OWNER_WORDPRESS_ROLE_MAPPING_UPDATE, result: AUDIT_RESULTS.SUCCESS, metadata: { changedMappings, changedLogtoRoleIds: changedMappings.map((item) => item.logtoRoleId), note: "WordPress role mappings are operational sync configuration; Logto remains canonical for authorization." } });
+    const response = await loadWordPressRoleMappingReadModel({ listRoles: async () => logtoRoles, listWpRoles: async () => wordpressRoles, database: { select: () => ({ from: async () => persistedRows }) } });
+    return res.json(response);
+  } catch (error) {
+    await recordAuditLogBestEffort({ actorUserId: internalUser?.id ?? null, action: AUDIT_ACTIONS.OWNER_WORDPRESS_ROLE_MAPPING_UPDATE, result: AUDIT_RESULTS.ERROR, metadata: { error } });
+    return res.status(error.status || 400).json({ error: "Bad Request", message: getSafeErrorMessage(error) });
+  }
+});
+
+app.post("/owner/integrations/wordpress/role-mappings/reset", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  let internalUser = null;
+  try {
+    internalUser = await getOrCreateInternalUser(req.user);
+    const beforeRows = await db.select().from(wordpressRoleMappings);
+    await resetWordPressRoleMappings();
+    const response = await loadWordPressRoleMappingReadModel({ listRoles: listLogtoOrganizationRoles });
+    await recordAuditLogBestEffort({ actorUserId: internalUser.id, action: AUDIT_ACTIONS.OWNER_WORDPRESS_ROLE_MAPPING_RESET, result: AUDIT_RESULTS.SUCCESS, metadata: { clearedLogtoRoleIds: beforeRows.map((row) => row.logtoRoleId), note: "Cleared operational WordPress mappings only; Logto roles were not modified." } });
+    return res.json(response);
+  } catch (error) {
+    await recordAuditLogBestEffort({ actorUserId: internalUser?.id ?? null, action: AUDIT_ACTIONS.OWNER_WORDPRESS_ROLE_MAPPING_RESET, result: AUDIT_RESULTS.ERROR, metadata: { error } });
+    return res.status(error.status || 400).json({ error: "Bad Request", message: getSafeErrorMessage(error) });
+  }
+});
+
+app.get("/owner/integrations/fluentcrm/role-mappings", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  try {
+    const response = await loadCrmRoleMappingReadModel({ listRoles: listLogtoOrganizationRoles });
+    return res.json(response);
+  } catch (error) {
+    console.error("Failed to load FluentCRM role mappings", error);
+    return res.status(500).json({
+      error: "Role mappings unavailable",
+      message: "Unable to load FluentCRM role mappings",
+      details: process.env.NODE_ENV === "production" ? undefined : error.message,
+    });
+  }
+});
+
+app.put("/owner/integrations/fluentcrm/role-mappings", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  let internalUser = null;
+  try {
+    internalUser = await getOrCreateInternalUser(req.user);
+    const mappings = Array.isArray(req.body?.mappings) ? req.body.mappings : [];
+    const logtoRolesForBefore = await listLogtoOrganizationRoles();
+    const before = await getEffectiveCrmRoleMapping({ logtoRoles: logtoRolesForBefore });
+    await upsertCrmRoleMappings({ mappings });
+    const [logtoRoles, persistedRows] = await Promise.all([listLogtoOrganizationRoles(), db.select().from(crmRoleMappings)]);
+    const effective = await getEffectiveCrmRoleMapping({ logtoRoles });
+    await recordAuditLogBestEffort({ actorUserId: internalUser.id, action: AUDIT_ACTIONS.OWNER_FLUENTCRM_ROLE_MAPPING_UPDATE, result: AUDIT_RESULTS.SUCCESS, metadata: { changedLogtoRoleIds: mappings.map((item) => item.logtoRoleId).filter(Boolean), changedRoleNames: mappings.map((item) => item.organizationRoleName).filter(Boolean), beforeSource: before.source, afterSource: effective.source } });
+    return res.json(buildRoleMappingResponse({ logtoRoles, persistedRows, effective }));
+  } catch (error) {
+    await recordAuditLogBestEffort({ actorUserId: internalUser?.id ?? null, action: AUDIT_ACTIONS.OWNER_FLUENTCRM_ROLE_MAPPING_UPDATE, result: AUDIT_RESULTS.ERROR, metadata: { error } });
+    return res.status(error.status || 400).json({ error: "Bad Request", message: getSafeErrorMessage(error) });
+  }
+});
+
+app.post("/owner/integrations/fluentcrm/role-mappings/reset", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  let internalUser = null;
+  try {
+    internalUser = await getOrCreateInternalUser(req.user);
+    await resetCrmRoleMappings();
+    const [logtoRoles, persistedRows] = await Promise.all([listLogtoOrganizationRoles(), db.select().from(crmRoleMappings)]);
+    const effective = await getEffectiveCrmRoleMapping({ logtoRoles });
+    await recordAuditLogBestEffort({ actorUserId: internalUser.id, action: AUDIT_ACTIONS.OWNER_FLUENTCRM_ROLE_MAPPING_RESET, result: AUDIT_RESULTS.SUCCESS, metadata: { effectiveSource: effective.source } });
+    return res.json(buildRoleMappingResponse({ logtoRoles, persistedRows, effective }));
+  } catch (error) {
+    await recordAuditLogBestEffort({ actorUserId: internalUser?.id ?? null, action: AUDIT_ACTIONS.OWNER_FLUENTCRM_ROLE_MAPPING_RESET, result: AUDIT_RESULTS.ERROR, metadata: { error } });
+    return res.status(error.status || 400).json({ error: "Bad Request", message: getSafeErrorMessage(error) });
   }
 });
 
@@ -716,7 +844,6 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireOwner, async 
   }
 });
 
-
 app.patch("/owner/organizations/:organizationId/fluentcrm", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
   let internalUser = null;
   try {
@@ -819,9 +946,8 @@ app.post("/owner/organizations/:organizationId/members/:logtoUserId/deprovision"
     const logtoUser = await getLogtoUserById(req.params.logtoUserId);
     const beforeMembers = await listLogtoOrganizationUsers({ organizationId: profile.logtoOrganizationId });
     const wasMember = beforeMembers.some((member) => (member.id || member.userId || member.logtoUserId || member.sub) === req.params.logtoUserId);
-    if (wasMember) {
-      await removeUserFromLogtoOrganization({ organizationId: profile.logtoOrganizationId, userId: req.params.logtoUserId });
-    }
+    if (wasMember) await removeUserFromLogtoOrganization({ organizationId: profile.logtoOrganizationId, userId: req.params.logtoUserId });
+
     await recordAuditLogBestEffort({
       actorUserId: internalUser.id,
       organizationId: profile.logtoOrganizationId,
@@ -857,6 +983,7 @@ app.post("/owner/organizations/:organizationId/members/:logtoUserId/deprovision"
       result: cleanupResult,
       metadata: { stage: "fluentcrm_member_cleanup", logtoUserId: req.params.logtoUserId, strategy: cleanup.strategy, cleanupStatus: cleanup.status, message: cleanup.message, operations: cleanup.operations, remainingOrganizationCount: remainingMemberships.length },
     });
+
     await markOrganizationProfileFluentCrmSync({
       id: profile.id,
       companyId: profile.fluentcrmCompanyId,
@@ -894,8 +1021,6 @@ app.post("/owner/organizations/:organizationId/members/:logtoUserId/deprovision"
   }
 });
 
-
-
 async function resolveOrganizationProfileForRequest(organizationId) {
   const profiles = await listOrganizationProfiles();
   return profiles.find((item) => item.id === organizationId || item.logtoOrganizationId === organizationId) || null;
@@ -922,10 +1047,13 @@ app.post("/owner/organizations/:organizationId/fluentcrm/sync-contacts", require
     const profile = await resolveOrganizationProfileForRequest(req.params.organizationId);
     if (!profile) return res.status(404).json({ error: "Not Found", message: "Organization profile not found" });
     const members = await listLogtoOrganizationUsers({ organizationId: profile.logtoOrganizationId });
+    const logtoRoles = await listLogtoOrganizationRoles();
+    const roleMapping = (await getEffectiveCrmRoleMapping({ logtoRoles })).mapping;
     const summary = await syncOrganizationContactsToFluentCrm({
       profile,
+      roleMapping,
       members,
-      getMemberRoles: async (logtoUserId) => (await listLogtoOrganizationUserRoles({ organizationId: profile.logtoOrganizationId, userId: logtoUserId })).map((role) => role.name).filter(Boolean),
+      getMemberRoles: async (logtoUserId) => (await listLogtoOrganizationUserRoles({ organizationId: profile.logtoOrganizationId, userId: logtoUserId })).map((role) => ({ logtoRoleId: role.id || role.organizationRoleId || role.roleId, organizationRoleName: role.name || role.nameCache || role.key })).filter((role) => role.logtoRoleId || role.organizationRoleName),
       audit: async (event) => recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: profile.logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_FLUENTCRM_CONTACT_SYNC, result: event.result === "success" ? AUDIT_RESULTS.SUCCESS : AUDIT_RESULTS.ERROR, metadata: { stage: "fluentcrm_contact_sync", ...event } }),
       markOrganizationSync: async (summaryToPersist) => markOrganizationProfileFluentCrmSync({ id: profile.id, companyId: profile.fluentcrmCompanyId, status: summaryToPersist.status === "synced" ? "linked" : summaryToPersist.status === "conflict" ? "conflict" : "error", errorMessage: summaryToPersist.errors?.[0]?.reason || null, synced: summaryToPersist.status === "synced", settings: buildContactSyncSettings(profile, summaryToPersist) }),
     });
@@ -976,7 +1104,6 @@ app.get("/organizations/:organizationId/directory", requireOrganizationAccess({ 
 app.get("/owner/audit", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
   try {
     await getOrCreateInternalUser(req.user);
-
     const logtoOrganizations = await listLogtoOrganizations().catch((error) => {
       console.error("Failed to enrich audit logs with Logto organization names", error);
       return [];
@@ -987,43 +1114,29 @@ app.get("/owner/audit", requireAuth(API_RESOURCE), requireOwner, async (req, res
     );
     return res.json(result);
   } catch (error) {
-    if (error.status === 401) {
-      return res.status(401).json({ error: "Unauthorized", message: error.message });
-    }
-
-    if (error.status === 403) {
-      return res.status(403).json({ error: "Forbidden", message: error.message });
-    }
-
+    if (error.status === 401) return res.status(401).json({ error: "Unauthorized", message: error.message });
+    if (error.status === 403) return res.status(403).json({ error: "Forbidden", message: error.message });
     console.error("Failed to list audit logs", error);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to list audit logs" });
   }
 });
 
-app.get(
-  "/organizations/:organizationId/documents",
-  requireOrganizationAccess({ requiredScopes: ["documents:read"] }),
-  async (req, res) => {
-    return res.json({
-      organizationId: req.user.organizationId,
-      documents: [],
-      source: "organization_token",
-    });
-  }
-);
+app.get("/organizations/:organizationId/documents", requireOrganizationAccess({ requiredScopes: ["documents:read"] }), async (req, res) => {
+  return res.json({
+    organizationId: req.user.organizationId,
+    documents: [],
+    source: "organization_token",
+  });
+});
 
-app.post(
-  "/organizations/:organizationId/documents",
-  requireOrganizationAccess({ requiredScopes: ["documents:create"] }),
-  async (req, res) => {
-    return res.status(201).json({
-      organizationId: req.user.organizationId,
-      document: null,
-      source: "organization_token",
-      message: "Organization-scoped document creation placeholder",
-    });
-  }
-);
+app.post("/organizations/:organizationId/documents", requireOrganizationAccess({ requiredScopes: ["documents:create"] }), async (req, res) => {
+  return res.status(201).json({
+    organizationId: req.user.organizationId,
+    document: null,
+    source: "organization_token",
+    message: "Organization-scoped document creation placeholder",
+  });
+});
 
 app.get("/", (req, res) => {
   res.json({ message: "Welcome to the Civitas API", health: "/health" });

@@ -108,6 +108,53 @@ export type OwnerMemberDeprovisionResponse = {
 
 export type OwnerOrganizationTemplateRole = { id: string; name: string };
 
+export type OwnerCrmRoleMapping = {
+  logtoRoleId: string;
+  organizationRoleName: string;
+  tags: string[];
+  lists: string[];
+  roleType: string;
+  isActive: boolean;
+  source: string;
+  isCustomized: boolean;
+};
+
+export type OwnerCrmRoleMappingsResponse = {
+  roles: OwnerOrganizationTemplateRole[];
+  mappings: OwnerCrmRoleMapping[];
+  effectiveSource: string;
+  envWarning?: string | null;
+  warnings?: string[];
+  unmappedRoles?: OwnerOrganizationTemplateRole[];
+  note: string;
+};
+
+export type OwnerWordPressRole = {
+  slug: string;
+  name: string;
+  description?: string;
+  source?: string;
+};
+
+export type OwnerWordPressRoleMapping = {
+  logtoRoleId: string;
+  organizationRoleName: string;
+  wordpressRoleSlug: string;
+  wordpressRoleName: string;
+  isActive: boolean;
+  source: string;
+  isCustomized: boolean;
+};
+
+export type OwnerWordPressRoleMappingsResponse = {
+  roles: OwnerOrganizationTemplateRole[];
+  wordpressRoles: OwnerWordPressRole[];
+  mappings: OwnerWordPressRoleMapping[];
+  effectiveSource: string;
+  warnings?: string[];
+  note: string;
+};
+
 export type OwnerOrganizationTemplate = {
   roles: OwnerOrganizationTemplateRole[];
   requiredRoleNames: string[];
@@ -180,6 +227,17 @@ export const useOwnerApi = () => {
       getOrganizations: async (): Promise<{ organizations: OwnerOrganization[] }> => fetchWithToken("/owner/organizations"),
       getOrganizationTemplate: async (): Promise<OwnerOrganizationTemplate> => fetchWithToken("/owner/organization-template"),
       getFluentCrmHealth: async (): Promise<OwnerFluentCrmHealthResponse> => fetchWithToken("/owner/integrations/fluentcrm/health"),
+      getFluentCrmRoleMappings: async (): Promise<OwnerCrmRoleMappingsResponse> => fetchWithToken("/owner/integrations/fluentcrm/role-mappings"),
+      updateFluentCrmRoleMappings: async (mappings: OwnerCrmRoleMapping[]): Promise<OwnerCrmRoleMappingsResponse> =>
+        fetchWithToken("/owner/integrations/fluentcrm/role-mappings", { method: "PUT", body: JSON.stringify({ mappings }) }),
+      resetFluentCrmRoleMappings: async (): Promise<OwnerCrmRoleMappingsResponse> =>
+        fetchWithToken("/owner/integrations/fluentcrm/role-mappings/reset", { method: "POST" }),
+      getWordPressRoles: async (): Promise<{ roles: OwnerWordPressRole[]; note: string }> => fetchWithToken("/owner/integrations/wordpress/roles"),
+      getWordPressRoleMappings: async (): Promise<OwnerWordPressRoleMappingsResponse> => fetchWithToken("/owner/integrations/wordpress/role-mappings"),
+      updateWordPressRoleMappings: async (mappings: OwnerWordPressRoleMapping[]): Promise<OwnerWordPressRoleMappingsResponse> =>
+        fetchWithToken("/owner/integrations/wordpress/role-mappings", { method: "PUT", body: JSON.stringify({ mappings }) }),
+      resetWordPressRoleMappings: async (): Promise<OwnerWordPressRoleMappingsResponse> =>
+        fetchWithToken("/owner/integrations/wordpress/role-mappings/reset", { method: "POST" }),
       getAuditLogs: async (pagination: OwnerAuditPagination = {}): Promise<OwnerAuditResponse> => {
         const params = new URLSearchParams();
         if (pagination.limit !== undefined) params.set("limit", String(pagination.limit));

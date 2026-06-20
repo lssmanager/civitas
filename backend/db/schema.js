@@ -25,6 +25,52 @@ const users = pgTable(
   })
 );
 
+const crmRoleMappings = pgTable(
+  "crm_role_mappings",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    logtoRoleId: varchar("logto_role_id", { length: 255 }).notNull().unique(),
+    organizationRoleName: varchar("organization_role_name", { length: 255 }),
+    roleNameCache: varchar("role_name_cache", { length: 255 }),
+    tagsJson: jsonb("tags_json").notNull().default([]),
+    listsJson: jsonb("lists_json").notNull().default([]),
+    fluentcrmTags: jsonb("fluentcrm_tags").notNull().default([]),
+    fluentcrmLists: jsonb("fluentcrm_lists").notNull().default([]),
+    roleType: varchar("role_type", { length: 64 }).notNull().default("organizational"),
+    isActive: boolean("is_active").notNull().default(true),
+    source: varchar("source", { length: 32 }).notNull().default("gui_override"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    logtoRoleIdx: uniqueIndex("crm_role_mappings_logto_role_id_unique").on(table.logtoRoleId),
+    roleNameIdx: index("crm_role_mappings_role_name_idx").on(table.organizationRoleName),
+    roleNameCacheIdx: index("crm_role_mappings_role_name_cache_idx").on(table.roleNameCache),
+    activeIdx: index("crm_role_mappings_active_idx").on(table.isActive),
+  })
+);
+
+const wordpressRoleMappings = pgTable(
+  "wordpress_role_mappings",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    logtoRoleId: varchar("logto_role_id", { length: 255 }).notNull().unique(),
+    organizationRoleName: varchar("organization_role_name", { length: 255 }).notNull(),
+    wordpressRoleSlug: varchar("wordpress_role_slug", { length: 255 }).notNull().default(""),
+    wordpressRoleName: varchar("wordpress_role_name", { length: 255 }).notNull().default(""),
+    isActive: boolean("is_active").notNull().default(true),
+    source: varchar("source", { length: 32 }).notNull().default("gui_override"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    logtoRoleIdx: uniqueIndex("wordpress_role_mappings_logto_role_id_unique").on(table.logtoRoleId),
+    roleNameIdx: index("wordpress_role_mappings_role_name_idx").on(table.organizationRoleName),
+    wordpressRoleIdx: index("wordpress_role_mappings_wp_role_idx").on(table.wordpressRoleSlug),
+    activeIdx: index("wordpress_role_mappings_active_idx").on(table.isActive),
+  })
+);
+
 const organizationProfiles = pgTable(
   "organization_profiles",
   {
@@ -121,7 +167,9 @@ const auditLogs = pgTable(
 module.exports = {
   auditLogs,
   commercialEvents,
+  crmRoleMappings,
   healthChecks,
   organizationProfiles,
   users,
+  wordpressRoleMappings,
 };

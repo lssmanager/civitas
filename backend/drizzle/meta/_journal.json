@@ -78,6 +78,34 @@
       "when": 1791841440000,
       "tag": "0010_create_commercial_events",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1781712000000,
+      "tag": "0011_create_crm_role_mappings",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1781712060000,
+      "tag": "0012_harden_crm_role_mappings",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1781712120000,
+      "tag": "0013_repair_crm_role_mappings_schema",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1781712180000,
+      "tag": "0014_create_wordpress_role_mappings",
+      "breakpoints": true
     }
   ]
 }
