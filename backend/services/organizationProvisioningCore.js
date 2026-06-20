@@ -46,6 +46,35 @@ const normalizeAdministrativeContacts = (value, institutionalDomain = null) => {
     .filter((contact) => contact.name || contact.email || contact.phone || contact.position);
 };
 const looksLikeRoleName = (value) => [ORGANIZATION_ADMIN_ROLE_NAME, JIT_DEFAULT_ORGANIZATION_ROLE_NAME].includes(value);
+function getAdministrativeContactUniquenessErrors(administrativeContacts = []) {
+  const byEmail = new Map();
+  const errors = [];
+  for (const [index, contact] of administrativeContacts.entries()) {
+    if (!contact.email) continue;
+    const previous = byEmail.get(contact.email);
+    if (!previous) {
+      byEmail.set(contact.email, { contact, index });
+      continue;
+    }
+    const differingFields = [
+      ["name", previous.contact.name, contact.name],
+      ["position", previous.contact.position, contact.position],
+      ["organizationRoleName", previous.contact.organizationRoleName, contact.organizationRoleName],
+    ].filter(([, left, right]) => String(left || "") !== String(right || "")).map(([field]) => field);
+    errors.push({
+      field: `administrativeContacts.${index}.email`,
+      message: differingFields.length
+        ? `Administrative contacts must use unique emails. ${contact.email} is repeated with different ${differingFields.join(", ")}; create one contact per email before submitting.`
+        : `Administrative contacts must use unique emails. ${contact.email} is repeated; remove the duplicate contact before submitting.`,
+      code: "ADMINISTRATIVE_CONTACT_DUPLICATE_EMAIL",
+      email: contact.email,
+      duplicateOf: `administrativeContacts.${previous.index}.email`,
+      differingFields,
+    });
+  }
+  return errors;
+}
+
 
 const getLogtoOrganizationId = (organization) => organization.id || organization.organizationId || organization.logtoOrganizationId;
 const getOrganizationRoleId = (role = {}) => role.id || role.organizationRoleId || role.roleId || null;
@@ -80,6 +109,7 @@ function normalizeCanonicalProvisioningInput(body = {}) {
     if (contact.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact.email)) errors.push({ field: `${prefix}.email`, message: "Administrative contact email must be a valid email address" });
     if (!contact.organizationRoleName) errors.push({ field: `${prefix}.organizationRoleName`, message: "Administrative contact organization role is required" });
   });
+  errors.push(...getAdministrativeContactUniquenessErrors(administrativeContacts));
 
   return {
     errors,
@@ -328,4 +358,4 @@ async function resumeOrganizationBootstrap(options) {
   return runCanonicalOrganizationBootstrap(options);
 }
 
-module.exports = { normalizeCanonicalProvisioningInput, resumeOrganizationBootstrap, runCanonicalOrganizationBootstrap };
+module.exports = { getAdministrativeContactUniquenessErrors, normalizeCanonicalProvisioningInput, resumeOrganizationBootstrap, runCanonicalOrganizationBootstrap };

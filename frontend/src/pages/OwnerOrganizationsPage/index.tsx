@@ -414,9 +414,32 @@ export function OwnerOrganizationsPage() {
     formData.administrativeContacts.map(
       normalizeAdministrativeContactForSubmission,
     );
-  const getAdministrativeContactValidationError = () =>
-    getNormalizedAdministrativeContacts().find((result) => result?.error)
-      ?.error || null;
+  const getAdministrativeContactValidationError = () => {
+    const normalized = getNormalizedAdministrativeContacts();
+    const fieldError = normalized.find((result) => result?.error)?.error;
+    if (fieldError) return fieldError;
+
+    const seen = new Map<string, { label: string; name: string; position: string; role: string }>();
+    for (const result of normalized) {
+      if (!result?.value) continue;
+      const emailKey = result.value.email.trim().toLowerCase();
+      const previous = seen.get(emailKey);
+      if (previous) {
+        const current = {
+          label: String(result.value.kind),
+          name: result.value.name.trim(),
+          position: (result.value.position || "").trim(),
+          role: result.value.organizationRoleName.trim(),
+        };
+        const differs = previous.name !== current.name || previous.position !== current.position || previous.role !== current.role;
+        return differs
+          ? `El email ${result.value.email} está repetido con nombre, cargo o rol distinto. Usa un contacto administrativo único por email antes de enviar.`
+          : `El email ${result.value.email} está repetido en contactos administrativos. Elimina el duplicado antes de enviar.`;
+      }
+      seen.set(emailKey, { label: String(result.value.kind), name: result.value.name.trim(), position: (result.value.position || "").trim(), role: result.value.organizationRoleName.trim() });
+    }
+    return null;
+  };
   const getAdministrativeContactsPayload = () =>
     getNormalizedAdministrativeContacts()
       .map((result) => result?.value)
