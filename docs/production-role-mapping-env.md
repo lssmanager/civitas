@@ -29,7 +29,7 @@ WORDPRESS_BASE_URL=johansebastian.rueda@icloud.com
 WORDPRESS_USERNAME=www.learnsocialstudies.com
 ```
 
-`FLUENTCRM_ROLE_SYNC_MAPPING_JSON` is a legacy optional fallback. The GUI + PostgreSQL mapping tables are the primary operational path. Prefer deleting `FLUENTCRM_ROLE_SYNC_MAPPING_JSON` from production. If a temporary legacy fallback is intentionally needed, set the value to only a JSON object, for example:
+`FLUENTCRM_ROLE_SYNC_MAPPING_JSON` has been removed from Docker Compose and should be deleted from production environment settings. The GUI + PostgreSQL mapping tables are the primary operational path. If a temporary legacy fallback is intentionally needed outside Compose, set the value to only a JSON object, for example:
 
 ```dotenv
 FLUENTCRM_ROLE_SYNC_MAPPING_JSON={"Teacher-org":{"tags":["teacher"],"lists":[]}}
