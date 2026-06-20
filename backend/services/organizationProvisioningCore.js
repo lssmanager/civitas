@@ -36,16 +36,72 @@ const normalizeAdministrativeContacts = (value, institutionalDomain = null) => {
   return value
     .map((contact, index) => ({
       key: typeof (contact?.key ?? contact?.kind) === "string" && (contact.key ?? contact.kind).trim() ? (contact.key ?? contact.kind).trim() : `administrative_contact_${index + 1}`,
-      name: emptyToNull(contact?.name),
+      firstName: emptyToNull(contact?.firstName),
+      lastName: emptyToNull(contact?.lastName),
+      name: emptyToNull(contact?.name) || [emptyToNull(contact?.firstName), emptyToNull(contact?.lastName)].filter(Boolean).join(" ") || null,
       email: normalizeContactEmail(contact?.email),
       rawEmail: emptyToNull(contact?.email)?.toLowerCase() || null,
       phone: emptyToNull(contact?.phone),
+      rawPhone: emptyToNull(contact?.phone),
       position: emptyToNull(contact?.position ?? contact?.cargo),
       organizationRoleName: emptyToNull(contact?.organizationRoleName),
     }))
     .filter((contact) => contact.name || contact.email || contact.phone || contact.position);
 };
 const looksLikeRoleName = (value) => [ORGANIZATION_ADMIN_ROLE_NAME, JIT_DEFAULT_ORGANIZATION_ROLE_NAME].includes(value);
+function normalizeUsernameSeed(value) {
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9_]/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^([^a-z_])/, "_$1")
+    .replace(/^_+$/, "");
+}
+
+function buildLogtoUsername({ email }) {
+  const localPart = String(email || "").split("@")[0] || "";
+  return normalizeUsernameSeed(localPart) || null;
+}
+
+const normalizePhoneE164 = (value) => {
+  const raw = emptyToNull(value);
+  if (!raw) return null;
+  const compact = raw.replace(/[\s().-]+/g, "");
+  if (!/^\+?[1-9]\d{6,14}$/.test(compact)) return null;
+  return compact.startsWith("+") ? compact : `+${compact}`;
+};
+
+function getAdministrativeContactUniquenessErrors(administrativeContacts = []) {
+  const byEmail = new Map();
+  const errors = [];
+  for (const [index, contact] of administrativeContacts.entries()) {
+    if (!contact.email) continue;
+    const previous = byEmail.get(contact.email);
+    if (!previous) {
+      byEmail.set(contact.email, { contact, index });
+      continue;
+    }
+    const differingFields = [
+      ["name", previous.contact.name, contact.name],
+      ["position", previous.contact.position, contact.position],
+      ["organizationRoleName", previous.contact.organizationRoleName, contact.organizationRoleName],
+    ].filter(([, left, right]) => String(left || "") !== String(right || "")).map(([field]) => field);
+    errors.push({
+      field: `administrativeContacts.${index}.email`,
+      message: differingFields.length
+        ? `Administrative contacts must use unique emails. ${contact.email} is repeated with different ${differingFields.join(", ")}; create one contact per email before submitting.`
+        : `Administrative contacts must use unique emails. ${contact.email} is repeated; remove the duplicate contact before submitting.`,
+      code: "ADMINISTRATIVE_CONTACT_DUPLICATE_EMAIL",
+      email: contact.email,
+      duplicateOf: `administrativeContacts.${previous.index}.email`,
+      differingFields,
+    });
+  }
+  return errors;
+}
+
 
 const getLogtoOrganizationId = (organization) => organization.id || organization.organizationId || organization.logtoOrganizationId;
 const getOrganizationRoleId = (role = {}) => role.id || role.organizationRoleId || role.roleId || null;
@@ -55,20 +111,29 @@ const getLogtoUserId = (user = {}) => user.id || user.userId || user.logtoUserId
 function normalizeCanonicalProvisioningInput(body = {}) {
   const name = typeof body.name === "string" ? body.name.trim() : "";
   const baseAdmin = body.baseAdmin && typeof body.baseAdmin === "object" ? body.baseAdmin : {};
-  const baseAdminName = emptyToNull(baseAdmin.name ?? body.baseAdminName);
+  const baseAdminFirstName = emptyToNull(baseAdmin.firstName ?? body.baseAdminFirstName);
+  const baseAdminLastName = emptyToNull(baseAdmin.lastName ?? body.baseAdminLastName);
+  const baseAdminName = emptyToNull(baseAdmin.name ?? body.baseAdminName) || [baseAdminFirstName, baseAdminLastName].filter(Boolean).join(" ") || null;
   const baseAdminEmail = emptyToNull(baseAdmin.email ?? body.baseAdminEmail)?.toLowerCase() || null;
+  const baseAdminPhoneRaw = emptyToNull(baseAdmin.phone ?? body.baseAdminPhone);
+  const baseAdminPhone = normalizePhoneE164(baseAdminPhoneRaw);
   const baseAdminLogtoUserId = emptyToNull(baseAdmin.logtoUserId ?? body.baseAdminLogtoUserId);
   const baseAdminInitialOrganizationRole = emptyToNull(baseAdmin.initialOrganizationRole) || ORGANIZATION_ADMIN_ROLE_NAME;
   const jitProvisioning = body.jitProvisioning && typeof body.jitProvisioning === "object" ? body.jitProvisioning : {};
   const jitProvisioningDomain = emptyToNull(jitProvisioning.domain ?? body.adminDomain ?? body.institutionalProvisioningDomain)?.toLowerCase() || null;
   const jitDefaultRoleNames = normalizeRoleNames(jitProvisioning.defaultRoleNames ?? body.defaultRoleNames, DEFAULT_JIT_ROLE_NAMES);
-  const administrativeContacts = normalizeAdministrativeContacts(body.administrativeContacts, jitProvisioningDomain);
+  const administrativeContacts = normalizeAdministrativeContacts(body.administrativeContacts, jitProvisioningDomain).map((contact) => ({ ...contact, phone: normalizePhoneE164(contact.phone) || contact.phone }));
+  const baseAdminUsername = emptyToNull(baseAdmin.username ?? body.baseAdminUsername) || buildLogtoUsername({ email: baseAdminEmail });
   const errors = [];
 
   if (!name) errors.push({ field: "name", message: "Organization name is required" });
+  if (!baseAdminFirstName) errors.push({ field: "baseAdmin.firstName", message: "Base admin first name is required" });
+  if (!baseAdminLastName) errors.push({ field: "baseAdmin.lastName", message: "Base admin last name is required" });
   if (!baseAdminName) errors.push({ field: "baseAdmin.name", message: "Base admin name is required" });
   if (!baseAdminEmail) errors.push({ field: "baseAdmin.email", message: "Base admin email is required" });
   if (baseAdminEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(baseAdminEmail)) errors.push({ field: "baseAdmin.email", message: "Base admin email must be a valid email address" });
+  if (baseAdminPhoneRaw && !baseAdminPhone) errors.push({ field: "baseAdmin.phone", message: "Base admin phone must include country calling code and a valid national number" });
+  if (!baseAdminUsername) errors.push({ field: "baseAdmin.username", message: "Base admin username could not be built from the base admin email local part" });
   if (baseAdminLogtoUserId && looksLikeRoleName(baseAdminLogtoUserId)) errors.push({ field: "baseAdmin.logtoUserId", message: "Base admin Logto user id cannot be an organization role name" });
   if (baseAdminInitialOrganizationRole !== ORGANIZATION_ADMIN_ROLE_NAME) errors.push({ field: "baseAdmin.initialOrganizationRole", message: `Base admin initial organization role must be ${ORGANIZATION_ADMIN_ROLE_NAME}` });
   if (!jitProvisioningDomain) errors.push({ field: "jitProvisioning.domain", message: "JIT provisioning domain is required" });
@@ -78,15 +143,17 @@ function normalizeCanonicalProvisioningInput(body = {}) {
     if (!contact.name) errors.push({ field: `${prefix}.name`, message: "Administrative contact name is required when adding a contact" });
     if (!contact.email) errors.push({ field: `${prefix}.email`, message: "Administrative contact email is required and must include a local part before the institutional suffix" });
     if (contact.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact.email)) errors.push({ field: `${prefix}.email`, message: "Administrative contact email must be a valid email address" });
+    if (contact.rawPhone && !normalizePhoneE164(contact.rawPhone)) errors.push({ field: `${prefix}.phone`, message: "Administrative contact phone must include country calling code and a valid national number" });
     if (!contact.organizationRoleName) errors.push({ field: `${prefix}.organizationRoleName`, message: "Administrative contact organization role is required" });
   });
+  errors.push(...getAdministrativeContactUniquenessErrors(administrativeContacts));
 
   return {
     errors,
     value: {
       name,
       description: typeof body.description === "string" ? body.description.trim() : undefined,
-      baseAdmin: { name: baseAdminName, email: baseAdminEmail, logtoUserId: baseAdminLogtoUserId, initialOrganizationRole: baseAdminInitialOrganizationRole },
+      baseAdmin: { firstName: baseAdminFirstName, lastName: baseAdminLastName, name: baseAdminName, email: baseAdminEmail, phone: baseAdminPhone, username: baseAdminUsername, logtoUserId: baseAdminLogtoUserId, initialOrganizationRole: baseAdminInitialOrganizationRole },
       jitProvisioning: { domain: jitProvisioningDomain, defaultRoleNames: jitDefaultRoleNames },
       administrativeContacts,
     },
@@ -127,7 +194,7 @@ async function resolveBaseAdminUser({ canonical, logtoOrganizationId, internalUs
     return { user, created: false, source: "provided_logto_user_id" };
   }
 
-  const resolved = await createOrResolveLogtoUserByEmail({ email: canonical.baseAdmin.email, name: canonical.baseAdmin.name });
+  const resolved = await createOrResolveLogtoUserByEmail({ email: canonical.baseAdmin.email, name: canonical.baseAdmin.name, phone: canonical.baseAdmin.phone, username: canonical.baseAdmin.username });
   await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: resolved.created ? "base_admin_user_created" : "base_admin_user_resolved", baseAdminEmail: canonical.baseAdmin.email, source: resolved.source } });
   return resolved;
 }
@@ -328,4 +395,4 @@ async function resumeOrganizationBootstrap(options) {
   return runCanonicalOrganizationBootstrap(options);
 }
 
-module.exports = { normalizeCanonicalProvisioningInput, resumeOrganizationBootstrap, runCanonicalOrganizationBootstrap };
+module.exports = { buildLogtoUsername, getAdministrativeContactUniquenessErrors, normalizeCanonicalProvisioningInput, normalizePhoneE164, resumeOrganizationBootstrap, runCanonicalOrganizationBootstrap };

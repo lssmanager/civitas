@@ -24,6 +24,9 @@ const getRoleName = (role = {}) => normalizeString(role.name || role.organizatio
 const getRoleId = (role = {}) => normalizeString(role.id || role.logtoRoleId || role.logto_role_id || role.organizationRoleId || role.roleId);
 const isMappableRoleName = (name) => Boolean(name) && !PROHIBITED_ROLE_NAMES.has(name);
 
+const looksLikeEmail = (value) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(value || "").trim());
+const looksLikeHostname = (value) => /^(https?:\/\/)?([a-z0-9-]+\.)+[a-z]{2,}(\/.*)?$/i.test(String(value || "").trim());
+
 function normalizeBaseUrl(baseUrl) {
   if (!baseUrl) return null;
   try {
@@ -33,20 +36,28 @@ function normalizeBaseUrl(baseUrl) {
     url.hash = "";
     return url.toString().replace(/\/+$/, "");
   } catch (error) {
-    throw new WordPressRolesError("WORDPRESS_BASE_URL must be a valid absolute URL", { code: "WORDPRESS_CONFIG_INVALID" });
+    throw new WordPressRolesError("WORDPRESS_BASE_URL must be a valid absolute URL", { code: "WORDPRESS_CONFIG_INVALID", diagnostic: "Set WORDPRESS_BASE_URL to an absolute URL such as https://www.learnsocialstudies.com." });
   }
 }
 
 function getWordPressRolesConfig() {
-  const baseUrl = normalizeBaseUrl(process.env.WORDPRESS_BASE_URL || process.env.FLUENTCRM_BASE_URL);
-  const username = process.env.WORDPRESS_USERNAME || process.env.FLUENTCRM_USERNAME;
-  const appPassword = process.env.WORDPRESS_APP_PASSWORD || process.env.FLUENTCRM_APP_PASSWORD;
+  const rawBaseUrl = process.env.WORDPRESS_BASE_URL;
+  const username = process.env.WORDPRESS_USERNAME;
+  if (looksLikeEmail(rawBaseUrl) && looksLikeHostname(username)) {
+    throw new WordPressRolesError("WORDPRESS_BASE_URL and WORDPRESS_USERNAME appear to be swapped", {
+      code: "WORDPRESS_CONFIG_SWAPPED",
+      body: { expected: { WORDPRESS_BASE_URL: "https://www.learnsocialstudies.com", WORDPRESS_USERNAME: rawBaseUrl }, received: { WORDPRESS_BASE_URL: rawBaseUrl, WORDPRESS_USERNAME: username } },
+      diagnostic: "Set WORDPRESS_BASE_URL=https://www.learnsocialstudies.com and WORDPRESS_USERNAME to the WordPress user email/login. WORDPRESS_APP_PASSWORD must be that user application password.",
+    });
+  }
+  const baseUrl = normalizeBaseUrl(rawBaseUrl);
+  const appPassword = process.env.WORDPRESS_APP_PASSWORD;
   const rolesPath = process.env.WORDPRESS_ROLES_ENDPOINT || "/wp-json/civitas/v1/roles";
-  const timeoutMs = Number.parseInt(process.env.WORDPRESS_TIMEOUT_MS || process.env.FLUENTCRM_TIMEOUT_MS || "10000", 10);
+  const timeoutMs = Number.parseInt(process.env.WORDPRESS_TIMEOUT_MS || "10000", 10);
   const missing = [];
-  if (!baseUrl) missing.push("WORDPRESS_BASE_URL (or FLUENTCRM_BASE_URL)");
-  if (!username) missing.push("WORDPRESS_USERNAME (or FLUENTCRM_USERNAME)");
-  if (!appPassword) missing.push("WORDPRESS_APP_PASSWORD (or FLUENTCRM_APP_PASSWORD)");
+  if (!baseUrl) missing.push("WORDPRESS_BASE_URL");
+  if (!username) missing.push("WORDPRESS_USERNAME");
+  if (!appPassword) missing.push("WORDPRESS_APP_PASSWORD");
   if (missing.length) {
     throw new WordPressRolesError(`WordPress roles integration is not configured; missing ${missing.join(", ")}`, {
       code: "WORDPRESS_CONFIG_MISSING",
@@ -85,9 +96,16 @@ async function listWordPressRoles({ fetchImpl = fetch, config = getWordPressRole
       signal: controller.signal,
     });
     const text = await response.text();
-    const body = text ? JSON.parse(text) : null;
-    if (!response.ok) throw new WordPressRolesError("WordPress roles endpoint request failed", { status: response.status, body, code: "WORDPRESS_ROLES_REQUEST_FAILED", request });
-    return normalizeWordPressRolesResponse(body);
+    let body = null;
+    try { body = text ? JSON.parse(text) : null; }
+    catch (error) { throw new WordPressRolesError("WordPress roles endpoint returned invalid JSON", { status: response.status, body: text, code: "WORDPRESS_ROLES_INVALID_JSON", request, diagnostic: error.message }); }
+    if (!response.ok) {
+      const code = response.status === 401 ? "WORDPRESS_AUTHENTICATION_FAILED" : response.status === 403 ? "WORDPRESS_AUTHORIZATION_FAILED" : response.status === 404 ? "WORDPRESS_ROLES_ENDPOINT_NOT_FOUND" : "WORDPRESS_ROLES_REQUEST_FAILED";
+      throw new WordPressRolesError("WordPress roles endpoint request failed", { status: response.status, body, code, request });
+    }
+    const roles = normalizeWordPressRolesResponse(body);
+    if (!roles.length) throw new WordPressRolesError("WordPress roles endpoint returned an empty role catalog", { status: response.status, body, code: "WORDPRESS_ROLES_EMPTY", request });
+    return roles;
   } catch (error) {
     if (error instanceof WordPressRolesError) throw error;
     if (error.name === "AbortError") throw new WordPressRolesError("WordPress roles endpoint timed out", { code: "WORDPRESS_ROLES_TIMEOUT", request });
@@ -99,6 +117,33 @@ async function listWordPressRoles({ fetchImpl = fetch, config = getWordPressRole
 
 async function listPersistedWordPressRoleMappings(database = db) {
   return database.select().from(wordpressRoleMappings);
+}
+
+function getWordPressMappingDatabaseErrorDiagnostic(error) {
+  const message = String(error?.message || error || "Unknown PostgreSQL error");
+  const errorCode = error?.code || error?.cause?.code;
+  const causeMessage = error?.cause?.message ? `; cause: ${error.cause.message}` : "";
+  const code = errorCode ? ` (${errorCode})` : "";
+  if (errorCode === "42P01" || /relation .*wordpress_role_mappings.*does not exist|wordpress_role_mappings.*does not exist/i.test(message)) {
+    return `PostgreSQL table wordpress_role_mappings is missing${code}: ${message}${causeMessage}`;
+  }
+  if (errorCode === "42703" || /column .*does not exist/i.test(message)) {
+    return `PostgreSQL wordpress_role_mappings schema is missing an expected column${code}: ${message}${causeMessage}`;
+  }
+  if (errorCode === "42501" || /permission denied/i.test(message)) {
+    return `PostgreSQL user cannot read wordpress_role_mappings${code}: ${message}${causeMessage}`;
+  }
+  if (/database_url|connection|connect|ECONNREFUSED|ENOTFOUND|password authentication failed/i.test(message)) {
+    return `PostgreSQL connection/DATABASE_URL error while reading wordpress_role_mappings${code}: ${message}${causeMessage}`;
+  }
+  return `PostgreSQL wordpress_role_mappings read failed${code}: ${message}${causeMessage}`;
+}
+
+function isMissingWordPressRoleMappingsTable(error) {
+  if (!error) return false;
+  if (error.code === "42P01" || error?.cause?.code === "42P01") return true;
+  const message = String(error.message || error?.cause?.message || "");
+  return /wordpress_role_mappings/i.test(message) && /(does not exist|relation|no existe)/i.test(message);
 }
 
 function rowsToMapping(rows = []) {
@@ -175,7 +220,11 @@ async function loadWordPressRoleMappingReadModel({ database = db, listRoles, lis
   if (rolesResult.status === "fulfilled") logtoRoles = Array.isArray(rolesResult.value) ? rolesResult.value : [];
   else { logger.warn?.("Unable to load Logto organization roles for WordPress role mappings", rolesResult.reason); warnings.push("No se pudieron cargar los roles organizacionales desde Logto; se muestran mappings persistidos si existen."); }
   if (rowsResult.status === "fulfilled") persistedRows = rowsResult.value;
-  else { logger.error?.("Unable to load persisted WordPress role mappings", rowsResult.reason); warnings.push(`No se pudieron cargar mappings WordPress persistidos desde PostgreSQL: ${rowsResult.reason?.message || rowsResult.reason}`); }
+  else {
+    const diagnostic = getWordPressMappingDatabaseErrorDiagnostic(rowsResult.reason);
+    logger.error?.("Unable to load persisted WordPress role mappings", { diagnostic, error: rowsResult.reason });
+    warnings.push(`${diagnostic}. Aplica la migración correctiva 0015 y confirma que DATABASE_URL apunta a la misma base usada por la API.`);
+  }
   let roleCatalogWarning = null;
   if (wpRolesResult.status === "fulfilled") wordpressRoles = wpRolesResult.value;
   else { logger.warn?.("Unable to load WordPress role catalog", wpRolesResult.reason); roleCatalogWarning = `No se pudo cargar el catálogo de roles WordPress: ${wpRolesResult.reason?.message || wpRolesResult.reason}`; }
@@ -220,6 +269,8 @@ module.exports = {
   loadWordPressRoleMappingReadModel,
   normalizeWordPressRolesResponse,
   resetWordPressRoleMappings,
+  getWordPressMappingDatabaseErrorDiagnostic,
+  isMissingWordPressRoleMappingsTable,
   rowsToMapping,
   upsertWordPressRoleMappings,
 };

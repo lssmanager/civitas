@@ -186,10 +186,35 @@ function extractCompanies(body) {
   return [];
 }
 
+function flattenDiagnosticText(value) {
+  if (value == null) return "";
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map(flattenDiagnosticText).join(" ");
+  if (typeof value === "object") return Object.values(value).map(flattenDiagnosticText).join(" ");
+  return String(value);
+}
+
+function classifyFluentCrmValidationError(parsed, path) {
+  const text = flattenDiagnosticText(parsed).toLowerCase();
+  const likelyCauses = [];
+  if (/duplicate|already exists|already exist|email.*taken|unique|subscriber.*exists|contact.*exists/.test(text)) likelyCauses.push("duplicate_email");
+  if (/company[_ -]?id|company/.test(text)) likelyCauses.push("invalid_company_id");
+  if (/tag|tags/.test(text)) likelyCauses.push("invalid_tag");
+  if (/list|lists/.test(text)) likelyCauses.push("invalid_list");
+  if (/email|first_name|last_name|full_name|phone|required|invalid|required field|validation/.test(text)) likelyCauses.push("invalid_payload");
+  return {
+    code: likelyCauses.includes("duplicate_email") ? "FLUENTCRM_DUPLICATE_CONTACT" : "FLUENTCRM_VALIDATION_FAILED",
+    message: `FluentCRM rejected the ${path} payload with validation error (422).`,
+    likelyCauses: [...new Set(likelyCauses.length ? likelyCauses : ["invalid_payload"])],
+    fluentCrmError: sanitizeForDiagnostics(parsed),
+  };
+}
+
 function getFluentCrmDiagnostic(response, parsed, path) {
   if (response.status === 401) return { code: "FLUENTCRM_AUTHENTICATION_FAILED", message: "FluentCRM authentication failed (401). Verify FLUENTCRM_USERNAME and FLUENTCRM_APP_PASSWORD are a valid WordPress Application Password for the configured site.", likelyCauses: ["invalid_username", "invalid_application_password", "basic_auth_blocked", "wrong_base_url_or_site"] };
   if (response.status === 403) return { code: "FLUENTCRM_AUTHORIZATION_FAILED", message: "FluentCRM authorization failed (403). The WordPress user authenticated, but does not have permission to access FluentCRM REST endpoints.", likelyCauses: ["wordpress_user_lacks_fluentcrm_permissions", "security_plugin_blocks_rest_api"] };
   if (response.status === 404) return { code: "FLUENTCRM_ENDPOINT_NOT_FOUND", message: `FluentCRM endpoint was not found at /wp-json/fluent-crm/v2${path}. Verify FLUENTCRM_BASE_URL and that FluentCRM is installed and REST API endpoints are enabled.`, likelyCauses: ["wrong_base_url", "fluentcrm_plugin_missing_or_inactive", "rest_route_unavailable"] };
+  if (response.status === 422) return classifyFluentCrmValidationError(parsed, path);
   return { code: "FLUENTCRM_REQUEST_FAILED", message: `FluentCRM request failed (${response.status})`, likelyCauses: [] };
 }
 
@@ -598,4 +623,4 @@ async function getOrCreateCompanyForOrganization(profile, organization = {}, { a
   }
 }
 
-module.exports = { CRM_CLEANUP_STRATEGIES, FluentCrmError, buildCleanupPolicy, buildFluentCrmCompanyPayload, buildOrganizationCrmTaxonomy, cleanupContactInFluentCrm, createCompany, createContact, deleteContact, ensureOrganizationTagsAndLists, findCompanyCandidates, findReliableCompanyMatch, getFluentCrmConfig, getFluentCrmRoleSyncMapping, getOrCreateCompanyForOrganization, mapOrganizationRolesToCrmTaxonomy, normalizeBaseUrl, normalizeCrmCompanyInput, sanitizeForDiagnostics, searchCompanies, searchContacts, validateFluentCrmConfiguration, syncOrganizationContactsToFluentCrm, updateContact, updateContactEmailAfterLogtoChange, upsertContactFromLogtoIdentity };
+module.exports = { CRM_CLEANUP_STRATEGIES, FluentCrmError, buildCleanupPolicy, buildFluentCrmCompanyPayload, buildOrganizationCrmTaxonomy, cleanupContactInFluentCrm, createCompany, createContact, deleteContact, ensureOrganizationTagsAndLists, findCompanyCandidates, findReliableCompanyMatch, getFluentCrmConfig, getFluentCrmDiagnostic, getFluentCrmRoleSyncMapping, getOrCreateCompanyForOrganization, mapOrganizationRolesToCrmTaxonomy, normalizeBaseUrl, normalizeCrmCompanyInput, sanitizeForDiagnostics, searchCompanies, searchContacts, validateFluentCrmConfiguration, syncOrganizationContactsToFluentCrm, updateContact, updateContactEmailAfterLogtoChange, upsertContactFromLogtoIdentity };

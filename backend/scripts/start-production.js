@@ -99,6 +99,10 @@ function runNodeScript(scriptPath, stepName) {
   });
 }
 
+function shouldRunMigrationsOnStartup() {
+  return String(process.env.RUN_MIGRATIONS_ON_STARTUP || "true").toLowerCase() !== "false";
+}
+
 function startServer() {
   console.log("[startup] starting server...");
 
@@ -132,9 +136,13 @@ async function main() {
   try {
     await waitForDatabase();
 
-    console.log("[startup] running migrations...");
-    await runNodeScript("scripts/migrate.js", "migrations");
-    console.log("[startup] migrations completed");
+    if (shouldRunMigrationsOnStartup()) {
+      console.log("[startup] running migrations...");
+      await runNodeScript("scripts/migrate.js", "migrations");
+      console.log("[startup] migrations completed");
+    } else {
+      console.log("[startup] RUN_MIGRATIONS_ON_STARTUP=false; database validation passed and server will start without applying migrations. Run npm run migrate as a separate release step.");
+    }
 
     startServer();
   } catch (error) {
