@@ -48,6 +48,8 @@ export function OwnerSettingsPage() {
   const wordpressCatalogBySlug = useMemo(() => new Map(wordpressRoles.map((role) => [role.slug, role])), [wordpressRoles]);
   const wordpressLoading = wordpressResource.isLoading;
   const wordpressCatalogDisabled = wordpressLoading || Boolean(wordpressResource.error) || wordpressRoles.length === 0;
+  const crmWarnings = useMemo(() => [...new Set(crmResource.data?.warnings ?? [])].filter((warning) => warning !== crmResource.data?.envWarning), [crmResource.data]);
+  const wordpressWarnings = useMemo(() => [...new Set(wordpressResource.data?.warnings ?? [])], [wordpressResource.data]);
 
   const update = (logtoRoleId: string, patch: Partial<OwnerCrmRoleMapping>) => setMappings((items) => items.map((item) => item.logtoRoleId === logtoRoleId ? { ...item, ...patch } : item));
   const updateWordPress = (crmMapping: OwnerCrmRoleMapping, wordpressRoleSlug: string) => {
@@ -96,11 +98,11 @@ export function OwnerSettingsPage() {
       {crmResource.isLoading ? <LoadingState title="Cargando roles" description="Leyendo roles desde Logto y configuración operativa desde Civitas." /> : crmResource.error ? <ErrorState title="No se pudo cargar el mapping" message={crmResource.error} action={<Button onClick={crmResource.retry}>Reintentar</Button>} /> : (
         <PageCard title="Logto → CRM / WordPress role mapping" subtitle="Civitas guarda mappings operativos subordinados a logtoRoleId; WordPress no define permisos ni roles canónicos del producto.">
           {crmResource.data?.envWarning && <Alert variant="warning">{crmResource.data.envWarning}</Alert>}
-          {crmResource.data?.warnings?.map((warning) => <Alert key={warning} variant="warning">{warning}</Alert>)}
+          {crmWarnings.map((warning) => <Alert key={warning} variant="warning">{warning}</Alert>)}
           {wordpressLoading && <Alert variant="info">Cargando catálogo real de roles WordPress…</Alert>}
           {wordpressResource.error && <Alert variant="warning">No se pudo cargar roles WordPress: {wordpressResource.error}. Puedes editar CRM; el dropdown WordPress queda deshabilitado hasta reintentar. <Button size="sm" variant="outline-warning" className="ms-2" onClick={wordpressResource.retry}>Reintentar WordPress</Button></Alert>}
           {!wordpressLoading && !wordpressResource.error && wordpressRoles.length === 0 && <Alert variant="warning">WordPress respondió sin roles disponibles. Verifica el endpoint configurado para el catálogo de roles.</Alert>}
-          {wordpressResource.data?.warnings?.map((warning) => <Alert key={warning} variant="warning">{warning}</Alert>)}
+          {wordpressWarnings.map((warning) => <Alert key={warning} variant="warning">{warning}</Alert>)}
           {message && <Alert variant="success">{message}</Alert>}
           <Alert variant="light" className="border small mb-3">Separación canónica: Logto controla identidad, tenant context, memberships, roles y permisos. WordPress/FluentCRM solo reciben mappings operativos para sincronización, CRM y segmentación.</Alert>
 

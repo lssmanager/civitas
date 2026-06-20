@@ -2,11 +2,21 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const {
   getEffectiveWordPressRoleMapping,
+  getWordPressRolesConfig,
+  getWordPressMappingDatabaseErrorDiagnostic,
   listWordPressRoles,
   loadWordPressRoleMappingReadModel,
   normalizeWordPressRolesResponse,
   upsertWordPressRoleMappings,
 } = require("../services/wordpressRoles");
+
+
+function restoreWordPressEnv(previous) {
+  for (const [key, value] of Object.entries(previous)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+}
 
 const logtoRoles = [
   { id: "role-admin", name: "Admin-org" },
@@ -107,4 +117,37 @@ test("WordPress roles endpoint timeout is controlled", async () => {
       return true;
     }
   );
+});
+
+
+test("WordPress config reports invalid base URL precisely", () => {
+  const previous = { WORDPRESS_BASE_URL: process.env.WORDPRESS_BASE_URL, WORDPRESS_USERNAME: process.env.WORDPRESS_USERNAME, WORDPRESS_APP_PASSWORD: process.env.WORDPRESS_APP_PASSWORD };
+  process.env.WORDPRESS_BASE_URL = "not a url";
+  process.env.WORDPRESS_USERNAME = "owner@example.com";
+  process.env.WORDPRESS_APP_PASSWORD = "secret";
+  assert.throws(() => getWordPressRolesConfig(), (error) => {
+    assert.equal(error.code, "WORDPRESS_CONFIG_INVALID");
+    assert.match(error.diagnostic, /absolute URL/);
+    return true;
+  });
+  restoreWordPressEnv(previous);
+});
+
+test("WordPress config detects swapped base URL and username", () => {
+  const previous = { WORDPRESS_BASE_URL: process.env.WORDPRESS_BASE_URL, WORDPRESS_USERNAME: process.env.WORDPRESS_USERNAME, WORDPRESS_APP_PASSWORD: process.env.WORDPRESS_APP_PASSWORD };
+  process.env.WORDPRESS_BASE_URL = "johansebastian.rueda@icloud.com";
+  process.env.WORDPRESS_USERNAME = "www.learnsocialstudies.com";
+  process.env.WORDPRESS_APP_PASSWORD = "secret";
+  assert.throws(() => getWordPressRolesConfig(), (error) => {
+    assert.equal(error.code, "WORDPRESS_CONFIG_SWAPPED");
+    assert.equal(error.body.expected.WORDPRESS_BASE_URL, "https://www.learnsocialstudies.com");
+    return true;
+  });
+  restoreWordPressEnv(previous);
+});
+
+test("WordPress role mapping database diagnostic reports missing table", () => {
+  const error = new Error('relation "wordpress_role_mappings" does not exist');
+  error.code = "42P01";
+  assert.match(getWordPressMappingDatabaseErrorDiagnostic(error), /wordpress_role_mappings is missing.*42P01/);
 });

@@ -26,6 +26,14 @@ const normalizeStringArray = (value) => Array.isArray(value) ? [...new Set(value
 const getRoleName = (role = {}) => String(role.name || role.organizationRoleName || role.nameCache || role.key || "").trim();
 const getRoleId = (role = {}) => String(role.id || role.logtoRoleId || role.logto_role_id || role.organizationRoleId || role.roleId || "").trim();
 const isMappableRoleName = (name) => Boolean(name) && !PROHIBITED_ROLE_NAMES.has(name);
+const loggedLegacyEnvWarnings = new Set();
+
+function warnLegacyEnvOnce(logger, warning, detail) {
+  if (!warning || loggedLegacyEnvWarnings.has(warning)) return;
+  loggedLegacyEnvWarnings.add(warning);
+  if (detail === undefined) logger.warn?.(warning);
+  else logger.warn?.(warning, detail);
+}
 
 function normalizeEnvRoleMappingJsonValue(rawValue) {
   const value = String(rawValue || "").trim();
@@ -53,16 +61,18 @@ function parseEnvRoleMappings(logger = console) {
   const normalized = normalizeEnvRoleMappingJsonValue(process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON);
   try {
     if (normalized.hadKeyPrefix) {
-      const warning = "FLUENTCRM_ROLE_SYNC_MAPPING_JSON is malformed because it includes its variable name. Configure the value as only the JSON object, for example {\"Teacher-org\":{\"tags\":[\"teacher\"],\"lists\":[]}}.";
-      logger.warn?.(warning);
+      const warning = normalized.value
+        ? "Legacy FLUENTCRM_ROLE_SYNC_MAPPING_JSON is malformed because it includes its variable name. GUI + PostgreSQL mappings are primary; remove this env var or configure only the JSON object value."
+        : "Legacy FLUENTCRM_ROLE_SYNC_MAPPING_JSON is configured as FLUENTCRM_ROLE_SYNC_MAPPING_JSON= and is ignored. GUI + PostgreSQL mappings are primary; remove this env var from production.";
+      warnLegacyEnvOnce(logger, warning);
       return { mapping: {}, warning };
     }
     const parsed = JSON.parse(normalized.value);
     const mapping = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
     return { mapping, warning: null };
   } catch (error) {
-    const warning = "FLUENTCRM_ROLE_SYNC_MAPPING_JSON is malformed; using persisted mappings or defaults. Provide only the JSON object value, not a KEY= prefix.";
-    logger.warn?.(warning, error.message);
+    const warning = "Legacy FLUENTCRM_ROLE_SYNC_MAPPING_JSON is malformed and ignored. GUI + PostgreSQL mappings are primary; provide only a JSON object value if this fallback is intentionally used.";
+    warnLegacyEnvOnce(logger, warning, error.message);
     return { mapping: {}, warning };
   }
 }
@@ -165,7 +175,6 @@ async function getEffectiveCrmRoleMapping({ database = db, logger = console, log
   const rows = Array.isArray(persistedRows) ? persistedRows : await listPersistedCrmRoleMappings(database);
   const persisted = rowsToMapping(rows);
   const env = parseEnvRoleMappings(logger);
-  if (env.warning) warnings.push(env.warning);
   const defaultById = resolveLegacyNameMappings({ namedMappings: DEFAULT_CRM_ROLE_MAPPINGS, roleIndexes, source: CRM_ROLE_MAPPING_SOURCES.DEFAULT, warnings: [] });
   const envById = resolveLegacyNameMappings({ namedMappings: env.mapping, roleIndexes, source: CRM_ROLE_MAPPING_SOURCES.ENV_MIGRATED, warnings });
   const mapping = {};
