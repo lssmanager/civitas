@@ -211,7 +211,7 @@ export type CreateOwnerOrganizationInput = {
   adminDomain?: string;
   logoUrl?: string;
   faviconUrl?: string;
-  baseAdmin?: { name?: string; email?: string; logtoUserId?: string; initialOrganizationRole?: string };
+  baseAdmin?: { firstName?: string; lastName?: string; name?: string; email?: string; phone?: string; username?: string; logtoUserId?: string; initialOrganizationRole?: string };
   jitProvisioning?: { domain?: string; defaultRoleNames?: string[] };
   settings?: Record<string, unknown>;
   crm?: FluentCrmCompanyInput;

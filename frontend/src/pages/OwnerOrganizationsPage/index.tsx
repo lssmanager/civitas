@@ -77,8 +77,11 @@ type OwnerOrganizationFormData = {
   slug: string;
   appSubdomain: string;
   adminDomain: string;
+  baseAdminFirstName: string;
+  baseAdminLastName: string;
   baseAdminName: string;
   baseAdminEmail: string;
+  baseAdminPhone: string;
   baseAdminLogtoUserId: string;
   adminRoleName: string;
   jitDefaultRoleName: string;
@@ -124,8 +127,11 @@ const initialFormData: OwnerOrganizationFormData = {
   slug: "",
   appSubdomain: "",
   adminDomain: "",
+  baseAdminFirstName: "",
+  baseAdminLastName: "",
   baseAdminName: "",
   baseAdminEmail: "",
+  baseAdminPhone: "",
   baseAdminLogtoUserId: "",
   adminRoleName: ORGANIZATION_BOOTSTRAP_ADMIN_ROLE,
   jitDefaultRoleName: ORGANIZATION_JIT_DEFAULT_ROLE,
@@ -225,6 +231,27 @@ const slugify = (value: string) =>
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
+const normalizeIdentifierPart = (value: string) =>
+  value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+
+const buildLogtoUsernamePreview = (subdomain: string, firstName: string, lastName: string) => {
+  const prefix = normalizeIdentifierPart(subdomain);
+  const firstInitial = normalizeIdentifierPart(firstName).charAt(0);
+  const lastInitial = normalizeIdentifierPart(lastName).charAt(0);
+  return prefix && firstInitial && lastInitial ? `${prefix}${firstInitial}${lastInitial}` : "";
+};
+
+const normalizePhoneForSubmission = (phone: string, callingCode?: string) => {
+  const raw = phone.trim();
+  if (!raw) return "";
+  const compact = raw.replace(/[\s().-]+/g, "");
+  const withCode = compact.startsWith("+") ? compact : callingCode ? `+${callingCode.replace(/\D/g, "")}${compact.replace(/^0+/, "")}` : compact;
+  return /^\+[1-9]\d{6,14}$/.test(withCode) ? withCode : "";
+};
 
 export function OwnerOrganizationsPage() {
   const ownerApi = useOwnerApi();
@@ -256,8 +283,15 @@ export function OwnerOrganizationsPage() {
         ? error.message
         : "No se pudo cargar la plantilla de organización de Logto.",
   });
+  const wordpressRolesResource = useStableResource({
+    initialParams: {},
+    load: ownerApi.getWordPressRoles,
+    getKey: () => "owner-organization-wordpress-role-catalog",
+    getErrorMessage: (error) => error instanceof Error ? error.message : "No se pudo cargar catálogo WordPress.",
+  });
 
   const roles = templateResource.data?.roles.filter((role) => role.name) ?? [];
+  const wordpressRoles = wordpressRolesResource.data?.roles ?? [];
   const selectedAdminRole = roles.some(
     (role) => role.name === formData.adminRoleName,
   )
@@ -288,6 +322,11 @@ export function OwnerOrganizationsPage() {
       selectedCountry ? State.getStatesOfCountry(selectedCountry.isoCode) : [],
     [selectedCountry],
   );
+  const defaultCallingCode = selectedCountry?.phonecode?.replace(/\D/g, "") || "";
+  const baseAdminFullName = [formData.baseAdminFirstName, formData.baseAdminLastName].map((value) => value.trim()).filter(Boolean).join(" ");
+  const baseAdminUsername = buildLogtoUsernamePreview(formData.appSubdomain, formData.baseAdminFirstName, formData.baseAdminLastName);
+  const primaryHeadContact = formData.administrativeContacts.find((contact) => contact.key === "director" && contact.name.trim()) || null;
+  const effectiveCompanyOwner = primaryHeadContact?.name.trim() || baseAdminFullName || formData.crm.companyOwner.trim();
 
   useEffect(() => {
     setFormData((current) => ({
@@ -303,6 +342,7 @@ export function OwnerOrganizationsPage() {
           ? current.crm.companyEmail
           : current.baseAdminEmail,
         website: dirty.crm.website ? current.crm.website : current.adminDomain,
+        companyOwner: current.crm.companyOwner || [current.baseAdminFirstName, current.baseAdminLastName].filter(Boolean).join(" "),
         tags: dirty.crm.tags
           ? current.crm.tags
           : deriveOrganizationTags(current.name),
@@ -314,6 +354,8 @@ export function OwnerOrganizationsPage() {
   }, [
     formData.name,
     formData.baseAdminEmail,
+    formData.baseAdminFirstName,
+    formData.baseAdminLastName,
     formData.adminDomain,
     selectedAdminRole,
     selectedJitRole,
@@ -329,7 +371,13 @@ export function OwnerOrganizationsPage() {
     value: string,
   ) => {
     setStepError(null);
-    setFormData((current) => ({ ...current, [field]: value }));
+    setFormData((current) => {
+      const next = { ...current, [field]: value };
+      if (field === "baseAdminFirstName" || field === "baseAdminLastName") {
+        next.baseAdminName = [field === "baseAdminFirstName" ? value : current.baseAdminFirstName, field === "baseAdminLastName" ? value : current.baseAdminLastName].map((item) => item.trim()).filter(Boolean).join(" ");
+      }
+      return next;
+    });
   };
 
   const updateCompanyName = (value: string) => {
@@ -418,6 +466,9 @@ export function OwnerOrganizationsPage() {
     const normalized = getNormalizedAdministrativeContacts();
     const fieldError = normalized.find((result) => result?.error)?.error;
     if (fieldError) return fieldError;
+    for (const result of normalized) {
+      if (result?.value?.phone && !normalizePhoneForSubmission(result.value.phone, defaultCallingCode)) return `Teléfono inválido para ${result.value.email}. Usa formato internacional o el indicativo del país.`;
+    }
 
     const seen = new Map<string, { label: string; name: string; position: string; role: string }>();
     for (const result of normalized) {
@@ -541,12 +592,16 @@ export function OwnerOrganizationsPage() {
     }
     if (!templateResource.data?.ready)
       return "Falta configurar la plantilla de Logto antes de continuar.";
+    if (!formData.crm.country.trim()) return "Selecciona país antes de validar estado/departamento y teléfonos.";
+    if (formData.crm.companyPhone.trim() && !normalizePhoneForSubmission(formData.crm.companyPhone, defaultCallingCode)) return "Company Phone Number debe incluir indicativo o poder normalizarse con el país seleccionado.";
     return null;
   };
 
   const validateStepTwo = (): string | null => {
-    if (!formData.baseAdminName.trim() || !formData.baseAdminEmail.trim())
-      return "Completa nombre y correo del admin base antes de continuar.";
+    if (!formData.baseAdminFirstName.trim() || !formData.baseAdminLastName.trim() || !formData.baseAdminEmail.trim())
+      return "Completa nombres, apellidos y correo del admin base antes de continuar.";
+    if (!baseAdminUsername) return "No se pudo construir username Logto; revisa subdominio, nombres y apellidos.";
+    if (formData.baseAdminPhone.trim() && !normalizePhoneForSubmission(formData.baseAdminPhone, defaultCallingCode)) return "Teléfono del admin base inválido; usa formato internacional o selecciona país.";
     if (logtoUserIdLooksLikeRole)
       return "Admin-org y Student-org son roles, no user ids de Logto.";
     const administrativeValidationError = getAdministrativeContactValidationError();
@@ -662,8 +717,12 @@ export function OwnerOrganizationsPage() {
         subdomain: formData.appSubdomain,
         adminDomain: formData.adminDomain || undefined,
         baseAdmin: {
-          name: formData.baseAdminName || undefined,
+          firstName: formData.baseAdminFirstName || undefined,
+          lastName: formData.baseAdminLastName || undefined,
+          name: baseAdminFullName || undefined,
           email: formData.baseAdminEmail || undefined,
+          phone: normalizePhoneForSubmission(formData.baseAdminPhone, defaultCallingCode) || undefined,
+          username: baseAdminUsername || undefined,
           logtoUserId: formData.baseAdminLogtoUserId || undefined,
           initialOrganizationRole: ORGANIZATION_BOOTSTRAP_ADMIN_ROLE,
         },
@@ -675,7 +734,7 @@ export function OwnerOrganizationsPage() {
           companyName: formData.crm.companyName || formData.name,
           companyEmail:
             formData.crm.companyEmail || formData.baseAdminEmail || undefined,
-          companyPhone: formData.crm.companyPhone || undefined,
+          companyPhone: normalizePhoneForSubmission(formData.crm.companyPhone, defaultCallingCode) || undefined,
           about: formData.crm.about || undefined,
           website: formData.crm.website || formData.adminDomain || undefined,
           addressLine1: formData.crm.addressLine1 || undefined,
@@ -689,7 +748,7 @@ export function OwnerOrganizationsPage() {
             : undefined,
           industry: formData.crm.industry || undefined,
           type: formData.crm.type || undefined,
-          companyOwner: formData.crm.companyOwner || undefined,
+          companyOwner: effectiveCompanyOwner || undefined,
           description: formData.crm.description || undefined,
           nit: formData.crm.nit ? Number(formData.crm.nit) : undefined,
           verificationDigit: formData.crm.verificationDigit
@@ -983,15 +1042,33 @@ export function OwnerOrganizationsPage() {
         </Form.Group>
         <Form.Group
           className="col-12 col-xl-4"
+          controlId="ownerOrganizationCrmCountry"
+        >
+          <Form.Label>País</Form.Label>
+          <Form.Select
+            value={formData.crm.country}
+            onChange={(event) => updateCrmField("country", event.target.value)}
+          >
+            <option value="">Selecciona país antes de estado/departamento</option>
+            {countries.map((country) => (
+              <option key={country.isoCode} value={country.name}>
+                {country.name}
+              </option>
+            ))}
+          </Form.Select>
+        </Form.Group>
+        <Form.Group
+          className="col-12 col-xl-4"
           controlId="ownerOrganizationCrmState"
         >
-          <Form.Label>Departamento</Form.Label>
+          <Form.Label>Estado / provincia / departamento</Form.Label>
           {countryStates.length > 0 ? (
             <Form.Select
               value={formData.crm.state}
+              disabled={!selectedCountry}
               onChange={(event) => updateCrmField("state", event.target.value)}
             >
-              <option value="">Enter state / province</option>
+              <option value="">Selecciona estado / provincia</option>
               {countryStates.map((state) => (
                 <option key={state.isoCode} value={state.name}>
                   {state.name}
@@ -1001,8 +1078,9 @@ export function OwnerOrganizationsPage() {
           ) : (
             <Form.Control
               value={formData.crm.state}
+              disabled={!selectedCountry}
               onChange={(event) => updateCrmField("state", event.target.value)}
-              placeholder="Enter state / province"
+              placeholder={selectedCountry ? "Ingresa región manualmente" : "Selecciona país primero"}
             />
           )}
         </Form.Group>
@@ -1018,23 +1096,6 @@ export function OwnerOrganizationsPage() {
             }
             placeholder="Enter postal code"
           />
-        </Form.Group>
-        <Form.Group
-          className="col-12 col-xl-6"
-          controlId="ownerOrganizationCrmCountry"
-        >
-          <Form.Label>País</Form.Label>
-          <Form.Select
-            value={formData.crm.country}
-            onChange={(event) => updateCrmField("country", event.target.value)}
-          >
-            <option value="">Selecciona país</option>
-            {countries.map((country) => (
-              <option key={country.isoCode} value={country.name}>
-                {country.name}
-              </option>
-            ))}
-          </Form.Select>
         </Form.Group>
       </div>
       <div className="row g-3">
@@ -1176,21 +1237,31 @@ export function OwnerOrganizationsPage() {
         <h4 className="h6 mb-0">Admin base</h4>
         <div className="row g-3">
           <Form.Group
-            className="col-12 col-xl-4"
-            controlId="ownerOrganizationBaseAdminName"
+            className="col-12 col-xl-3"
+            controlId="ownerOrganizationBaseAdminFirstName"
           >
-            <Form.Label>Nombre admin base</Form.Label>
+            <Form.Label>Nombres admin base</Form.Label>
             <Form.Control
-              value={formData.baseAdminName}
-              onChange={(event) =>
-                updateField("baseAdminName", event.target.value)
-              }
-              placeholder="María Admin"
+              value={formData.baseAdminFirstName}
+              onChange={(event) => updateField("baseAdminFirstName", event.target.value)}
+              placeholder="Mario"
               required
             />
           </Form.Group>
           <Form.Group
-            className="col-12 col-xl-4"
+            className="col-12 col-xl-3"
+            controlId="ownerOrganizationBaseAdminLastName"
+          >
+            <Form.Label>Apellidos admin base</Form.Label>
+            <Form.Control
+              value={formData.baseAdminLastName}
+              onChange={(event) => updateField("baseAdminLastName", event.target.value)}
+              placeholder="Baracus"
+              required
+            />
+          </Form.Group>
+          <Form.Group
+            className="col-12 col-xl-3"
             controlId="ownerOrganizationBaseAdminEmail"
           >
             <Form.Label>Correo admin base</Form.Label>
@@ -1205,7 +1276,7 @@ export function OwnerOrganizationsPage() {
             />
           </Form.Group>
           <Form.Group
-            className="col-12 col-xl-4"
+            className="col-12 col-xl-3"
             controlId="ownerOrganizationBaseAdminLogtoId"
           >
             <Form.Label>Logto user id admin base existente</Form.Label>
@@ -1220,6 +1291,20 @@ export function OwnerOrganizationsPage() {
             <Form.Control.Feedback type="invalid">
               Admin-org y Student-org son roles, no user ids de Logto.
             </Form.Control.Feedback>
+          </Form.Group>
+          <Form.Group className="col-12 col-xl-4" controlId="ownerOrganizationBaseAdminPhone">
+            <Form.Label>Teléfono admin base</Form.Label>
+            <Form.Control
+              type="tel"
+              value={formData.baseAdminPhone}
+              onChange={(event) => updateField("baseAdminPhone", event.target.value)}
+              placeholder={defaultCallingCode ? `+${defaultCallingCode}...` : "+573001112233"}
+            />
+          </Form.Group>
+          <Form.Group className="col-12 col-xl-4" controlId="ownerOrganizationBaseAdminUsername">
+            <Form.Label>Username Logto calculado</Form.Label>
+            <Form.Control value={baseAdminUsername} readOnly placeholder="subdominio + iniciales" />
+            <Form.Text muted>Regla: subdominioApp + inicialNombre + inicialApellido.</Form.Text>
           </Form.Group>
         </div>
       </div>
@@ -1425,7 +1510,7 @@ export function OwnerOrganizationsPage() {
             {summaryRow("Number of Employees", formData.crm.numberOfEmployees)}
             {summaryRow("Industry", formData.crm.industry)}
             {summaryRow("Type", formData.crm.type)}
-            {summaryRow("Company Owner", formData.crm.companyOwner)}
+            {summaryRow("Company Owner", effectiveCompanyOwner)}
             {summaryRow("NIT", formData.crm.nit)}
             {summaryRow(
               "Digito de Verificación",
@@ -1435,7 +1520,14 @@ export function OwnerOrganizationsPage() {
         </div>
         <div className="col-12 col-xl-6">
           <div className="border rounded-3 p-3 h-100 d-flex flex-column gap-2">
-            <h4 className="h6 mb-0">Creación de usuarios</h4>
+            <h4 className="h6 mb-0">Perfil de usuario / Logto</h4>
+            {summaryRow("Nombres admin base", formData.baseAdminFirstName)}
+            {summaryRow("Apellidos admin base", formData.baseAdminLastName)}
+            {summaryRow("Email admin base", formData.baseAdminEmail)}
+            {summaryRow("Teléfono admin base normalizado", normalizePhoneForSubmission(formData.baseAdminPhone, defaultCallingCode) || formData.baseAdminPhone)}
+            {summaryRow("Username Logto", baseAdminUsername)}
+            <div className="small text-secondary">Custom profile payload: {JSON.stringify({ username: baseAdminUsername, phone: normalizePhoneForSubmission(formData.baseAdminPhone, defaultCallingCode) || undefined, companyOwner: effectiveCompanyOwner })}</div>
+            <h4 className="h6 mb-0 mt-2">Creación de usuarios</h4>
             {formData.administrativeContacts.map((contact) => (
               <div
                 key={`summary-${contact.key}`}
@@ -1484,6 +1576,10 @@ export function OwnerOrganizationsPage() {
               ) : (
                 <span className="text-secondary small">Sin lists.</span>
               )}
+            </div>
+            <h4 className="h6 mb-0">Catálogo WordPress/BuddyBoss/bbPress</h4>
+            <div className="d-flex flex-wrap gap-2">
+              {wordpressRoles.length ? wordpressRoles.slice(0, 12).map((role) => <Badge key={role.slug} bg="light" text="dark" className="border">{role.name} ({role.slug})</Badge>) : <span className="text-secondary small">Catálogo no cargado o no disponible.</span>}
             </div>
             <h4 className="h6 mb-0">Descripción / About</h4>
             {summaryRow("About this company", formData.crm.about)}

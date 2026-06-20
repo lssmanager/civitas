@@ -51,3 +51,26 @@ test("organization provisioning explains duplicate administrative email with dif
   assert.deepEqual(duplicate.differingFields, ["organizationRoleName"]);
   assert.match(duplicate.message, /different organizationRoleName/);
 });
+
+test("organization provisioning builds Logto username from subdomain and initials", () => {
+  const result = normalizeCanonicalProvisioningInput({
+    ...basePayload,
+    subdomain: "colegiot",
+    baseAdmin: { firstName: "Mario", lastName: "Báracus", email: "admin@school.edu", phone: "+573001112233", initialOrganizationRole: "Admin-org" },
+  });
+
+  assert.equal(result.errors.length, 0);
+  assert.equal(result.value.baseAdmin.name, "Mario Báracus");
+  assert.equal(result.value.baseAdmin.username, "colegiotmb");
+  assert.equal(result.value.baseAdmin.phone, "+573001112233");
+});
+
+test("organization provisioning rejects invalid base admin phone", () => {
+  const result = normalizeCanonicalProvisioningInput({
+    ...basePayload,
+    subdomain: "colegiot",
+    baseAdmin: { firstName: "Mario", lastName: "Baracus", email: "admin@school.edu", phone: "123", initialOrganizationRole: "Admin-org" },
+  });
+
+  assert.equal(result.errors.some((error) => error.field === "baseAdmin.phone"), true);
+});

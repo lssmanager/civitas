@@ -294,10 +294,10 @@ async function getLogtoUserById(userId) {
   return callLogtoManagementApi(`/users/${encodeURIComponent(userId)}`);
 }
 
-async function updateLogtoUser({ userId, email, name, phone }) {
+async function updateLogtoUser({ userId, email, name, phone, username }) {
   return callLogtoManagementApi(`/users/${encodeURIComponent(userId)}`, {
     method: "PATCH",
-    body: JSON.stringify({ primaryEmail: email || undefined, name: name || undefined, phone: phone || undefined }),
+    body: JSON.stringify({ primaryEmail: email || undefined, name: name || undefined, phone: phone || undefined, username: username || undefined }),
   });
 }
 
@@ -409,30 +409,40 @@ async function findLogtoUserByEmail(email) {
   return users.find((user) => (user.primaryEmail || user.email || user.profile?.email || "").toLowerCase() === normalizedEmail) || null;
 }
 
-async function createLogtoUser({ email, name, phone }) {
+async function createLogtoUser({ email, name, phone, username }) {
   return callLogtoManagementApi("/users", {
     method: "POST",
-    body: JSON.stringify({ primaryEmail: email, name, ...(phone ? { primaryPhone: phone } : {}) }),
+    body: JSON.stringify({ primaryEmail: email, name, username: username || undefined, ...(phone ? { primaryPhone: phone } : {}) }),
   });
 }
 
-async function createOrResolveLogtoUserByEmail({ email, name, phone }) {
+async function createOrResolveLogtoUserByEmail({ email, name, phone, username }) {
   const existingUser = await findLogtoUserByEmail(email);
   if (existingUser) {
     const userId = existingUser.id || existingUser.userId || existingUser.logtoUserId;
     if (userId && (name || phone)) {
-      const updated = await updateLogtoUser({ userId, email, name, phone });
+      const updated = await updateLogtoUser({ userId, email, name, phone, username });
       return { user: updated || existingUser, created: false, source: "email_lookup_updated" };
     }
     return { user: existingUser, created: false, source: "email_lookup" };
   }
 
   try {
-    return { user: await createLogtoUser({ email, name, phone }), created: true, source: "create_user" };
+    return { user: await createLogtoUser({ email, name, phone, username }), created: true, source: "create_user" };
   } catch (error) {
     if (error instanceof LogtoManagementApiError && [400, 409, 422].includes(error.status)) {
       const reconciledUser = await findLogtoUserByEmail(email);
       if (reconciledUser) return { user: reconciledUser, created: false, source: "post_create_email_lookup" };
+      if (username) {
+        for (let suffix = 1; suffix <= 3; suffix += 1) {
+          try {
+            const fallbackUsername = `${username}${suffix}`;
+            return { user: await createLogtoUser({ email, name, phone, username: fallbackUsername }), created: true, source: "create_user_username_suffix", username: fallbackUsername };
+          } catch (retryError) {
+            if (!(retryError instanceof LogtoManagementApiError) || ![400, 409, 422].includes(retryError.status)) throw retryError;
+          }
+        }
+      }
     }
     throw error;
   }
