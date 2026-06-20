@@ -61,10 +61,14 @@ function normalizeUsernameSeed(value) {
     .toLowerCase()
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> bf6280a (Fix Logto user creation payload and owner form flow)
     .replace(/[^a-z0-9_]/g, "_")
     .replace(/_+/g, "_")
     .replace(/^([^a-z_])/, "_$1")
     .replace(/^_+$/, "");
+<<<<<<< HEAD
 }
 
 function buildLogtoUsername({ email }) {
@@ -83,6 +87,8 @@ function buildLogtoUsername({ subdomain, firstName, lastName }) {
 =======
     .replace(/[^a-z0-9._-]/g, "")
     .replace(/^[._-]+|[._-]+$/g, "");
+=======
+>>>>>>> bf6280a (Fix Logto user creation payload and owner form flow)
 }
 
 function buildLogtoUsername({ email }) {

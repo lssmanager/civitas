@@ -77,6 +77,7 @@ test("organization provisioning builds Logto username from the email local part"
   assert.equal(result.value.baseAdmin.name, "Mario Báracus");
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
   assert.equal(result.value.baseAdmin.username, "j_doe");
   assert.equal(result.value.baseAdmin.phone, "+573001112233");
 });
@@ -113,6 +114,9 @@ test("organization provisioning allows selecting a non-default base admin organi
 >>>>>>> ae8003d (Align organization creation payload previews)
 =======
   assert.equal(result.value.baseAdmin.username, "j.doe");
+=======
+  assert.equal(result.value.baseAdmin.username, "j_doe");
+>>>>>>> bf6280a (Fix Logto user creation payload and owner form flow)
   assert.equal(result.value.baseAdmin.phone, "+573001112233");
 });
 
