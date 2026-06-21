@@ -27,20 +27,35 @@ export function AppBreadcrumbs() {
 
   return (
     <Breadcrumb className="civitas-breadcrumb mb-0">
-      <Breadcrumb.Item linkAs={Link} linkProps={{ to: "/owner" }}>
+      <Breadcrumb.Item
+        className="civitas-breadcrumb__item civitas-breadcrumb__item--brand"
+        linkAs={Link}
+        linkProps={{ to: "/owner" }}
+      >
         Civitas
       </Breadcrumb.Item>
       {trail.length > 0 ? (
         trail.map((item, index) => {
           const isLast = index === trail.length - 1;
           return isLast ? (
-            <Breadcrumb.Item active key={item.path}>{item.label}</Breadcrumb.Item>
+            <Breadcrumb.Item className="civitas-breadcrumb__item civitas-breadcrumb__item--current" active key={item.path}>
+              {item.label}
+            </Breadcrumb.Item>
           ) : (
-            <Breadcrumb.Item linkAs={Link} linkProps={{ to: item.path }} key={item.path}>{item.label}</Breadcrumb.Item>
+            <Breadcrumb.Item
+              className="civitas-breadcrumb__item"
+              linkAs={Link}
+              linkProps={{ to: item.path }}
+              key={item.path}
+            >
+              {item.label}
+            </Breadcrumb.Item>
           );
         })
       ) : (
-        <Breadcrumb.Item active>Vista local</Breadcrumb.Item>
+        <Breadcrumb.Item className="civitas-breadcrumb__item civitas-breadcrumb__item--current" active>
+          Vista local
+        </Breadcrumb.Item>
       )}
     </Breadcrumb>
   );
