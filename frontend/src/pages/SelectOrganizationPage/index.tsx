@@ -33,56 +33,54 @@ const getReconciliationLabel = (organization: SelectableOrganization) => {
 
 const getOrganizationName = (organization: SelectableOrganization) => organization.name ?? "Organización sin nombre en Logto";
 
-const formatLastSync = (value?: string | null) => value ? new Date(value).toLocaleString() : "Sin sincronización exitosa";
 
 function OrganizationCard({ organization }: { organization: SelectableOrganization }) {
   const profile = organization.profile;
   const canonical = organization.canonical;
-  const subdomain = canonical?.appSubdomain;
+  const subdomain = canonical?.appSubdomain || profile?.subdomain || canonical?.slug;
+  const entryHost = subdomain ? `${subdomain}.learnsocialstudies.com` : null;
+  const customData = canonical.customData || {};
+  const civitasProfile = (customData.civitasProfile && typeof customData.civitasProfile === "object" ? customData.civitasProfile : {}) as { business?: Record<string, string>; contact?: Record<string, string>; branding?: Record<string, string> };
+  const business = civitasProfile.business || {};
+  const contact = civitasProfile.contact || {};
+  const logoUrl = civitasProfile.branding?.lightLogoUrl || civitasProfile.branding?.logoUrl || profile?.branding?.logoUrl || null;
+  const address = [business.addressLine1, business.addressLine2, business.city, business.department, business.country, business.postalCode].filter(Boolean).join(', ');
+  const nit = [business.nit, business.verificationDigit].filter(Boolean).join(' - ');
 
   return (
-    <Card className="h-100 border-0 shadow-sm civitas-select-card">
-      <Card.Body className="d-flex flex-column gap-3">
-        <div className="d-flex justify-content-between gap-3 align-items-start">
-          <div>
-            <Card.Title className="mb-1">{getOrganizationName(organization)}</Card.Title>
-            <Card.Subtitle className="text-secondary small text-break">
-              Organización Logto: {organization.logtoOrganizationId}
-            </Card.Subtitle>
+    <Link className="text-decoration-none text-reset d-block h-100" to={`/owner/organizations/${encodeURIComponent(organization.logtoOrganizationId)}`}>
+      <Card className="h-100 border-0 shadow-sm overflow-hidden civitas-select-card" role="button">
+        <div className="bg-primary text-dark p-3 p-lg-4">
+          <div className="row g-3 align-items-center">
+            <div className="col-12 col-md-4">
+              <div className="bg-secondary-subtle rounded-4 d-flex align-items-center justify-content-center mx-auto" style={{ minHeight: 140, maxWidth: 220 }}>
+                {logoUrl ? <img src={logoUrl} alt={`Logo de ${getOrganizationName(organization)}`} className="img-fluid p-3" /> : <span className="text-secondary small fw-semibold">Logo pendiente</span>}
+              </div>
+            </div>
+            <div className="col-12 col-md-8">
+              <h2 className="h3 fw-bold mb-2">{getOrganizationName(organization)}</h2>
+              {nit ? <p className="h5 fw-normal mb-0">{nit}</p> : <p className="mb-0">{entryHost ?? organization.logtoOrganizationId}</p>}
+            </div>
           </div>
-          <div className="d-flex flex-column align-items-end gap-2">
-            {getStatusBadge(profile?.status)}
-            {getSyncBadge(organization.syncStatus)}
+        </div>
+        <Card.Body className="d-flex flex-column gap-3">
+          <div className="d-flex justify-content-between gap-3 align-items-start">
+            <div className="small text-secondary text-break">
+              <strong className="d-block text-dark">{entryHost ?? "Puerta de entrada pendiente"}</strong>
+              {business.website ? <span>{business.website}</span> : canonical?.adminDomain ? <span>{canonical.adminDomain}</span> : null}
+            </div>
+            <div className="d-flex flex-column align-items-end gap-2">{getStatusBadge(profile?.status)}{getSyncBadge(organization.syncStatus)}</div>
           </div>
-        </div>
-
-        <div className="small text-secondary d-flex flex-column gap-1">
-          <span>{subdomain ? `Subdominio app (Logto): ${subdomain}` : "Sin subdominio canónico en Logto"}</span>
-          {canonical?.oidcRedirectUri ? <span className="text-break">Redirect URI Logto: {canonical.oidcRedirectUri}</span> : null}
-          {profile?.subdomain && profile.subdomain !== subdomain ? <span>Subdominio local legacy: {profile.subdomain}</span> : null}
-          <span>Último bootstrap completo local: {formatLastSync(profile?.logtoSyncedAt)}</span>
-          <span>{getReconciliationLabel(organization)}</span>
-          {organization.reconciliation.profileIds.length > 0 ? (
-            <span className="text-break">Perfiles internos asociados: {organization.reconciliation.profileIds.join(", ")}</span>
-          ) : null}
-        </div>
-
-        {organization.syncError ? (
-          <Alert variant={organization.syncStatus === "conflict" ? "warning" : "danger"} className="small py-2 px-3 mb-0">
-            {organization.syncError}
-          </Alert>
-        ) : null}
-
-        <div className="mt-auto d-flex flex-column gap-2">
-          <Link className="btn btn-outline-primary" to={`/owner/organizations/${encodeURIComponent(organization.logtoOrganizationId)}`}>
-            Abrir consola de organización
-          </Link>
-          <p className="text-secondary small mb-0">
-            Desde aquí puedes editar customData, revisar pendientes y administrar miembros sin convertir al owner global en miembro del tenant.
-          </p>
-        </div>
-      </Card.Body>
-    </Card>
+          <div className="small text-secondary d-flex flex-column gap-1">
+            <span className="text-uppercase fw-semibold text-dark">{address || "Ubicación pendiente"}</span>
+            <span>{contact.phone || "Teléfono pendiente"} · {contact.email || "Email pendiente"}</span>
+            <span>{getReconciliationLabel(organization)}</span>
+          </div>
+          {organization.syncError ? <Alert variant={organization.syncStatus === "conflict" ? "warning" : "danger"} className="small py-2 px-3 mb-0">{organization.syncError}</Alert> : null}
+          <span className="btn btn-outline-primary mt-auto">Abrir consola de organización</span>
+        </Card.Body>
+      </Card>
+    </Link>
   );
 }
 
