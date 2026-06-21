@@ -19,7 +19,10 @@ test("organization provisioning rejects duplicate administrative contact emails 
   });
 
   assert.equal(result.errors.some((error) => error.code === "ADMINISTRATIVE_CONTACT_DUPLICATE_EMAIL"), true);
-  assert.match(result.errors.find((error) => error.code === "ADMINISTRATIVE_CONTACT_DUPLICATE_EMAIL").message, /unique emails|repeated/i);
+  assert.match(
+    result.errors.find((error) => error.code === "ADMINISTRATIVE_CONTACT_DUPLICATE_EMAIL").message,
+    /unique emails|repeated/i
+  );
 });
 
 test("organization provisioning explains duplicate administrative email with different name", () => {
@@ -56,7 +59,13 @@ test("organization provisioning builds Logto username from the email local part"
   const result = normalizeCanonicalProvisioningInput({
     ...basePayload,
     subdomain: "colegiot",
-    baseAdmin: { firstName: "Mario", lastName: "Báracus", email: "j.doe@school.edu", phone: "+573001112233", initialOrganizationRole: "Admin-org" },
+    baseAdmin: {
+      firstName: "Mario",
+      lastName: "Báracus",
+      email: "j.doe@school.edu",
+      phone: "+573001112233",
+      initialOrganizationRole: "Admin-org",
+    },
   });
 
   assert.equal(result.errors.length, 0);
@@ -79,21 +88,34 @@ test("organization provisioning builds administrative contact name from first an
   assert.equal(result.value.administrativeContacts[0].username, "ana");
 });
 
-test("organization provisioning allows selecting a non-default base admin organization role", () => {
+test("organization provisioning rejects a non-default base admin organization role", () => {
   const result = normalizeCanonicalProvisioningInput({
     ...basePayload,
-    baseAdmin: { firstName: "Admin", lastName: "Demo", email: "admin@school.edu", initialOrganizationRole: "Headmaster-org" },
+    baseAdmin: {
+      firstName: "Admin",
+      lastName: "Demo",
+      email: "admin@school.edu",
+      initialOrganizationRole: "Headmaster-org",
+    },
   });
 
-  assert.equal(result.errors.length, 0);
-  assert.equal(result.value.baseAdmin.initialOrganizationRole, "Headmaster-org");
+  assert.equal(
+    result.errors.some((error) => error.field === "baseAdmin.initialOrganizationRole"),
+    true
+  );
 });
 
 test("organization provisioning rejects invalid base admin phone", () => {
   const result = normalizeCanonicalProvisioningInput({
     ...basePayload,
     subdomain: "colegiot",
-    baseAdmin: { firstName: "Mario", lastName: "Baracus", email: "admin@school.edu", phone: "123", initialOrganizationRole: "Admin-org" },
+    baseAdmin: {
+      firstName: "Mario",
+      lastName: "Baracus",
+      email: "admin@school.edu",
+      phone: "123",
+      initialOrganizationRole: "Admin-org",
+    },
   });
 
   assert.equal(result.errors.some((error) => error.field === "baseAdmin.phone"), true);

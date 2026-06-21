@@ -6,6 +6,7 @@ const {
   findCompanyCandidates,
   findReliableCompanyMatch,
   getFluentCrmConfig,
+  getFluentCrmDiagnostic,
   getFluentCrmRoleSyncMapping,
   getOrCreateCompanyForOrganization,
   sanitizeForDiagnostics,
@@ -250,8 +251,8 @@ test("normalizeCrmCompanyInput maps minimal FluentCRM company fields without ide
 test("buildOrganizationCrmTaxonomy is deterministic so tags/lists need not be stored locally", () => {
   const { buildOrganizationCrmTaxonomy } = require("../services/fluentCrm");
   assert.deepEqual(buildOrganizationCrmTaxonomy({ logtoOrganizationId: "org-1", slug: "school-one", name: "School One" }), {
-    tag: { title: "Civitas Organization: School One", slug: "civitas-org-school-one" },
-    list: { title: "Civitas School One", slug: "civitas-school-one" },
+    tag: { title: "School One", slug: "school-one" },
+    list: { title: "School One", slug: "school-one" },
   });
 });
 
@@ -285,11 +286,12 @@ test("mapOrganizationRolesToCrmTaxonomy maps configured org roles and excludes o
 });
 
 
-test("getFluentCrmRoleSyncMapping sanitizes duplicated env key prefix", () => {
+test("getFluentCrmRoleSyncMapping rejects duplicated env key prefix", () => {
   const { getFluentCrmRoleSyncMapping } = require("../services/fluentCrm");
   process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON = 'FLUENTCRM_ROLE_SYNC_MAPPING_JSON={"Custom-role":{"tags":["custom-tag"],"lists":[]}}';
   const mapping = getFluentCrmRoleSyncMapping();
-  assert.deepEqual(mapping["Custom-role"], { tags: ["custom-tag"], lists: [] });
+  assert.equal(mapping["Custom-role"], undefined);
+  assert.deepEqual(mapping["Admin-org"].tags, ["civitas-role-admin-org"]);
   delete process.env.FLUENTCRM_ROLE_SYNC_MAPPING_JSON;
 });
 
@@ -513,8 +515,24 @@ test("normalizeCrmCompanyInput builds legacy address from structured owner addre
   const { normalizeCrmCompanyInput, buildFluentCrmCompanyPayload } = require("../services/fluentCrm");
   const normalized = normalizeCrmCompanyInput({ addressLine1: " Calle 1 ", addressLine2: " Piso 2 ", city: " Bogotá ", state: " Cundinamarca ", postalCode: "110111", country: "Colombia" }, { name: "Colegio" });
 
+  const payload = buildFluentCrmCompanyPayload(normalized);
+
   assert.equal(normalized.address, "Calle 1, Piso 2, Bogotá, Cundinamarca, 110111, Colombia");
-  assert.equal(buildFluentCrmCompanyPayload(normalized).address, "Calle 1, Piso 2, Bogotá, Cundinamarca, 110111, Colombia");
+  assert.equal(payload.address, "Calle 1, Piso 2, Bogotá, Cundinamarca, 110111, Colombia");
+  assert.equal(payload.address_line_1, "Calle 1");
+  assert.equal(payload.address_line_2, "Piso 2");
+  assert.equal(payload.city, "Bogotá");
+  assert.equal(payload.state, "Cundinamarca");
+  assert.equal(payload.postal_code, "110111");
+  assert.equal(payload.country, "Colombia");
+  assert.deepEqual(payload.custom_values, {
+    address_line_1: "Calle 1",
+    address_line_2: "Piso 2",
+    city: "Bogotá",
+    state: "Cundinamarca",
+    postal_code: "110111",
+    country: "Colombia",
+  });
 });
 
 test("buildFluentCrmCompanyPayload maps NIT and verification digit to custom values", () => {
@@ -525,6 +543,12 @@ test("buildFluentCrmCompanyPayload maps NIT and verification digit to custom val
     nit: 900123456,
     verificationDigit: 5,
     address: "Calle 123",
+    addressLine1: "Calle 123",
+    city: "Bogotá",
+    state: "Cundinamarca",
+    postalCode: "110111",
+    country: "Colombia",
+    numberOfEmployees: 42,
     tags: ["Admin-org"],
     lists: ["Colegio San Jose"],
   });
@@ -532,21 +556,33 @@ test("buildFluentCrmCompanyPayload maps NIT and verification digit to custom val
   assert.deepEqual(payload.custom_values, {
     nit: 900123456,
     "digito_de_verificación": 5,
+    address_line_1: "Calle 123",
+    city: "Bogotá",
+    state: "Cundinamarca",
+    postal_code: "110111",
+    country: "Colombia",
+    number_of_employees: 42,
   });
   assert.equal(payload.address, "Calle 123");
+  assert.equal(payload.address_line_1, "Calle 123");
+  assert.equal(payload.city, "Bogotá");
+  assert.equal(payload.state, "Cundinamarca");
+  assert.equal(payload.postal_code, "110111");
+  assert.equal(payload.country, "Colombia");
+  assert.equal(payload.number_of_employees, 42);
   assert.deepEqual(payload.tags, ["Admin-org"]);
   assert.deepEqual(payload.lists, ["Colegio San Jose"]);
 });
 
 
-test("legacy FluentCRM role sync mapping accepts accidental KEY= prefix", () => {
+test("legacy FluentCRM role sync mapping rejects accidental KEY= prefix", () => {
   configureFluentCrmEnv({
     FLUENTCRM_ROLE_SYNC_MAPPING_JSON: 'FLUENTCRM_ROLE_SYNC_MAPPING_JSON={"Teacher-org":{"tags":["teacher-prefixed"],"lists":["Teachers"]}}',
   });
 
   const mapping = getFluentCrmRoleSyncMapping();
 
-  assert.deepEqual(mapping["Teacher-org"].tags, ["teacher-prefixed"]);
+  assert.deepEqual(mapping["Teacher-org"].tags, ["civitas-role-teacher-org"]);
 });
 
 test("mapOrganizationRolesToCrmTaxonomy maps by logtoRoleId and treats inactive as unmapped", () => {
@@ -564,4 +600,33 @@ test("mapOrganizationRolesToCrmTaxonomy maps by logtoRoleId and treats inactive 
   assert.deepEqual(taxonomy.lists, ["Students"]);
   assert.deepEqual(taxonomy.unmappedRoles, ["role-inactive"]);
   assert.deepEqual(taxonomy.excludedRoles, ["owner_global"]);
+});
+
+
+test("FluentCRM 422 duplicate contact diagnostic preserves safe body and cause", () => {
+  const diagnostic = getFluentCrmDiagnostic(
+    { status: 422 },
+    { message: "The given email already exists", errors: { email: ["subscriber already exists"] } },
+    "/subscribers"
+  );
+
+  assert.equal(diagnostic.code, "FLUENTCRM_DUPLICATE_CONTACT");
+  assert.deepEqual(diagnostic.likelyCauses, ["duplicate_email", "invalid_payload"]);
+  assert.match(diagnostic.message, /email: subscriber already exists/);
+  assert.equal(diagnostic.validationTarget, "contacto/subscriber");
+  assert.equal(diagnostic.fieldErrors.email[0], "subscriber already exists");
+  assert.equal(diagnostic.fluentCrmError.errors.email[0], "subscriber already exists");
+});
+
+test("FluentCRM 422 invalid company/tag/list diagnostic is classified", () => {
+  const diagnostic = getFluentCrmDiagnostic(
+    { status: 422 },
+    { message: "company_id is invalid and tags/lists contain unknown values" },
+    "/subscribers"
+  );
+
+  assert.equal(diagnostic.code, "FLUENTCRM_VALIDATION_FAILED");
+  assert.deepEqual(diagnostic.likelyCauses.sort(), ["invalid_company_id", "invalid_list", "invalid_payload", "invalid_tag"].sort());
+  assert.match(diagnostic.message, /company_id is invalid and tags\/lists contain unknown values/);
+  assert.equal(diagnostic.validationDetail, "company_id is invalid and tags/lists contain unknown values");
 });

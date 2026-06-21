@@ -143,6 +143,13 @@ function buildFluentCrmCompanyPayload(company = {}) {
   const customValues = {};
   if (company.nit != null) customValues.nit = company.nit;
   if (company.verificationDigit != null) customValues["digito_de_verificación"] = company.verificationDigit;
+  if (company.addressLine1) customValues.address_line_1 = company.addressLine1;
+  if (company.addressLine2) customValues.address_line_2 = company.addressLine2;
+  if (company.city) customValues.city = company.city;
+  if (company.state) customValues.state = company.state;
+  if (company.postalCode) customValues.postal_code = company.postalCode;
+  if (company.country) customValues.country = company.country;
+  if (company.numberOfEmployees != null) customValues.number_of_employees = company.numberOfEmployees;
 
   return {
     name: company.companyName || company.name || company.nameCache,
@@ -150,6 +157,12 @@ function buildFluentCrmCompanyPayload(company = {}) {
     phone: company.companyPhone || company.phone || undefined,
     website: company.website || company.adminDomain || undefined,
     address: company.address || buildStructuredAddress(company) || undefined,
+    address_line_1: company.addressLine1 || undefined,
+    address_line_2: company.addressLine2 || undefined,
+    city: company.city || undefined,
+    state: company.state || undefined,
+    postal_code: company.postalCode || undefined,
+    country: company.country || undefined,
     number_of_employees: company.numberOfEmployees ?? undefined,
     industry: company.industry || undefined,
     type: company.type || undefined,
@@ -186,10 +199,60 @@ function extractCompanies(body) {
   return [];
 }
 
+function flattenDiagnosticText(value) {
+  if (value == null) return "";
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map(flattenDiagnosticText).join(" ");
+  if (typeof value === "object") return Object.values(value).map(flattenDiagnosticText).join(" ");
+  return String(value);
+}
+
+
+function summarizeValidationErrors(parsed) {
+  const errors = parsed && typeof parsed === "object" && parsed.errors && typeof parsed.errors === "object" ? parsed.errors : null;
+  if (!errors) return null;
+  const entries = Object.entries(errors)
+    .map(([field, messages]) => {
+      const text = flattenDiagnosticText(messages).trim();
+      return text ? `${field}: ${text}` : field;
+    })
+    .filter(Boolean);
+  return entries.length ? entries.join("; ") : null;
+}
+
+function describeValidationTarget(path) {
+  if (path === "/subscribers") return "contacto/subscriber";
+  if (path === "/companies") return "compañía";
+  return `recurso ${path}`;
+}
+function classifyFluentCrmValidationError(parsed, path) {
+  const text = flattenDiagnosticText(parsed).toLowerCase();
+  const likelyCauses = [];
+  if (/duplicate|already exists|already exist|email.*taken|unique|subscriber.*exists|contact.*exists/.test(text)) likelyCauses.push("duplicate_email");
+  if (/company[_ -]?id|company/.test(text)) likelyCauses.push("invalid_company_id");
+  if (/tag|tags/.test(text)) likelyCauses.push("invalid_tag");
+  if (/list|lists/.test(text)) likelyCauses.push("invalid_list");
+  if (/email|first_name|last_name|full_name|phone|required|invalid|required field|validation/.test(text)) likelyCauses.push("invalid_payload");
+  const fieldSummary = summarizeValidationErrors(parsed);
+  const responseMessage = typeof parsed?.message === "string" && parsed.message.trim() ? parsed.message.trim() : null;
+  const target = describeValidationTarget(path);
+  const detail = fieldSummary || responseMessage || "FluentCRM no devolvió detalle por campo; revisa email, nombre, teléfono, company_id, tags y lists enviados.";
+  return {
+    code: likelyCauses.includes("duplicate_email") ? "FLUENTCRM_DUPLICATE_CONTACT" : "FLUENTCRM_VALIDATION_FAILED",
+    message: `FluentCRM rechazó el payload de ${target} en ${path} con error de validación (422). Detalle: ${detail}`,
+    likelyCauses: [...new Set(likelyCauses.length ? likelyCauses : ["invalid_payload"])],
+    validationTarget: target,
+    validationDetail: detail,
+    fieldErrors: parsed?.errors && typeof parsed.errors === "object" ? sanitizeForDiagnostics(parsed.errors) : null,
+    fluentCrmError: sanitizeForDiagnostics(parsed),
+  };
+}
+
 function getFluentCrmDiagnostic(response, parsed, path) {
   if (response.status === 401) return { code: "FLUENTCRM_AUTHENTICATION_FAILED", message: "FluentCRM authentication failed (401). Verify FLUENTCRM_USERNAME and FLUENTCRM_APP_PASSWORD are a valid WordPress Application Password for the configured site.", likelyCauses: ["invalid_username", "invalid_application_password", "basic_auth_blocked", "wrong_base_url_or_site"] };
   if (response.status === 403) return { code: "FLUENTCRM_AUTHORIZATION_FAILED", message: "FluentCRM authorization failed (403). The WordPress user authenticated, but does not have permission to access FluentCRM REST endpoints.", likelyCauses: ["wordpress_user_lacks_fluentcrm_permissions", "security_plugin_blocks_rest_api"] };
   if (response.status === 404) return { code: "FLUENTCRM_ENDPOINT_NOT_FOUND", message: `FluentCRM endpoint was not found at /wp-json/fluent-crm/v2${path}. Verify FLUENTCRM_BASE_URL and that FluentCRM is installed and REST API endpoints are enabled.`, likelyCauses: ["wrong_base_url", "fluentcrm_plugin_missing_or_inactive", "rest_route_unavailable"] };
+  if (response.status === 422) return classifyFluentCrmValidationError(parsed, path);
   return { code: "FLUENTCRM_REQUEST_FAILED", message: `FluentCRM request failed (${response.status})`, likelyCauses: [] };
 }
 
@@ -302,9 +365,10 @@ async function ensureFluentCrmCollectionItem(path, { title, slug }) {
 
 function buildOrganizationCrmTaxonomy({ logtoOrganizationId, slug, name }) {
   const safeSlug = normalizeName(slug || name || logtoOrganizationId || "organization")?.replace(/\s+/g, "-") || "organization";
+  const title = name || safeSlug;
   return {
-    tag: { title: `Civitas Organization: ${name || safeSlug}`, slug: `civitas-org-${safeSlug}` },
-    list: { title: `Civitas ${name || safeSlug}`, slug: `civitas-${safeSlug}` },
+    tag: { title, slug: safeSlug },
+    list: { title, slug: safeSlug },
   };
 }
 
@@ -424,8 +488,16 @@ async function cleanupContactInFluentCrm({
 
   const currentTagNames = collectionNames(contact.tags);
   const currentListNames = collectionNames(contact.lists);
-  const nextTags = currentTagNames.filter((name) => name !== taxonomy.tag.title && name !== taxonomy.tag.slug);
-  const nextLists = currentListNames.filter((name) => name !== taxonomy.list.title && name !== taxonomy.list.slug);
+  const legacyTaxonomy = {
+    tagTitle: `Civitas Organization: ${taxonomy.tag.title}`,
+    tagSlug: `civitas-org-${taxonomy.tag.slug}`,
+    listTitle: `Civitas ${taxonomy.list.title}`,
+    listSlug: `civitas-${taxonomy.list.slug}`,
+  };
+  const organizationTagNames = new Set([taxonomy.tag.title, taxonomy.tag.slug, legacyTaxonomy.tagTitle, legacyTaxonomy.tagSlug]);
+  const organizationListNames = new Set([taxonomy.list.title, taxonomy.list.slug, legacyTaxonomy.listTitle, legacyTaxonomy.listSlug]);
+  const nextTags = currentTagNames.filter((name) => !organizationTagNames.has(name));
+  const nextLists = currentListNames.filter((name) => !organizationListNames.has(name));
   const ownsCompany = profile.fluentcrmCompanyId && String(contactCompanyId(contact)) === String(profile.fluentcrmCompanyId);
   const payload = {
     ...(ownsCompany ? { company_id: null } : {}),
@@ -598,4 +670,4 @@ async function getOrCreateCompanyForOrganization(profile, organization = {}, { a
   }
 }
 
-module.exports = { CRM_CLEANUP_STRATEGIES, FluentCrmError, buildCleanupPolicy, buildFluentCrmCompanyPayload, buildOrganizationCrmTaxonomy, cleanupContactInFluentCrm, createCompany, createContact, deleteContact, ensureOrganizationTagsAndLists, findCompanyCandidates, findReliableCompanyMatch, getFluentCrmConfig, getFluentCrmRoleSyncMapping, getOrCreateCompanyForOrganization, mapOrganizationRolesToCrmTaxonomy, normalizeBaseUrl, normalizeCrmCompanyInput, sanitizeForDiagnostics, searchCompanies, searchContacts, validateFluentCrmConfiguration, syncOrganizationContactsToFluentCrm, updateContact, updateContactEmailAfterLogtoChange, upsertContactFromLogtoIdentity };
+module.exports = { CRM_CLEANUP_STRATEGIES, FluentCrmError, buildCleanupPolicy, buildFluentCrmCompanyPayload, buildOrganizationCrmTaxonomy, cleanupContactInFluentCrm, createCompany, createContact, deleteContact, ensureOrganizationTagsAndLists, findCompanyCandidates, findReliableCompanyMatch, getFluentCrmConfig, getFluentCrmDiagnostic, getFluentCrmRoleSyncMapping, getOrCreateCompanyForOrganization, mapOrganizationRolesToCrmTaxonomy, normalizeBaseUrl, normalizeCrmCompanyInput, sanitizeForDiagnostics, searchCompanies, searchContacts, validateFluentCrmConfiguration, syncOrganizationContactsToFluentCrm, updateContact, updateContactEmailAfterLogtoChange, upsertContactFromLogtoIdentity };

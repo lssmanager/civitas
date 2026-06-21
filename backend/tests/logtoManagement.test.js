@@ -65,6 +65,22 @@ test("createLogtoUser does not assign global roles", async () => {
   assert.equal(Object.hasOwn(payload, "roles"), false);
 });
 
+test("createLogtoUser sends Logto-compatible username and primary phone", async () => {
+  const requests = [];
+  global.fetch = async (url, options = {}) => {
+    requests.push({ url: String(url), options });
+    if (String(url).endsWith("/oidc/token")) return jsonResponse({ access_token: "token", expires_in: 3600 });
+    if (String(url).endsWith("/api/users")) return jsonResponse({ id: "user-1", primaryEmail: "j.doe@example.edu" });
+    throw new Error(`unexpected request: ${url}`);
+  };
+
+  await createLogtoUser({ email: "j.doe@example.edu", name: "Jane Doe", phone: "+57 300 111 2233", username: "j_doe" });
+
+  const createRequest = requests.find((request) => request.url.endsWith("/api/users"));
+  const payload = JSON.parse(createRequest.options.body);
+  assert.deepEqual(payload, { primaryEmail: "j.doe@example.edu", name: "Jane Doe", username: "j_doe", primaryPhone: "573001112233" });
+});
+
 test("organization users default to no allowed global roles", () => {
   assert.deepEqual(getAllowedOrganizationUserGlobalRoleNames(), []);
 });
@@ -137,4 +153,19 @@ test("listLogtoOrganizationUserRoles reads only organization roles", async () =>
 
   const roles = await listLogtoOrganizationUserRoles({ organizationId: "org-1", userId: "user-1" });
   assert.deepEqual(roles, [{ id: "role-admin", name: "Admin-org" }]);
+});
+
+test("Logto Management API request timeout is controlled", async () => {
+  process.env.LOGTO_MANAGEMENT_TIMEOUT_MS = "10";
+  const { listLogtoOrganizations } = require("../services/logtoManagement");
+  global.fetch = async (_url, options = {}) => new Promise((_resolve, reject) => {
+    options.signal.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })));
+  });
+
+  await assert.rejects(listLogtoOrganizations(), (error) => {
+    assert.match(error.code, /LOGTO_MANAGEMENT_(TOKEN|REQUEST)_TIMEOUT/);
+    assert.match(error.diagnostic, /Network timeout/);
+    return true;
+  });
+  delete process.env.LOGTO_MANAGEMENT_TIMEOUT_MS;
 });

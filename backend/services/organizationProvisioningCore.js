@@ -49,7 +49,7 @@ const normalizeAdministrativeContacts = (value, institutionalDomain = null) => {
     }))
     .filter((contact) => contact.name || contact.email || contact.phone || contact.position);
 };
-const looksLikeRoleName = (value) => [ORGANIZATION_ADMIN_ROLE_NAME, JIT_DEFAULT_ORGANIZATION_ROLE_NAME].includes(value);
+const looksLikeRoleName = (value) => typeof value === "string" && value.trim().length > 0;
 function normalizeUsernameSeed(value) {
   return String(value || "")
     .normalize("NFKD")
@@ -103,6 +103,7 @@ function getAdministrativeContactUniquenessErrors(administrativeContacts = []) {
   return errors;
 }
 
+
 const getLogtoOrganizationId = (organization) => organization.id || organization.organizationId || organization.logtoOrganizationId;
 const getOrganizationRoleId = (role = {}) => role.id || role.organizationRoleId || role.roleId || null;
 const getLogtoUserEmail = (user = {}) => user.primaryEmail || user.email || user.profile?.email || null;
@@ -135,7 +136,7 @@ function normalizeCanonicalProvisioningInput(body = {}) {
   if (baseAdminPhoneRaw && !baseAdminPhone) errors.push({ field: "baseAdmin.phone", message: "Base admin phone must include country calling code and a valid national number" });
   if (!baseAdminUsername) errors.push({ field: "baseAdmin.username", message: "Base admin username could not be built from the base admin email local part" });
   if (baseAdminLogtoUserId && looksLikeRoleName(baseAdminLogtoUserId)) errors.push({ field: "baseAdmin.logtoUserId", message: "Base admin Logto user id cannot be an organization role name" });
-  if (!baseAdminInitialOrganizationRole) errors.push({ field: "baseAdmin.initialOrganizationRole", message: "Base admin initial organization role is required" });
+  if (baseAdminInitialOrganizationRole !== ORGANIZATION_ADMIN_ROLE_NAME) errors.push({ field: "baseAdmin.initialOrganizationRole", message: `Base admin initial organization role must be ${ORGANIZATION_ADMIN_ROLE_NAME}` });
   if (!jitProvisioningDomain) errors.push({ field: "jitProvisioning.domain", message: "JIT provisioning domain is required" });
   if (!jitDefaultRoleNames.includes(JIT_DEFAULT_ORGANIZATION_ROLE_NAME)) errors.push({ field: "jitProvisioning.defaultRoleNames", message: `JIT default organization roles must include ${JIT_DEFAULT_ORGANIZATION_ROLE_NAME}` });
   administrativeContacts.forEach((contact, index) => {
@@ -145,7 +146,6 @@ function normalizeCanonicalProvisioningInput(body = {}) {
     if (contact.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact.email)) errors.push({ field: `${prefix}.email`, message: "Administrative contact email must be a valid email address" });
     if (contact.rawPhone && !normalizePhoneE164(contact.rawPhone)) errors.push({ field: `${prefix}.phone`, message: "Administrative contact phone must include country calling code and a valid national number" });
     if (!contact.organizationRoleName) errors.push({ field: `${prefix}.organizationRoleName`, message: "Administrative contact organization role is required" });
-    if (!contact.username) errors.push({ field: `${prefix}.username`, message: "Administrative contact username could not be built from the email local part" });
   });
   errors.push(...getAdministrativeContactUniquenessErrors(administrativeContacts));
 
@@ -184,8 +184,8 @@ async function resolveLogtoOrganizationForSync({ name, description, customData }
 }
 
 async function resolveAdministrativeContactUser({ contact, logtoOrganizationId, internalUser }) {
-  const resolved = await createOrResolveLogtoUserByEmail({ email: contact.email, name: contact.name, phone: contact.phone, username: contact.username });
-  await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: resolved.created ? "administrative_contact_user_created" : "administrative_contact_user_resolved", administrativeContactEmail: contact.email, administrativeContactKey: contact.key, phone: contact.phone, position: contact.position, roleName: contact.organizationRoleName, username: contact.username, source: resolved.source } });
+  const resolved = await createOrResolveLogtoUserByEmail({ email: contact.email, name: contact.name, phone: contact.phone });
+  await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: resolved.created ? "administrative_contact_user_created" : "administrative_contact_user_resolved", administrativeContactEmail: contact.email, administrativeContactKey: contact.key, phone: contact.phone, position: contact.position, roleName: contact.organizationRoleName, source: resolved.source } });
   return resolved;
 }
 
