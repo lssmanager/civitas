@@ -155,10 +155,10 @@ test("listLogtoOrganizationUserRoles reads only organization roles", async () =>
   assert.deepEqual(roles, [{ id: "role-admin", name: "Admin-org" }]);
 });
 
-<<<<<<< HEAD
 test("createLogtoUserPasswordResetRequest degrades safely when admin reset is disabled", async () => {
   const { createLogtoUserPasswordResetRequest } = require("../services/logtoManagement");
   delete process.env.LOGTO_ENABLE_ADMIN_PASSWORD_RESET;
+
   await assert.rejects(
     createLogtoUserPasswordResetRequest({ userId: "user-1" }),
     (error) => {
@@ -173,6 +173,7 @@ test("createLogtoUserPasswordResetRequest uses Logto password API only when expl
   const { createLogtoUserPasswordResetRequest } = require("../services/logtoManagement");
   process.env.LOGTO_ENABLE_ADMIN_PASSWORD_RESET = "true";
   process.env.LOGTO_ADMIN_RESET_PASSWORD_VALUE = "Temp-Password-123!";
+
   const requests = [];
   global.fetch = async (url, options = {}) => {
     requests.push({ url: String(url), options });
@@ -187,12 +188,15 @@ test("createLogtoUserPasswordResetRequest uses Logto password API only when expl
   const passwordRequest = requests.find((request) => request.url.endsWith("/api/users/user-1/password"));
   assert.equal(passwordRequest.options.method, "PATCH");
   assert.deepEqual(JSON.parse(passwordRequest.options.body), { password: "Temp-Password-123!" });
+
   delete process.env.LOGTO_ENABLE_ADMIN_PASSWORD_RESET;
   delete process.env.LOGTO_ADMIN_RESET_PASSWORD_VALUE;
-=======
+});
+
 test("Logto Management API request timeout is controlled", async () => {
   process.env.LOGTO_MANAGEMENT_TIMEOUT_MS = "10";
   const { listLogtoOrganizations } = require("../services/logtoManagement");
+
   global.fetch = async (_url, options = {}) => new Promise((_resolve, reject) => {
     options.signal.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })));
   });
@@ -202,6 +206,8 @@ test("Logto Management API request timeout is controlled", async () => {
     assert.match(error.diagnostic, /Network timeout/);
     return true;
   });
+
   delete process.env.LOGTO_MANAGEMENT_TIMEOUT_MS;
->>>>>>> origin/main
+});
+
 });

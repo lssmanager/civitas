@@ -64,11 +64,16 @@ const { db } = require("./db/client");
 const { crmRoleMappings, organizationProfiles, wordpressRoleMappings } = require("./db/schema");
 const { getCommercialStatusForOrganization, getLatestCommercialEventsForOrganization, processCommercialEvent, verifyCommercialWebhookSignature } = require("./services/commercialEvents");
 const { getWorkerHealthSnapshot, loadOperationsSummary } = require("./services/operationalObservability");
-<<<<<<< HEAD
-const { createSyncOperation, listOrganizationEvents, listOrganizationPendingSync, retrySyncOperation, safeFunctionalMessage } = require("./services/syncOperations");
+const {
+  createSyncOperation,
+  listOrganizationEvents,
+  listOrganizationPendingSync,
+  retrySyncOperation,
+  safeFunctionalMessage,
+  getLatestOperationForOrganization,
+  getSyncOperationWithSteps,
+} = require("./services/syncOperations");
 const { buildLogtoOrganizationBrandingCss } = require("./services/brandingCss");
-
-=======
 const {
   BOOTSTRAP_OPERATION_STATUSES,
   buildMicroRequestsForFluentCrmStep,
@@ -79,8 +84,6 @@ const {
   updateBootstrapOperation,
 } = require("./services/organizationBootstrapOperations");
 const { enqueueOrganizationBootstrap } = require("./services/organizationBootstrapOrchestrator");
-const { getLatestOperationForOrganization, getSyncOperationWithSteps } = require("./services/syncOperations");
->>>>>>> origin/main
 const app = express();
 const port = process.env.PORT || 3000;
 const API_RESOURCE = process.env.LOGTO_API_RESOURCE_INDICATOR;
