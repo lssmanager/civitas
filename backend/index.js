@@ -64,9 +64,23 @@ const { db } = require("./db/client");
 const { crmRoleMappings, organizationProfiles, wordpressRoleMappings } = require("./db/schema");
 const { getCommercialStatusForOrganization, getLatestCommercialEventsForOrganization, processCommercialEvent, verifyCommercialWebhookSignature } = require("./services/commercialEvents");
 const { getWorkerHealthSnapshot, loadOperationsSummary } = require("./services/operationalObservability");
+<<<<<<< HEAD
 const { createSyncOperation, listOrganizationEvents, listOrganizationPendingSync, retrySyncOperation, safeFunctionalMessage } = require("./services/syncOperations");
 const { buildLogtoOrganizationBrandingCss } = require("./services/brandingCss");
 
+=======
+const {
+  BOOTSTRAP_OPERATION_STATUSES,
+  buildMicroRequestsForFluentCrmStep,
+  createBootstrapOperation,
+  insertMicroRequests,
+  listOpenMicroRequests,
+  markMicroRequestForRetry,
+  updateBootstrapOperation,
+} = require("./services/organizationBootstrapOperations");
+const { enqueueOrganizationBootstrap } = require("./services/organizationBootstrapOrchestrator");
+const { getLatestOperationForOrganization, getSyncOperationWithSteps } = require("./services/syncOperations");
+>>>>>>> origin/main
 const app = express();
 const port = process.env.PORT || 3000;
 const API_RESOURCE = process.env.LOGTO_API_RESOURCE_INDICATOR;
@@ -160,7 +174,7 @@ async function getLogtoIdentityClaimsBestEffort(logtoUserId) {
   try {
     return normalizeLogtoUserToClaims(await getLogtoUserById(logtoUserId));
   } catch (error) {
-    console.error("Failed to enrich identity from Logto Management API", error);
+    console.error("Failed to enrich identity from Logto Management API", { code: error?.code, status: error?.status, diagnostic: error?.diagnostic, message: error?.message });
     return {};
   }
 }
@@ -347,18 +361,23 @@ async function runFluentCrmOrganizationStep({ logtoOrganization, logtoOrganizati
   const administrativeContacts = [];
 
   for (const assignment of administrativeContactAssignments) {
-    const contactSync = await upsertContactFromLogtoIdentity({
-      identity: {
-        logtoUserId: assignment.logtoUserId,
-        email: assignment.email,
-        name: assignment.name,
-        phone: assignment.phone,
-        position: assignment.position,
-      },
-      companyId,
-      roleNames: [assignment.roleName || assignment.organizationRoleName].filter(Boolean),
-      extraLists: organizationLists,
-    });
+    let contactSync;
+    try {
+      contactSync = await upsertContactFromLogtoIdentity({
+        identity: {
+          logtoUserId: assignment.logtoUserId,
+          email: assignment.email,
+          name: assignment.name,
+          phone: assignment.phone,
+          position: assignment.position,
+        },
+        companyId,
+        roleNames: [assignment.roleName || assignment.organizationRoleName].filter(Boolean),
+        extraLists: organizationLists,
+      });
+    } catch (error) {
+      contactSync = { status: "error", message: getSafeErrorMessage(error), code: error.code || null, diagnostic: error.diagnostic || null, body: error.body || null };
+    }
     administrativeContacts.push({
       key: assignment.key,
       name: assignment.name,
@@ -557,8 +576,9 @@ app.get("/me", requireAuth(API_RESOURCE), async (req, res) => {
   } catch (error) {
     if (error.status === 401) return res.status(401).json({ error: "Unauthorized", message: error.message });
     if (error.status === 403) return res.status(403).json({ error: "Forbidden", message: error.message });
-    console.error("Failed to resolve internal user", error);
-    return res.status(500).json({ error: "Internal Server Error", message: "Failed to resolve internal user" });
+    const status = error?.code === "LOGTO_MANAGEMENT_REQUEST_TIMEOUT" || error?.code === "LOGTO_MANAGEMENT_TOKEN_TIMEOUT" ? 504 : 500;
+    console.error("Failed to resolve internal user", { code: error?.code, status: error?.status, diagnostic: error?.diagnostic, message: error?.message });
+    return res.status(status).json({ error: status === 504 ? "Gateway Timeout" : "Internal Server Error", message: "Failed to resolve internal user", diagnostic: error?.diagnostic || undefined });
   }
 });
 
@@ -747,11 +767,109 @@ app.get("/owner/organizations", requireAuth(API_RESOURCE), requireOwner, async (
   }
 });
 
+
+app.get("/owner/bootstrap/micro-requests", requireAuth(API_RESOURCE), requireOwner, async (_req, res) => {
+  try {
+    const microRequests = await listOpenMicroRequests({ limit: 100 });
+    return res.json({ microRequests });
+  } catch (error) {
+    return res.status(500).json({ error: "Internal Server Error", message: getSafeErrorMessage(error) });
+  }
+});
+
+app.post("/owner/bootstrap/micro-requests/:microRequestId/retry", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  try {
+    const microRequest = await markMicroRequestForRetry({ id: req.params.microRequestId });
+    if (!microRequest) return res.status(404).json({ error: "Not Found", message: "Micro-request not found" });
+    return res.json({ microRequest, status: "queued", note: "Micro-request queued for the next orchestration worker pass; no full organization resubmit is required." });
+  } catch (error) {
+    return res.status(500).json({ error: "Internal Server Error", message: getSafeErrorMessage(error) });
+  }
+});
+
+function serializeSyncOperationStatus(operation) {
+  const steps = operation.steps || [];
+  const currentStep = steps.slice().reverse().find((step) => ["queued", "running"].includes(step.status)) || null;
+  return {
+    id: operation.id,
+    operationType: operation.operationType,
+    entityType: operation.entityType,
+    entityId: operation.entityId,
+    logtoOrganizationId: operation.logtoOrganizationId,
+    logtoUserId: operation.logtoUserId,
+    status: operation.status,
+    canonicalStatus: operation.canonicalStatus,
+    downstreamStatus: operation.downstreamStatus,
+    currentStep: currentStep?.stepName || null,
+    completedSteps: steps.filter((step) => step.status === "completed").map((step) => step.stepName),
+    failedSteps: steps.filter((step) => step.status === "failed").map((step) => ({ stepName: step.stepName, error: step.lastErrorJson })),
+    lastError: operation.lastErrorJson,
+    retryable: operation.lastErrorJson?.retryable ?? null,
+    correlationId: operation.correlationId,
+    idempotencyKey: operation.idempotencyKey,
+    payloadSnapshot: operation.payloadSnapshotJson,
+    resultSnapshot: operation.resultSnapshotJson,
+    retryCount: operation.retryCount,
+    steps,
+    createdAt: operation.createdAt,
+    updatedAt: operation.updatedAt,
+    finishedAt: operation.finishedAt,
+  };
+}
+
+app.get("/owner/operations/:operationId", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  try {
+    const operation = await getSyncOperationWithSteps(req.params.operationId);
+    if (!operation) return res.status(404).json({ error: "Not Found", message: "Operation not found" });
+    return res.json({ operation: serializeSyncOperationStatus(operation) });
+  } catch (error) {
+    return res.status(500).json({ error: "Internal Server Error", message: getSafeErrorMessage(error) });
+  }
+});
+
+app.get("/owner/organizations/:organizationId/provisioning-status", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  try {
+    const operation = await getLatestOperationForOrganization(req.params.organizationId);
+    if (!operation) return res.status(404).json({ error: "Not Found", message: "Provisioning operation not found for organization" });
+    return res.json({
+      organizationId: req.params.organizationId,
+      operation: serializeSyncOperationStatus(operation),
+    });
+  } catch (error) {
+    return res.status(500).json({ error: "Internal Server Error", message: getSafeErrorMessage(error) });
+  }
+});
+
 app.post("/owner/organizations", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  if (String(process.env.ORGANIZATION_BOOTSTRAP_ORCHESTRATION || "true").toLowerCase() !== "false") {
+    try {
+      const { operation, jobId } = await enqueueOrganizationBootstrap({ body: req.body || {}, authUser: req.user });
+      return res.status(202).json({
+        operationId: operation.id,
+        status: operation.status,
+        statusUrl: `/owner/operations/${operation.id}`,
+        canonicalStatus: operation.canonicalStatus,
+        downstreamStatus: operation.downstreamStatus,
+        correlationId: operation.correlationId,
+        organizationId: operation.logtoOrganizationId || null,
+        jobId,
+        sourceOfTruth: "logto",
+        message: "Organization bootstrap was queued. Logto canonical provisioning will run in the worker before downstream FluentCRM propagation.",
+      });
+    } catch (error) {
+      if (error.status === 400) return res.status(400).json({ error: "Bad Request", message: error.message, details: error.details || [] });
+      if (/REDIS_URL/.test(error.message)) return res.status(503).json({ error: "Service Unavailable", message: error.message });
+      console.error("Failed to enqueue organization bootstrap", error);
+      return res.status(500).json({ error: "Internal Server Error", message: getSafeErrorMessage(error) });
+    }
+  }
+
   let internalUser = null;
   let logtoOrganization = null;
   let logtoOrganizationId = null;
   let canonicalCreated = false;
+  let bootstrapOperation = null;
+  let bootstrapMicroRequests = [];
 
   const canonicalInput = normalizeCanonicalProvisioningInput(req.body || {});
   const extendedInput = normalizeExtendedProvisioningInput(req.body || {});
@@ -764,6 +882,12 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireOwner, async 
     if (errors.length > 0) {
       await recordAuditLogBestEffort({ actorUserId: internalUser.id, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROFILE_CREATE, result: AUDIT_RESULTS.ERROR, metadata: { stage: "input_validation", reason: "validation_error", errors } });
       return res.status(400).json({ error: "Bad Request", message: errors[0].message, details: errors });
+    }
+
+    try {
+      bootstrapOperation = await createBootstrapOperation({ actorUserId: internalUser.id, payloadSnapshot: req.body || {} });
+    } catch (operationError) {
+      console.error("Failed to persist bootstrap operation snapshot", operationError);
     }
 
     const result = await runCanonicalOrganizationBootstrap({
@@ -785,7 +909,7 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireOwner, async 
         logtoOrganizationId,
         canonical: canonicalInput.value,
         extended: extendedInput.value,
-        crmInput: req.body?.crm || req.body?.fluentcrm || {},
+        crmInput: { companyOwner: canonicalInput.value.baseAdmin?.name, ...(req.body?.crm || req.body?.fluentcrm || {}) },
         administrativeContactAssignments: result.administrativeContactAssignments || [],
         internalUser,
         authUser: req.user,
@@ -798,9 +922,40 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireOwner, async 
       fluentCrmStep = { status: "error", message: crmMessage, code: crmError.code || null, diagnostic: crmError.diagnostic || null, statusCode: crmError.status || null, body: crmError.body || null, profile: pendingProfile || fluentCrmStep.profile || null, pendingReconciliation: pendingProfile?.settings?.pendingReconciliation || null };
     }
 
+    if (bootstrapOperation?.id) {
+      try {
+        bootstrapMicroRequests = buildMicroRequestsForFluentCrmStep({
+          parentOperationId: bootstrapOperation.id,
+          logtoOrganizationId,
+          fluentCrmStep,
+          payloadSnapshot: req.body || {},
+        });
+        const insertedMicroRequests = await insertMicroRequests(bootstrapMicroRequests);
+        bootstrapMicroRequests = insertedMicroRequests;
+        await updateBootstrapOperation({
+          id: bootstrapOperation.id,
+          status: insertedMicroRequests.length ? BOOTSTRAP_OPERATION_STATUSES.PARTIAL : BOOTSTRAP_OPERATION_STATUSES.SUCCEEDED,
+          logtoOrganizationId,
+          organizationProfileId: fluentCrmStep.profile?.id || null,
+          stepResults: {
+            logtoOrganization: { status: result.reconciled ? "reconciled" : "created", id: logtoOrganizationId },
+            baseAdmin: result.adminAssignment || null,
+            administrativeContacts: result.administrativeContactAssignments || [],
+            fluentcrm: fluentCrmStep,
+            microRequestCount: insertedMicroRequests.length,
+          },
+          lastError: crmWarning ? { message: crmWarning, fluentcrm: fluentCrmStep } : null,
+        });
+      } catch (operationError) {
+        console.error("Failed to persist bootstrap micro-requests", operationError);
+      }
+    }
+
+    const followUpWarning = crmWarning || (bootstrapMicroRequests.length ? "La organización fue creada en Logto, pero quedaron micro-solicitudes downstream pendientes para reintentar sin reenviar todo el formulario." : null);
+
     return res.status(201).json({
       organization: fluentCrmStep.profile ? serializeOwnerOrganization(fluentCrmStep.profile, logtoOrganization) : serializeLogtoOwnerOrganization(logtoOrganization, logtoOrganizationId),
-      status: crmWarning ? "created_in_logto_with_fluentcrm_followup" : result.status,
+      status: followUpWarning ? "created_in_logto_with_followup_micro_requests" : result.status,
       sourceOfTruth: "logto",
       customDataApplied: result.customDataApplied,
       reconciled: result.reconciled,
@@ -815,7 +970,8 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireOwner, async 
         fluentcrm: fluentCrmStep,
       },
       fluentcrm: fluentCrmStep,
-      warning: crmWarning || undefined,
+      warning: followUpWarning || undefined,
+      bootstrapOperation: bootstrapOperation ? { id: bootstrapOperation.id, status: bootstrapMicroRequests.length ? "partial" : "succeeded", microRequestCount: bootstrapMicroRequests.length, microRequests: bootstrapMicroRequests } : undefined,
       adminAssignment: result.adminAssignment,
       administrativeContactAssignments: result.administrativeContactAssignments || [],
       jitProvisioning: result.jitProvisioning,
@@ -829,6 +985,14 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireOwner, async 
 
     const errorMessage = getSafeErrorMessage(error);
     const logtoFailure = Boolean(error.request || error.status || error.code?.startsWith?.("LOGTO_"));
+
+    if (bootstrapOperation?.id) {
+      try {
+        await updateBootstrapOperation({ id: bootstrapOperation.id, status: BOOTSTRAP_OPERATION_STATUSES.FAILED, logtoOrganizationId, lastError: { message: errorMessage, code: error.code || null } });
+      } catch (operationError) {
+        console.error("Failed to mark bootstrap operation failed", operationError);
+      }
+    }
 
     await recordAuditLogBestEffort({
       actorUserId: internalUser?.id ?? null,

@@ -47,7 +47,6 @@ export type OwnerOrganization = {
   } | null;
 };
 
-
 export type OwnerOperationsSummary = {
   counts: { queued: number; running: number; partialFailed: number; failed: number; retryable: number; organizationsWithPendingDownstreamSync: number };
   functionalHealth: { status: string; severity: "success" | "warning" | "critical" | string; message: string; code: string };
@@ -232,6 +231,23 @@ export type OwnerFluentCrmHealthResponse = {
   details?: Record<string, unknown> | null;
 };
 
+
+export type OwnerBootstrapMicroRequest = {
+  id: string;
+  parentOperationId: string;
+  logtoOrganizationId: string | null;
+  microRequestType: string;
+  targetEntityType: string;
+  targetEntityId: string | null;
+  sourceStep?: string | null;
+  status: string;
+  payloadSnapshot?: Record<string, unknown> | null;
+  lastError?: Record<string, unknown> | null;
+  retryCount: number;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 export type CreateOwnerOrganizationInput = {
   name: string;
   description?: string;
@@ -242,7 +258,7 @@ export type CreateOwnerOrganizationInput = {
   adminDomain?: string;
   logoUrl?: string;
   faviconUrl?: string;
-  baseAdmin?: { name?: string; email?: string; logtoUserId?: string; initialOrganizationRole?: string };
+  baseAdmin?: { firstName?: string; lastName?: string; name?: string; email?: string; phone?: string; username?: string; logtoUserId?: string; initialOrganizationRole?: string };
   jitProvisioning?: { domain?: string; defaultRoleNames?: string[] };
   settings?: Record<string, unknown>;
   crm?: FluentCrmCompanyInput;
@@ -256,6 +272,9 @@ export const useOwnerApi = () => {
     () => ({
       getOwnerMe: async (): Promise<OwnerMeResponse> => fetchWithToken("/owner/me"),
       getOrganizations: async (): Promise<{ organizations: OwnerOrganization[] }> => fetchWithToken("/owner/organizations"),
+      getBootstrapMicroRequests: async (): Promise<{ microRequests: OwnerBootstrapMicroRequest[] }> => fetchWithToken("/owner/bootstrap/micro-requests"),
+      retryBootstrapMicroRequest: async (microRequestId: string): Promise<{ microRequest: OwnerBootstrapMicroRequest; status: string; note?: string }> =>
+        fetchWithToken(`/owner/bootstrap/micro-requests/${encodeURIComponent(microRequestId)}/retry`, { method: "POST" }),
       getOrganizationTemplate: async (): Promise<OwnerOrganizationTemplate> => fetchWithToken("/owner/organization-template"),
       getOperationsSummary: async (): Promise<OwnerOperationsSummary> => fetchWithToken("/owner/operations/summary"),
       getWorkerHealth: async (): Promise<OwnerWorkerHealth> => fetchWithToken("/owner/system/worker-health"),

@@ -1,11 +1,17 @@
 :root {
-  --civitas-bg: #f5f7fb;
+  --civitas-bg: #f3f4f6;
+  --civitas-surface: #fafbfd;
   --civitas-sidebar-width: 292px;
-  --civitas-primary: #2454d6;
-  --civitas-primary-soft: #eaf0ff;
-  --civitas-border: #dfe5ef;
-  --civitas-text: #18212f;
-  --civitas-muted: #64748b;
+  --civitas-primary: #1984ee;
+  --civitas-primary-soft: #eaf3ff;
+  --civitas-primary-mid: #4b9ef1;
+  --civitas-accent-light: #3cadf1;
+  --civitas-accent-strong: #2259f2;
+  --civitas-gold: #f3b723;
+  --civitas-gold-strong: #ed9e1b;
+  --civitas-border: #dbe5f0;
+  --civitas-text: #031c44;
+  --civitas-muted: #5d7396;
 
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -25,8 +31,9 @@ body,
 
 body {
   margin: 0;
+  color: var(--civitas-text);
   background:
-    radial-gradient(circle at top right, rgba(36, 84, 214, 0.08), transparent 32rem),
+    radial-gradient(circle at top right, rgba(25, 132, 238, 0.08), transparent 32rem),
     var(--civitas-bg);
 }
 
@@ -59,8 +66,8 @@ body {
   border-radius: 0.9rem;
   color: #fff;
   font-weight: 800;
-  background: linear-gradient(135deg, var(--civitas-primary), #6f42c1);
-  box-shadow: 0 0.75rem 1.5rem rgba(36, 84, 214, 0.22);
+  background: linear-gradient(135deg, var(--civitas-primary), var(--civitas-accent-strong));
+  box-shadow: 0 0.75rem 1.5rem rgba(25, 132, 238, 0.22);
 }
 
 .civitas-sidebar-link {
@@ -161,4 +168,146 @@ body {
 
 .civitas-sidebar-section .accordion-button {
   padding-left: 0.75rem;
+}
+
+.btn-primary {
+  --bs-btn-color: #ffffff;
+  --bs-btn-bg: var(--civitas-primary);
+  --bs-btn-border-color: var(--civitas-primary);
+  --bs-btn-hover-color: var(--civitas-text);
+  --bs-btn-hover-bg: var(--civitas-gold-strong);
+  --bs-btn-hover-border-color: var(--civitas-gold-strong);
+  --bs-btn-focus-shadow-rgb: 25, 132, 238;
+  --bs-btn-active-color: var(--civitas-text);
+  --bs-btn-active-bg: var(--civitas-gold);
+  --bs-btn-active-border-color: var(--civitas-gold);
+  --bs-btn-disabled-bg: var(--civitas-primary);
+  --bs-btn-disabled-border-color: var(--civitas-primary);
+}
+
+.btn-outline-primary {
+  --bs-btn-color: var(--civitas-primary);
+  --bs-btn-border-color: rgba(25, 132, 238, 0.34);
+  --bs-btn-hover-color: var(--civitas-text);
+  --bs-btn-hover-bg: rgba(243, 183, 35, 0.16);
+  --bs-btn-hover-border-color: rgba(243, 183, 35, 0.45);
+  --bs-btn-active-color: var(--civitas-text);
+  --bs-btn-active-bg: rgba(243, 183, 35, 0.24);
+  --bs-btn-active-border-color: rgba(243, 183, 35, 0.48);
+  --bs-btn-focus-shadow-rgb: 25, 132, 238;
+}
+
+[data-bs-theme="dark"],
+.theme-dark,
+body.theme-dark {
+  --civitas-bg: #08172f;
+  --civitas-surface: #102748;
+  --civitas-border: rgba(255, 255, 255, 0.08);
+  --civitas-text: #e8effa;
+  --civitas-muted: rgba(232, 239, 250, 0.75);
+}
+
+[data-bs-theme="dark"] body,
+.theme-dark body,
+body.theme-dark {
+  background:
+    radial-gradient(circle at top right, rgba(60, 173, 241, 0.14), transparent 32rem),
+    #08172f;
+}
+
+[data-bs-theme="dark"] .btn-primary,
+.theme-dark .btn-primary,
+body.theme-dark .btn-primary {
+  --bs-btn-color: #031c44;
+  --bs-btn-bg: #4b9ef1;
+  --bs-btn-border-color: #4b9ef1;
+  --bs-btn-hover-color: #031c44;
+  --bs-btn-hover-bg: #f3b723;
+  --bs-btn-hover-border-color: #f3b723;
+  --bs-btn-active-color: #031c44;
+  --bs-btn-active-bg: #ed9e1b;
+  --bs-btn-active-border-color: #ed9e1b;
+  --bs-btn-disabled-color: #031c44;
+  --bs-btn-disabled-bg: #4b9ef1;
+  --bs-btn-disabled-border-color: #4b9ef1;
+}
+
+[data-bs-theme="dark"] .btn-outline-primary,
+.theme-dark .btn-outline-primary,
+body.theme-dark .btn-outline-primary {
+  --bs-btn-color: #cfe3ff;
+  --bs-btn-border-color: rgba(255, 255, 255, 0.18);
+  --bs-btn-hover-color: #fff4d1;
+  --bs-btn-hover-bg: rgba(243, 183, 35, 0.12);
+  --bs-btn-hover-border-color: rgba(243, 183, 35, 0.35);
+  --bs-btn-active-color: #031c44;
+  --bs-btn-active-bg: #f3b723;
+  --bs-btn-active-border-color: #f3b723;
+}
+
+.civitas-audit-actions .btn-group {
+  max-width: 100%;
+}
+
+.civitas-audit-list .accordion-button {
+  align-items: flex-start;
+  border-radius: 1rem !important;
+  box-shadow: none;
+}
+
+.civitas-audit-list .accordion-button:not(.collapsed) {
+  color: var(--civitas-text);
+  background: var(--civitas-primary-soft);
+}
+
+.civitas-audit-item {
+  border-color: var(--civitas-border) !important;
+}
+
+.civitas-audit-summary {
+  min-width: 0;
+}
+
+.civitas-audit-detail-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+}
+
+.civitas-json-view {
+  max-height: 28rem;
+  overflow: auto;
+  padding: 1rem;
+  border: 1px solid var(--civitas-border);
+  border-radius: 1rem;
+  color: #dbeafe;
+  background: #0f172a;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.civitas-audit-table {
+  display: none;
+}
+
+@media (min-width: 992px) {
+  .civitas-audit-cards:not(.civitas-audit-cards-force) .civitas-audit-list {
+    display: none !important;
+  }
+
+  .civitas-audit-table {
+    display: block;
+  }
+}
+
+@media (max-width: 575.98px) {
+  .civitas-audit-actions,
+  .civitas-audit-actions .btn-group,
+  .civitas-audit-actions .btn {
+    width: 100%;
+  }
+
+  .civitas-audit-list .accordion-button {
+    padding: 0.875rem;
+  }
 }

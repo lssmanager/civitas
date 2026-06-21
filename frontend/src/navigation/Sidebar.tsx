@@ -1,10 +1,15 @@
 import { Accordion, Nav } from "react-bootstrap";
 import { NavLink, useLocation } from "react-router-dom";
-import { ownerNavigationTree, primaryNavigation, type AppRoute, type NavigationNode } from "./routes";
+import {
+  ownerNavigationTree,
+  primaryNavigation,
+  type AppRoute,
+  type NavigationNode,
+} from "./routes";
 
 export function Sidebar() {
   return (
-    <aside className="civitas-sidebar d-none d-lg-flex flex-column border-end bg-white">
+    <aside className="civitas-sidebar d-none d-lg-flex flex-column border-end">
       <SidebarBrand />
       <SidebarNav />
     </aside>
@@ -13,32 +18,52 @@ export function Sidebar() {
 
 export function SidebarBrand() {
   return (
-    <div className="px-4 py-4 border-bottom">
+    <div className="civitas-sidebar__brand px-4 py-4 border-bottom">
       <div className="d-flex align-items-center gap-2">
         <span className="civitas-brand-mark">C</span>
         <div>
           <p className="fw-bold mb-0">Civitas</p>
-          <p className="small text-secondary mb-0">Fase 07 · Logto-first</p>
+          <p className="small mb-0 civitas-sidebar__brand-meta">Fase 07 · Logto-first</p>
         </div>
       </div>
     </div>
   );
 }
 
-function SidebarLink({ item, onNavigate, nested = false }: { item: AppRoute; onNavigate?: () => void; nested?: boolean }) {
+function SidebarLink({
+  item,
+  onNavigate,
+  nested = false,
+}: {
+  item: AppRoute;
+  onNavigate?: () => void;
+  nested?: boolean;
+}) {
   return (
     <NavLink
       to={item.path}
       onClick={onNavigate}
-      className={({ isActive }) => `nav-link civitas-sidebar-link rounded-3 py-2 ${nested ? "px-3 ms-3" : "px-3"} ${isActive ? "active" : ""}`}
+      className={({ isActive }) =>
+        `nav-link civitas-sidebar-link rounded-3 py-2 ${nested ? "px-3 ms-3" : "px-3"} ${isActive ? "active" : ""}`
+      }
     >
       <span className="fw-semibold">{item.label}</span>
-      {item.description && <span className="d-block small text-secondary">{item.description}</span>}
+      {item.description && (
+        <span className="d-block small civitas-sidebar-link__meta">{item.description}</span>
+      )}
     </NavLink>
   );
 }
 
-function NavigationBranch({ item, index, onNavigate }: { item: NavigationNode; index: number; onNavigate?: () => void }) {
+function NavigationBranch({
+  item,
+  index,
+  onNavigate,
+}: {
+  item: NavigationNode;
+  index: number;
+  onNavigate?: () => void;
+}) {
   if (!item.children?.length) {
     return <SidebarLink item={item} onNavigate={onNavigate} />;
   }
@@ -48,7 +73,9 @@ function NavigationBranch({ item, index, onNavigate }: { item: NavigationNode; i
       <Accordion.Header>
         <span>
           <span className="fw-semibold">{item.label}</span>
-          {item.description && <span className="d-block small text-secondary">{item.description}</span>}
+          {item.description && (
+            <span className="d-block small civitas-sidebar-link__meta">{item.description}</span>
+          )}
         </span>
       </Accordion.Header>
       <Accordion.Body className="p-0 pt-1">
@@ -65,7 +92,11 @@ function NavigationBranch({ item, index, onNavigate }: { item: NavigationNode; i
 export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   const location = useLocation();
   const activeOwnerSections = ownerNavigationTree
-    .map((item, index) => item.children?.some((child) => child.path === location.pathname) ? `owner-section-${index}` : undefined)
+    .map((item, index) =>
+      item.children?.some((child) => child.path === location.pathname)
+        ? `owner-section-${index}`
+        : undefined,
+    )
     .filter((key): key is string => Boolean(key));
 
   return (

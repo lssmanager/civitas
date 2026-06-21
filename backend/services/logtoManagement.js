@@ -6,7 +6,11 @@ const JIT_DEFAULT_ORGANIZATION_ROLE_NAME = "Student-org";
 const REQUIRED_ORGANIZATION_ROLE_NAMES = [ORGANIZATION_ADMIN_ROLE_NAME, JIT_DEFAULT_ORGANIZATION_ROLE_NAME];
 const PROHIBITED_ORGANIZATION_USER_GLOBAL_ROLE_NAMES = ["owner_global"];
 
+const { getTimeoutMs, withTimeout } = require("./timeouts");
+
 let tokenCache = null;
+
+const getLogtoTimeoutMs = () => getTimeoutMs("LOGTO_MANAGEMENT_TIMEOUT_MS", 8000);
 
 class LogtoManagementApiError extends Error {
   constructor(message, { status, body, request } = {}) {
@@ -48,7 +52,9 @@ async function fetchLogtoManagementApiAccessToken() {
   }
 
   const config = getLogtoManagementConfig();
-  const response = await fetch(config.tokenEndpoint, {
+  let response;
+  try {
+    response = await withTimeout((signal) => fetch(config.tokenEndpoint, {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
@@ -59,7 +65,17 @@ async function fetchLogtoManagementApiAccessToken() {
       resource: config.resource,
       scope: MANAGEMENT_TOKEN_SCOPE,
     }).toString(),
-  });
+    signal,
+  }), { timeoutMs: getLogtoTimeoutMs(), label: "Logto Management API token request" });
+  } catch (error) {
+    if (error.code === "INTEGRATION_TIMEOUT") {
+      const timeoutError = new LogtoManagementApiError("Logto Management API token request timed out", { status: 504, body: { reason: "logto_management_token_timeout", timeoutMs: error.timeoutMs } });
+      timeoutError.code = "LOGTO_MANAGEMENT_TOKEN_TIMEOUT";
+      timeoutError.diagnostic = `Network timeout while requesting Logto M2M token after ${error.timeoutMs}ms.`;
+      throw timeoutError;
+    }
+    throw error;
+  }
 
   const tokenResponse = await response.json().catch(() => ({}));
 
@@ -125,14 +141,26 @@ async function callLogtoManagementApi(path, options = {}) {
   const accessToken = await fetchLogtoManagementApiAccessToken();
   const { endpoint } = getLogtoManagementConfig();
   const request = { method: options.method || "GET", path, payload: parseRequestBodyForDiagnostics(options.body) };
-  const response = await fetch(`${endpoint}/api${path}`, {
+  let response;
+  try {
+    response = await withTimeout((signal) => fetch(`${endpoint}/api${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${accessToken}`,
       ...options.headers,
     },
-  });
+    signal,
+  }), { timeoutMs: getLogtoTimeoutMs(), label: `Logto Management API ${request.method} ${path}` });
+  } catch (error) {
+    if (error.code === "INTEGRATION_TIMEOUT") {
+      const timeoutError = new LogtoManagementApiError("Logto Management API request timed out", { status: 504, body: { reason: "logto_management_request_timeout", timeoutMs: error.timeoutMs }, request });
+      timeoutError.code = "LOGTO_MANAGEMENT_REQUEST_TIMEOUT";
+      timeoutError.diagnostic = `Network timeout while calling Logto Management API ${request.method} ${path} after ${error.timeoutMs}ms.`;
+      throw timeoutError;
+    }
+    throw error;
+  }
 
   const parsedBody = await parseLogtoManagementApiResponse(response);
 
@@ -279,10 +307,16 @@ async function getLogtoUserById(userId) {
   return callLogtoManagementApi(`/users/${encodeURIComponent(userId)}`);
 }
 
-async function updateLogtoUser({ userId, email, name, phone }) {
+
+function normalizeLogtoPrimaryPhone(phone) {
+  const digits = String(phone || "").replace(/\D/g, "");
+  return digits || undefined;
+}
+
+async function updateLogtoUser({ userId, email, name, phone, username }) {
   return callLogtoManagementApi(`/users/${encodeURIComponent(userId)}`, {
     method: "PATCH",
-    body: JSON.stringify({ primaryEmail: email || undefined, name: name || undefined, phone: phone || undefined }),
+    body: JSON.stringify({ primaryEmail: email || undefined, name: name || undefined, primaryPhone: normalizeLogtoPrimaryPhone(phone), username: username || undefined }),
   });
 }
 
@@ -421,30 +455,40 @@ async function findLogtoUserByEmail(email) {
   return users.find((user) => (user.primaryEmail || user.email || user.profile?.email || "").toLowerCase() === normalizedEmail) || null;
 }
 
-async function createLogtoUser({ email, name, phone }) {
+async function createLogtoUser({ email, name, phone, username }) {
   return callLogtoManagementApi("/users", {
     method: "POST",
-    body: JSON.stringify({ primaryEmail: email, name, ...(phone ? { primaryPhone: phone } : {}) }),
+    body: JSON.stringify({ primaryEmail: email, name, username: username || undefined, ...(normalizeLogtoPrimaryPhone(phone) ? { primaryPhone: normalizeLogtoPrimaryPhone(phone) } : {}) }),
   });
 }
 
-async function createOrResolveLogtoUserByEmail({ email, name, phone }) {
+async function createOrResolveLogtoUserByEmail({ email, name, phone, username }) {
   const existingUser = await findLogtoUserByEmail(email);
   if (existingUser) {
     const userId = existingUser.id || existingUser.userId || existingUser.logtoUserId;
     if (userId && (name || phone)) {
-      const updated = await updateLogtoUser({ userId, email, name, phone });
+      const updated = await updateLogtoUser({ userId, email, name, phone, username });
       return { user: updated || existingUser, created: false, source: "email_lookup_updated" };
     }
     return { user: existingUser, created: false, source: "email_lookup" };
   }
 
   try {
-    return { user: await createLogtoUser({ email, name, phone }), created: true, source: "create_user" };
+    return { user: await createLogtoUser({ email, name, phone, username }), created: true, source: "create_user" };
   } catch (error) {
     if (error instanceof LogtoManagementApiError && [400, 409, 422].includes(error.status)) {
       const reconciledUser = await findLogtoUserByEmail(email);
       if (reconciledUser) return { user: reconciledUser, created: false, source: "post_create_email_lookup" };
+      if (username) {
+        for (let suffix = 1; suffix <= 20; suffix += 1) {
+          try {
+            const fallbackUsername = `${username}${suffix}`;
+            return { user: await createLogtoUser({ email, name, phone, username: fallbackUsername }), created: true, source: "create_user_username_suffix", username: fallbackUsername };
+          } catch (retryError) {
+            if (!(retryError instanceof LogtoManagementApiError) || ![400, 409, 422].includes(retryError.status)) throw retryError;
+          }
+        }
+      }
     }
     throw error;
   }

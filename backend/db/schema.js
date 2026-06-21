@@ -145,26 +145,36 @@ const commercialEvents = pgTable(
   })
 );
 
-
 const syncOperations = pgTable(
   "sync_operations",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    organizationId: varchar("organization_id", { length: 255 }),
-    operationType: varchar("operation_type", { length: 64 }).notNull().default("organization_sync"),
+    operationType: varchar("operation_type", { length: 128 }).notNull(),
+    entityType: varchar("entity_type", { length: 64 }).notNull(),
+    entityId: varchar("entity_id", { length: 255 }),
+    logtoOrganizationId: varchar("logto_organization_id", { length: 255 }),
+    logtoUserId: varchar("logto_user_id", { length: 255 }),
     status: varchar("status", { length: 32 }).notNull().default("queued"),
-    retryable: boolean("retryable").notNull().default(false),
-    attempts: integer("attempts").notNull().default(0),
-    lastError: text("last_error"),
-    metadata: jsonb("metadata"),
-    nextRetryAt: timestamp("next_retry_at", { withTimezone: true }),
+    canonicalStatus: varchar("canonical_status", { length: 32 }).notNull().default("pending"),
+    downstreamStatus: varchar("downstream_status", { length: 32 }).notNull().default("pending"),
+    correlationId: varchar("correlation_id", { length: 255 }).notNull(),
+    idempotencyKey: varchar("idempotency_key", { length: 255 }).notNull(),
+    payloadSnapshotJson: jsonb("payload_snapshot_json").notNull().default({}),
+    resultSnapshotJson: jsonb("result_snapshot_json").notNull().default({}),
+    lastErrorJson: jsonb("last_error_json"),
+    retryCount: integer("retry_count").notNull().default(0),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
-    organizationIdx: index("sync_operations_organization_idx").on(table.organizationId),
+    operationTypeIdx: index("sync_operations_operation_type_idx").on(table.operationType),
+    entityIdx: index("sync_operations_entity_idx").on(table.entityType, table.entityId),
+    logtoOrganizationIdx: index("sync_operations_logto_org_idx").on(table.logtoOrganizationId),
     statusIdx: index("sync_operations_status_idx").on(table.status),
-    updatedAtIdx: index("sync_operations_updated_at_idx").on(table.updatedAt),
+    correlationIdx: index("sync_operations_correlation_idx").on(table.correlationId),
+    idempotencyIdx: uniqueIndex("sync_operations_idempotency_unique").on(table.idempotencyKey),
   })
 );
 
@@ -172,22 +182,76 @@ const syncOperationSteps = pgTable(
   "sync_operation_steps",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    operationId: uuid("operation_id").references(() => syncOperations.id, { onDelete: "cascade" }),
-    organizationId: varchar("organization_id", { length: 255 }),
+    operationId: uuid("operation_id").notNull().references(() => syncOperations.id, { onDelete: "cascade" }),
     stepName: varchar("step_name", { length: 128 }).notNull(),
+    queueName: varchar("queue_name", { length: 128 }).notNull(),
+    jobId: varchar("job_id", { length: 255 }),
+    attempt: integer("attempt").notNull().default(1),
     status: varchar("status", { length: 32 }).notNull().default("queued"),
-    retryable: boolean("retryable").notNull().default(false),
-    errorMessage: text("error_message"),
-    metadata: jsonb("metadata"),
+    outputJson: jsonb("output_json"),
+    lastErrorJson: jsonb("last_error_json"),
     startedAt: timestamp("started_at", { withTimezone: true }),
-    completedAt: timestamp("completed_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
     operationIdx: index("sync_operation_steps_operation_idx").on(table.operationId),
-    organizationIdx: index("sync_operation_steps_organization_idx").on(table.organizationId),
+    stepIdx: index("sync_operation_steps_step_idx").on(table.stepName),
     statusIdx: index("sync_operation_steps_status_idx").on(table.status),
+    jobIdx: index("sync_operation_steps_job_idx").on(table.queueName, table.jobId),
+    attemptUniqueIdx: uniqueIndex("sync_operation_steps_attempt_unique").on(table.operationId, table.stepName, table.attempt),
+  })
+);
+
+
+
+const organizationBootstrapOperations = pgTable(
+  "organization_bootstrap_operations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    logtoOrganizationId: varchar("logto_organization_id", { length: 255 }),
+    organizationProfileId: uuid("organization_profile_id").references(() => organizationProfiles.id, { onDelete: "set null" }),
+    status: varchar("status", { length: 32 }).notNull().default("pending"),
+    payloadSnapshot: jsonb("payload_snapshot").notNull(),
+    stepResults: jsonb("step_results"),
+    lastError: jsonb("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (table) => ({
+    actorUserIdx: index("organization_bootstrap_operations_actor_user_idx").on(table.actorUserId),
+    logtoOrganizationIdx: index("organization_bootstrap_operations_logto_org_idx").on(table.logtoOrganizationId),
+    statusIdx: index("organization_bootstrap_operations_status_idx").on(table.status),
+    createdAtIdx: index("organization_bootstrap_operations_created_at_idx").on(table.createdAt),
+  })
+);
+
+const organizationBootstrapMicroRequests = pgTable(
+  "organization_bootstrap_micro_requests",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    parentOperationId: uuid("parent_operation_id").notNull().references(() => organizationBootstrapOperations.id, { onDelete: "cascade" }),
+    logtoOrganizationId: varchar("logto_organization_id", { length: 255 }),
+    microRequestType: varchar("micro_request_type", { length: 128 }).notNull(),
+    targetEntityType: varchar("target_entity_type", { length: 64 }).notNull(),
+    targetEntityId: varchar("target_entity_id", { length: 255 }),
+    sourceStep: varchar("source_step", { length: 64 }),
+    status: varchar("status", { length: 32 }).notNull().default("pending"),
+    payloadSnapshot: jsonb("payload_snapshot"),
+    lastError: jsonb("last_error"),
+    retryCount: integer("retry_count").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    parentOperationIdx: index("organization_bootstrap_micro_requests_parent_idx").on(table.parentOperationId),
+    logtoOrganizationIdx: index("organization_bootstrap_micro_requests_logto_org_idx").on(table.logtoOrganizationId),
+    statusIdx: index("organization_bootstrap_micro_requests_status_idx").on(table.status),
+    typeIdx: index("organization_bootstrap_micro_requests_type_idx").on(table.microRequestType),
+    targetIdx: index("organization_bootstrap_micro_requests_target_idx").on(table.targetEntityType, table.targetEntityId),
   })
 );
 
@@ -215,9 +279,11 @@ module.exports = {
   commercialEvents,
   crmRoleMappings,
   healthChecks,
+  organizationBootstrapMicroRequests,
+  organizationBootstrapOperations,
   organizationProfiles,
-  syncOperations,
   syncOperationSteps,
+  syncOperations,
   users,
   wordpressRoleMappings,
 };

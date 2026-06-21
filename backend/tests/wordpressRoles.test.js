@@ -2,11 +2,21 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const {
   getEffectiveWordPressRoleMapping,
+  getWordPressRolesConfig,
+  getWordPressMappingDatabaseErrorDiagnostic,
   listWordPressRoles,
   loadWordPressRoleMappingReadModel,
   normalizeWordPressRolesResponse,
   upsertWordPressRoleMappings,
 } = require("../services/wordpressRoles");
+
+
+function restoreWordPressEnv(previous) {
+  for (const [key, value] of Object.entries(previous)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+}
 
 const logtoRoles = [
   { id: "role-admin", name: "Admin-org" },
@@ -67,4 +77,77 @@ test("upsert WordPress role mappings writes operational rows only for mappable L
   assert.equal(rows.length, 1);
   assert.equal(inserted[0].wordpressRoleName, "Subscriber");
   assert.equal(inserted[0].logtoRoleId, "role-student");
+});
+
+
+test("WordPress roles endpoint reports empty catalog as operational error", async () => {
+  await assert.rejects(
+    listWordPressRoles({
+      config: { baseUrl: "https://wp.example", username: "owner", appPassword: "secret", rolesPath: "/wp-json/civitas/v1/roles", timeoutMs: 1000 },
+      fetchImpl: async () => makeResponse({ body: { roles: [] } }),
+    }),
+    (error) => {
+      assert.equal(error.code, "WORDPRESS_ROLES_EMPTY");
+      return true;
+    }
+  );
+});
+
+test("WordPress roles endpoint reports authentication failure precisely", async () => {
+  await assert.rejects(
+    listWordPressRoles({
+      config: { baseUrl: "https://wp.example", username: "owner", appPassword: "bad", rolesPath: "/wp-json/civitas/v1/roles", timeoutMs: 1000 },
+      fetchImpl: async () => makeResponse({ ok: false, status: 401, body: { code: "rest_not_logged_in" } }),
+    }),
+    (error) => {
+      assert.equal(error.code, "WORDPRESS_AUTHENTICATION_FAILED");
+      return true;
+    }
+  );
+});
+
+test("WordPress roles endpoint timeout is controlled", async () => {
+  await assert.rejects(
+    listWordPressRoles({
+      config: { baseUrl: "https://wp.example", username: "owner", appPassword: "secret", rolesPath: "/wp-json/civitas/v1/roles", timeoutMs: 10 },
+      fetchImpl: async (_url, options) => new Promise((_resolve, reject) => options.signal.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })))),
+    }),
+    (error) => {
+      assert.equal(error.code, "WORDPRESS_ROLES_TIMEOUT");
+      return true;
+    }
+  );
+});
+
+
+test("WordPress config reports invalid base URL precisely", () => {
+  const previous = { WORDPRESS_BASE_URL: process.env.WORDPRESS_BASE_URL, WORDPRESS_USERNAME: process.env.WORDPRESS_USERNAME, WORDPRESS_APP_PASSWORD: process.env.WORDPRESS_APP_PASSWORD };
+  process.env.WORDPRESS_BASE_URL = "not a url";
+  process.env.WORDPRESS_USERNAME = "owner@example.com";
+  process.env.WORDPRESS_APP_PASSWORD = "secret";
+  assert.throws(() => getWordPressRolesConfig(), (error) => {
+    assert.equal(error.code, "WORDPRESS_CONFIG_INVALID");
+    assert.match(error.diagnostic, /absolute URL/);
+    return true;
+  });
+  restoreWordPressEnv(previous);
+});
+
+test("WordPress config detects swapped base URL and username", () => {
+  const previous = { WORDPRESS_BASE_URL: process.env.WORDPRESS_BASE_URL, WORDPRESS_USERNAME: process.env.WORDPRESS_USERNAME, WORDPRESS_APP_PASSWORD: process.env.WORDPRESS_APP_PASSWORD };
+  process.env.WORDPRESS_BASE_URL = "johansebastian.rueda@icloud.com";
+  process.env.WORDPRESS_USERNAME = "www.learnsocialstudies.com";
+  process.env.WORDPRESS_APP_PASSWORD = "secret";
+  assert.throws(() => getWordPressRolesConfig(), (error) => {
+    assert.equal(error.code, "WORDPRESS_CONFIG_SWAPPED");
+    assert.equal(error.body.expected.WORDPRESS_BASE_URL, "https://www.learnsocialstudies.com");
+    return true;
+  });
+  restoreWordPressEnv(previous);
+});
+
+test("WordPress role mapping database diagnostic reports missing table", () => {
+  const error = new Error('relation "wordpress_role_mappings" does not exist');
+  error.code = "42P01";
+  assert.match(getWordPressMappingDatabaseErrorDiagnostic(error), /wordpress_role_mappings is missing.*42P01/);
 });
