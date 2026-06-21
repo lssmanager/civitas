@@ -13,7 +13,7 @@ export function PageCard({ title, subtitle, actions, children, className }: Page
   return (
     <Card className={`civitas-card border-0 shadow-sm ${className ?? ""}`.trim()}>
       {(title || subtitle || actions) && (
-        <Card.Header className="bg-white border-0 pb-0">
+        <Card.Header className="civitas-page-card__header bg-white border-0">
           <div className="d-flex flex-column flex-md-row gap-3 justify-content-between align-items-md-start">
             <div>
               {title && <h2 className="h5 mb-1">{title}</h2>}
@@ -23,7 +23,7 @@ export function PageCard({ title, subtitle, actions, children, className }: Page
           </div>
         </Card.Header>
       )}
-      <Card.Body>{children}</Card.Body>
+      <Card.Body className="civitas-page-card__body">{children}</Card.Body>
     </Card>
   );
 }
