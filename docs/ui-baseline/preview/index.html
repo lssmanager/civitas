@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Learn Social Studies UI Preview</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="brand-shell">
+      <aside class="brand-sidebar">
+        <div class="brand-sidebar__top">
+          <div class="brand-sidebar__mark brand-mark-fallback" aria-hidden="true">LSS</div>
+          <div>
+            <div class="eyebrow">UI baseline</div>
+            <h1>Learn Social Studies</h1>
+          </div>
+        </div>
+        <nav class="brand-nav">
+          <a class="brand-nav__item" href="#owner"><span class="brand-nav__dot">1</span>Owner</a>
+          <a class="brand-nav__item is-active" href="#organizations"><span class="brand-nav__dot">2</span>Organizations</a>
+          <a class="brand-nav__item" href="#seats"><span class="brand-nav__dot">3</span>Seats</a>
+          <a class="brand-nav__item" href="#courses"><span class="brand-nav__dot">4</span>Courses</a>
+          <a class="brand-nav__item" href="#community"><span class="brand-nav__dot">5</span>Community</a>
+          <a class="brand-nav__item" href="#audits"><span class="brand-nav__dot">6</span>Audits</a>
+        </nav>
+        <div class="brand-sidebar__note">
+          Baseline visual para Bootstrap + React enfocado en header, sidebar, breadcrumb, cards, tabla,
+          formulario, badges y modal.
+        </div>
+      </aside>
+
+      <main class="brand-main">
+        <header class="brand-header">
+          <div class="brand-header__left">
+            <button class="brand-icon-button" type="button" id="mobileMenuButton" aria-label="Abrir menu">
+              <span></span>
+              <span></span>
+              <span></span>
+            </button>
+            <div class="brand-header__logo brand-wordmark" id="brandHeaderLogo" aria-label="Learn Social Studies">Learn Social Studies</div>
+          </div>
+
+          <div class="brand-header__right">
+            <div class="brand-pill">Owner global</div>
+            <div class="brand-search">
+              <input type="text" placeholder="Buscar organizaciones, cursos o usuarios" />
+            </div>
+            <button class="brand-button brand-button--ghost" type="button">Switch org</button>
+            <button class="brand-button brand-button--primary" type="button" id="themeToggle">Modo dark</button>
+          </div>
+        </header>
+
+        <div class="brand-mobile-nav" id="mobileNav">
+          <a href="#owner">Owner</a>
+          <a href="#organizations">Organizations</a>
+          <a href="#seats">Seats</a>
+          <a href="#courses">Courses</a>
+          <a href="#community">Community</a>
+          <a href="#audits">Audits</a>
+        </div>
+
+        <section class="brand-hero">
+          <div class="brand-hero__copy">
+            <div class="eyebrow">Bootstrap + Vite + React baseline</div>
+            <h2>Una guía fuerte para headers, cards, menús y superficies de producto.</h2>
+            <p>
+              La marca ya trae una dirección visual clara: azul institucional confiable, celeste activo,
+              texto profundo y un amarillo de atención que debe usarse con intención, no como color masivo.
+            </p>
+            <div class="brand-hero__actions">
+              <button class="brand-button brand-button--primary" type="button">Nuevo tenant</button>
+              <button class="brand-button brand-button--ghost" type="button" id="openModalButton">Ver modal patrón</button>
+            </div>
+            <div class="brand-breadcrumb">
+              <span>Owner</span>
+              <span>Organizations</span>
+              <span>Design baseline</span>
+            </div>
+          </div>
+
+          <div class="brand-hero__panel">
+            <div class="metric-card">
+              <div class="metric-card__eyebrow">Seat overview</div>
+              <div class="metric-card__value">406</div>
+              <div class="metric-card__meta">asientos ocupados esta semana</div>
+              <div class="metric-card__delta">+18 desde el ultimo corte</div>
+            </div>
+            <div class="mini-grid">
+              <div class="mini-card">
+                <div class="mini-card__label">Tokens</div>
+                <strong>10 colores base</strong>
+              </div>
+              <div class="mini-card">
+                <div class="mini-card__label">Card header</div>
+                <strong>72px estable</strong>
+              </div>
+              <div class="mini-card mini-card--accent">
+                <div class="mini-card__label">Warning accent</div>
+                <strong>Gold reservado</strong>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section-block" id="organizations">
+          <div class="section-heading">
+            <div>
+              <div class="eyebrow">Lineamientos</div>
+              <h3>Reglas visuales del sistema</h3>
+            </div>
+            <div class="brand-badge">No purple bias</div>
+          </div>
+          <div class="rules-grid">
+            <article class="rule-card">
+              <h4>Header claro y contenido</h4>
+              <p>Altura entre 68 y 76 px, marca visible, búsqueda rápida, selector de organización y CTA primario.</p>
+            </article>
+            <article class="rule-card">
+              <h4>Cards con tensión baja</h4>
+              <p>Fondo blanco o casi blanco, borde sutil, radio corto y un solo foco visual por card.</p>
+            </article>
+            <article class="rule-card">
+              <h4>Menús sin ruido</h4>
+              <p>Dropdowns con dos niveles como máximo, icono o inicial, y acciones destructivas separadas.</p>
+            </article>
+            <article class="rule-card">
+              <h4>Jerarquía de dashboard</h4>
+              <p>Primero contexto global, luego métricas, luego tablas y actividad. Nunca una cuadrícula caótica.</p>
+            </article>
+          </div>
+        </section>
+
+        <section class="section-block">
+          <div class="section-heading">
+            <div>
+              <div class="eyebrow">Brand tokens</div>
+              <h3>Paleta y superficies</h3>
+            </div>
+            <div class="dropdown-sim">
+              <button class="brand-button brand-button--ghost" type="button" id="dropdownToggle">Menu patrones</button>
+              <div class="dropdown-panel" id="dropdownPanel">
+                <a href="#organizations">Header</a>
+                <a href="#cards">Cards</a>
+                <a href="#forms">Forms</a>
+              </div>
+            </div>
+          </div>
+          <div class="token-grid">
+            <div class="token-card"><div class="token-card__swatch" style="background:#1984EE"></div><div class="token-card__label">Main</div><div class="token-card__hex">#1984EE</div></div>
+            <div class="token-card"><div class="token-card__swatch" style="background:#4B9EF1"></div><div class="token-card__label">Main Soft</div><div class="token-card__hex">#4B9EF1</div></div>
+            <div class="token-card"><div class="token-card__swatch" style="background:#3CADF1"></div><div class="token-card__label">Accent Light</div><div class="token-card__hex">#3CADF1</div></div>
+            <div class="token-card"><div class="token-card__swatch" style="background:#2259F2"></div><div class="token-card__label">Accent Strong</div><div class="token-card__hex">#2259F2</div></div>
+            <div class="token-card"><div class="token-card__swatch" style="background:#031C44"></div><div class="token-card__label">Text</div><div class="token-card__hex">#031C44</div></div>
+            <div class="token-card"><div class="token-card__swatch" style="background:#F3F4F6"></div><div class="token-card__label">Background</div><div class="token-card__hex">#F3F4F6</div></div>
+            <div class="token-card"><div class="token-card__swatch" style="background:#FAFBFD"></div><div class="token-card__label">Surface</div><div class="token-card__hex">#FAFBFD</div></div>
+            <div class="token-card"><div class="token-card__swatch" style="background:#FFFFFF"></div><div class="token-card__label">Surface Contrast</div><div class="token-card__hex">#FFFFFF</div></div>
+            <div class="token-card"><div class="token-card__swatch" style="background:#F3B723"></div><div class="token-card__label">Secondary Gold</div><div class="token-card__hex">#F3B723</div></div>
+            <div class="token-card"><div class="token-card__swatch" style="background:#ED9E1B"></div><div class="token-card__label">Gold Strong</div><div class="token-card__hex">#ED9E1B</div></div>
+          </div>
+        </section>
+
+        <section class="section-block" id="cards">
+          <div class="section-heading">
+            <div>
+              <div class="eyebrow">Card system</div>
+              <h3>Cards, list groups y tabla base</h3>
+            </div>
+            <button class="brand-button brand-button--primary" type="button">Crear organización</button>
+          </div>
+          <div class="cards-layout">
+            <article class="surface-card">
+              <div class="surface-card__header">
+                <div>
+                  <div class="surface-card__eyebrow">Card header</div>
+                  <h4>Resumen de organizaciones</h4>
+                </div>
+                <span class="brand-badge brand-badge--warning">12 por revisar</span>
+              </div>
+              <div class="surface-card__body">
+                <table class="surface-table">
+                  <thead>
+                    <tr><th>Organización</th><th>Seats</th><th>Estado</th><th>Sync</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr><td>Colegio Andino</td><td>240 / 300</td><td>Activa</td><td>Sincronizada</td></tr>
+                    <tr><td>Liceo Horizonte</td><td>112 / 120</td><td>Renovación</td><td>Pendiente</td></tr>
+                    <tr><td>Instituto Delta</td><td>54 / 80</td><td>Trial</td><td>Sin errores</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </article>
+
+            <article class="surface-card">
+              <div class="surface-card__header">
+                <div>
+                  <div class="surface-card__eyebrow">List group</div>
+                  <h4>Stack de navegación secundaria</h4>
+                </div>
+              </div>
+              <div class="surface-card__body">
+                <div class="list-stack">
+                  <div class="list-stack__item"><div><strong>Overview de tenant</strong><span>Uso de patrón simple y escaneable</span></div><span>1</span></div>
+                  <div class="list-stack__item is-current"><div><strong>Seats y licencias</strong><span>Uso de patrón simple y escaneable</span></div><span>2</span></div>
+                  <div class="list-stack__item"><div><strong>Cursos habilitados</strong><span>Uso de patrón simple y escaneable</span></div><span>3</span></div>
+                  <div class="list-stack__item"><div><strong>Acciones de comunidad</strong><span>Uso de patrón simple y escaneable</span></div><span>4</span></div>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="section-block" id="forms">
+          <div class="section-heading">
+            <div>
+              <div class="eyebrow">Forms and states</div>
+              <h3>Formularios, badges, empty y error states</h3>
+            </div>
+          </div>
+          <div class="forms-layout">
+            <article class="surface-card">
+              <div class="surface-card__header">
+                <div>
+                  <div class="surface-card__eyebrow">Form pattern</div>
+                  <h4>Crear organización B2B</h4>
+                </div>
+              </div>
+              <div class="surface-card__body">
+                <form class="form-grid">
+                  <label><span>Nombre comercial</span><input type="text" placeholder="Colegio Los Andes" /></label>
+                  <label><span>Tipo</span><select><option>School</option><option>Company</option><option>Institution</option></select></label>
+                  <label><span>Subdominio</span><input type="text" placeholder="los-andes" /></label>
+                  <label><span>Seats</span><input type="number" placeholder="300" /></label>
+                  <div class="form-grid__full"><span class="helper-copy">El amarillo queda solo para alertas, vencimientos y llamados de atención. El azul fuerte sigue siendo el color de acción.</span></div>
+                  <div class="form-grid__full form-grid__actions">
+                    <button class="brand-button brand-button--ghost" type="button">Guardar borrador</button>
+                    <button class="brand-button brand-button--primary" type="submit">Crear organización</button>
+                  </div>
+                </form>
+              </div>
+            </article>
+
+            <article class="state-column">
+              <div class="state-card">
+                <div class="brand-badge">Loading</div>
+                <h4>Sincronizando seats</h4>
+                <p>Usa skeletons cortos y un mensaje operativo, no frases de marketing.</p>
+              </div>
+              <div class="state-card state-card--warning">
+                <div class="brand-badge brand-badge--warning">Warning</div>
+                <h4>Renovación en 4 días</h4>
+                <p>El amarillo se usa como énfasis funcional, nunca como fondo dominante del layout.</p>
+              </div>
+              <div class="state-card state-card--danger">
+                <div class="brand-badge brand-badge--danger">Error</div>
+                <h4>Falló la sincronización</h4>
+                <p>El mensaje debe indicar acción siguiente: reintentar, revisar webhook o abrir auditoría.</p>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <footer class="brand-footer">
+          <div>
+            <strong>Dirección recomendada</strong>
+            <p>Bootstrap para la estructura, React-Bootstrap para los componentes frecuentes y CSS propio solo para tokens, branding y acabados.</p>
+          </div>
+          <div class="brand-footer__logo brand-wordmark brand-wordmark--footer" id="brandFooterLogo" aria-label="Learn Social Studies">Learn Social Studies</div>
+        </footer>
+      </main>
+    </div>
+
+    <div class="modal-shell" id="modalShell" role="dialog" aria-modal="true" aria-labelledby="modal-title" hidden>
+      <div class="modal-card">
+        <div class="surface-card__header">
+          <div>
+            <div class="surface-card__eyebrow">Modal pattern</div>
+            <h4 id="modal-title">Confirmar creación de tenant</h4>
+          </div>
+          <button class="brand-icon-close" type="button" id="closeModalButton" aria-label="Cerrar">X</button>
+        </div>
+        <div class="modal-copy">
+          Usa modales solo para confirmar, crear rápidamente o revisar decisiones. No anides modales ni metas formularios eternos dentro.
+        </div>
+        <div class="modal-actions">
+          <button class="brand-button brand-button--ghost" type="button" id="cancelModalButton">Cancelar</button>
+          <button class="brand-button brand-button--primary" type="button" id="confirmModalButton">Entendido</button>
+        </div>
+      </div>
+    </div>
+    <script src="./app.js"></script>
+  </body>
+</html>
