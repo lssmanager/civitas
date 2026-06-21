@@ -85,7 +85,6 @@ type OwnerOrganizationFormData = {
   baseAdminEmail: string;
   baseAdminPhoneCountryCode: string;
   baseAdminPhoneNationalNumber: string;
-  baseAdminLogtoUserId: string;
   adminRoleName: string;
   jitDefaultRoleName: string;
   crm: {
@@ -135,7 +134,6 @@ const initialFormData: OwnerOrganizationFormData = {
   baseAdminEmail: "",
   baseAdminPhoneCountryCode: "",
   baseAdminPhoneNationalNumber: "",
-  baseAdminLogtoUserId: "",
   adminRoleName: ORGANIZATION_BOOTSTRAP_ADMIN_ROLE,
   jitDefaultRoleName: ORGANIZATION_JIT_DEFAULT_ROLE,
   crm: {
@@ -857,7 +855,7 @@ export function OwnerOrganizationsPage() {
         </p>
       </div>
       <Form.Group controlId="ownerOrganizationCompanyName">
-        <Form.Label>Nombre de la compañía</Form.Label>
+        <Form.Label>Nombre organización</Form.Label>
         <Form.Control
           size="lg"
           value={formData.name}
@@ -868,7 +866,7 @@ export function OwnerOrganizationsPage() {
       </Form.Group>
       <div className="row g-3">
         <Form.Group className="col-12 col-xl-6" controlId="ownerOrganizationCrmWebsite">
-          <Form.Label>Sitio web</Form.Label>
+          <Form.Label>Website</Form.Label>
           <Form.Control
             value={formData.crm.website}
             onChange={(event) => updateCrmField("website", event.target.value)}
@@ -905,10 +903,10 @@ export function OwnerOrganizationsPage() {
           </Form.Select>
         </Form.Group>
         <Form.Group className="col-12 col-xl-3" controlId="ownerOrganizationCrmState">
-          <Form.Label>Estado / provincia / departamento</Form.Label>
+          <Form.Label>Departamento</Form.Label>
           {countryStates.length > 0 ? (
             <Form.Select value={formData.crm.state} disabled={!selectedCountry} onChange={(event) => updateCrmField("state", event.target.value)}>
-              <option value="">Selecciona estado / provincia</option>
+              <option value="">Selecciona departamento</option>
               {countryStates.map((state) => <option key={state.isoCode} value={state.name}>{state.name}</option>)}
             </Form.Select>
           ) : (
@@ -925,7 +923,7 @@ export function OwnerOrganizationsPage() {
           <Form.Control value={formData.crm.city} onChange={(event) => updateCrmField("city", event.target.value)} placeholder="Ingresa ciudad" />
         </Form.Group>
         <Form.Group className="col-12 col-xl-3" controlId="ownerOrganizationCrmPostalCode">
-          <Form.Label>Código postal</Form.Label>
+          <Form.Label>Postal Code</Form.Label>
           <Form.Control value={formData.crm.postalCode} onChange={(event) => updateCrmField("postalCode", event.target.value)} placeholder="Ingresa código postal" />
         </Form.Group>
       </div>
@@ -941,7 +939,7 @@ export function OwnerOrganizationsPage() {
       </div>
       <div className="row g-3 align-items-end">
         <Form.Group className="col-12 col-xl-7" controlId="ownerOrganizationCrmCompanyEmail">
-          <Form.Label>Correo de la compañía</Form.Label>
+          <Form.Label>Company Email</Form.Label>
           <Form.Control type="email" value={formData.crm.companyEmail} onChange={(event) => updateCrmField("companyEmail", event.target.value)} placeholder={`contacto@${getEmailDomainExample()}`} />
         </Form.Group>
         <Form.Group className="col-4 col-xl-1" controlId="ownerOrganizationCrmCompanyPhoneCode">
@@ -949,7 +947,7 @@ export function OwnerOrganizationsPage() {
           <Form.Control inputMode="numeric" maxLength={4} value={formData.crm.companyPhoneCountryCode} onChange={(event) => updateCrmField("companyPhoneCountryCode", event.target.value.replace(/\D/g, "").slice(0, 4))} placeholder={defaultCallingCode || "57"} />
         </Form.Group>
         <Form.Group className="col-8 col-xl-4" controlId="ownerOrganizationCrmCompanyPhoneNumber">
-          <Form.Label>Número de compañía</Form.Label>
+          <Form.Label>Teléfono compañía</Form.Label>
           <Form.Control inputMode="tel" value={formData.crm.companyPhoneNationalNumber} onChange={(event) => updateCrmField("companyPhoneNationalNumber", event.target.value)} placeholder="3001112233" />
         </Form.Group>
       </div>
@@ -963,12 +961,12 @@ export function OwnerOrganizationsPage() {
           <Form.Control type="number" min="0" value={formData.crm.nit} onChange={(event) => updateCrmField("nit", event.target.value)} placeholder="Ingresa NIT" />
         </Form.Group>
         <Form.Group className="col-12 col-xl-4" controlId="ownerOrganizationCrmVerificationDigit">
-          <Form.Label>Dígito de verificación</Form.Label>
-          <Form.Control type="number" min="0" value={formData.crm.verificationDigit} onChange={(event) => updateCrmField("verificationDigit", event.target.value)} placeholder="Ingresa dígito de verificación" />
+          <Form.Label>Dígito de verificación (un carácter)</Form.Label>
+          <Form.Control type="number" min="0" maxLength={1} value={formData.crm.verificationDigit} onChange={(event) => updateCrmField("verificationDigit", event.target.value.slice(0, 1))} placeholder="0" />
         </Form.Group>
       </div>
       <Form.Group controlId="ownerOrganizationCrmAbout">
-        <Form.Label>Acerca de la compañía</Form.Label>
+        <Form.Label>About this company</Form.Label>
         <Form.Control as="textarea" rows={2} value={formData.crm.about} onChange={(event) => updateCrmField("about", event.target.value)} placeholder="Describe la compañía" />
       </Form.Group>
       <div className="row g-3">
@@ -981,12 +979,12 @@ export function OwnerOrganizationsPage() {
           <Form.Control value={formData.crm.type} onChange={(event) => updateCrmField("type", event.target.value)} placeholder="Ingresa tipo" />
         </Form.Group>
         <Form.Group className="col-12 col-lg-4" controlId="ownerOrganizationCrmOwner">
-          <Form.Label>Responsable de la compañía</Form.Label>
+          <Form.Label>Responsable interno</Form.Label>
           <Form.Control value={formData.crm.companyOwner} onChange={(event) => updateCrmField("companyOwner", event.target.value)} placeholder="Ingresa responsable de la compañía" />
         </Form.Group>
       </div>
       <Form.Group controlId="ownerOrganizationCrmDescription">
-        <Form.Label>Descripción</Form.Label>
+        <Form.Label>Descripción adicional</Form.Label>
         <Form.Control as="textarea" rows={2} value={formData.crm.description} onChange={(event) => updateCrmField("description", event.target.value)} placeholder="Ingresa descripción" />
       </Form.Group>
     </section>
@@ -1032,13 +1030,13 @@ export function OwnerOrganizationsPage() {
         </Alert>
       ) : null}
       <div className="border rounded-3 p-3 d-flex flex-column gap-3 bg-light bg-opacity-50">
-        <h4 className="h6 mb-0">Creación de roles · Admin base</h4>
+        <h4 className="h6 mb-0">Creación de roles</h4>
         <div className="row g-3">
           <Form.Group
             className="col-12 col-xl-3"
             controlId="ownerOrganizationBaseAdminFirstName"
           >
-            <Form.Label>Nombres admin base</Form.Label>
+            <Form.Label>Admin base nombres</Form.Label>
             <Form.Control
               value={formData.baseAdminFirstName}
               onChange={(event) => updateField("baseAdminFirstName", event.target.value)}
@@ -1050,7 +1048,7 @@ export function OwnerOrganizationsPage() {
             className="col-12 col-xl-3"
             controlId="ownerOrganizationBaseAdminLastName"
           >
-            <Form.Label>Apellidos admin base</Form.Label>
+            <Form.Label>Admin base apellidos</Form.Label>
             <Form.Control
               value={formData.baseAdminLastName}
               onChange={(event) => updateField("baseAdminLastName", event.target.value)}
@@ -1062,7 +1060,7 @@ export function OwnerOrganizationsPage() {
             className="col-12 col-xl-3"
             controlId="ownerOrganizationBaseAdminEmail"
           >
-            <Form.Label>Correo admin base</Form.Label>
+            <Form.Label>Admin base correo</Form.Label>
             <Form.Control
               type="email"
               value={formData.baseAdminEmail}
@@ -1074,7 +1072,7 @@ export function OwnerOrganizationsPage() {
             />
           </Form.Group>
           <Form.Group className="col-12 col-xl-2" controlId="ownerOrganizationBaseAdminPhoneCode">
-            <Form.Label>Indicativo admin base</Form.Label>
+            <Form.Label>Admin base indicativo</Form.Label>
             <Form.Control
               type="tel"
               inputMode="numeric"
@@ -1085,7 +1083,7 @@ export function OwnerOrganizationsPage() {
             />
           </Form.Group>
           <Form.Group className="col-12 col-xl-2" controlId="ownerOrganizationBaseAdminPhoneNumber">
-            <Form.Label>Número admin base</Form.Label>
+            <Form.Label>Admin base teléfono</Form.Label>
             <Form.Control
               type="tel"
               value={formData.baseAdminPhoneNationalNumber}
@@ -1094,23 +1092,20 @@ export function OwnerOrganizationsPage() {
             />
           </Form.Group>
         </div>
+        <div className="d-flex justify-content-end">
+          <Button type="button" variant="outline-primary" size="sm" onClick={addAdministrativeContact}>
+            + Añadir rol
+          </Button>
+        </div>
       </div>
       <div className="border rounded-3 p-3 d-flex flex-column gap-3 bg-light bg-opacity-50">
         <div className="d-flex flex-column flex-md-row justify-content-between gap-2">
-          <h4 className="h6 mb-0">Usuarios adicionales</h4>
-          <Button
-            type="button"
-            variant="outline-primary"
-            size="sm"
-            onClick={addAdministrativeContact}
-          >
-            + Añadir usuario
-          </Button>
+          <h4 className="h6 mb-0">Roles y usuarios adicionales</h4>
         </div>
         <div className="d-flex flex-column gap-3">
           {formData.administrativeContacts.length === 0 ? (
             <div className="text-secondary small border rounded-3 p-3 bg-white">
-              El admin base será el primer usuario con rol Admin-org. Usa “+ Añadir usuario” solo si necesitas más usuarios administrativos.
+              El admin base será el primer usuario con rol Admin-org. Usa “+ Añadir rol” solo si necesitas más usuarios administrativos.
             </div>
           ) : null}
           {formData.administrativeContacts.map((contact) => {
@@ -1277,6 +1272,11 @@ export function OwnerOrganizationsPage() {
                     </Form.Select>
                   </Form.Group>
                 </div>
+                <div className="d-flex justify-content-end">
+                  <Button type="button" variant="outline-primary" size="sm" onClick={addAdministrativeContact}>
+                    + Añadir rol
+                  </Button>
+                </div>
               </div>
             );
           })}
@@ -1352,7 +1352,7 @@ export function OwnerOrganizationsPage() {
                 Editar
               </Button>
             </div>
-            {summaryRow("Nombre de la compañía", formData.name)}
+            {summaryRow("Nombre organización", formData.name)}
             {summaryRow("Slug", formData.slug)}
             {summaryRow("Subdominio app", formData.appSubdomain)}
             {summaryRow("Dominio de aprovisionamiento", formData.adminDomain)}
@@ -1371,22 +1371,22 @@ export function OwnerOrganizationsPage() {
                 Editar
               </Button>
             </div>
-            {summaryRow("Correo de la compañía", formData.crm.companyEmail)}
+            {summaryRow("Company Email", formData.crm.companyEmail)}
             {summaryRow("Teléfono de la compañía", normalizePhoneForSubmission(formData.crm.companyPhoneNationalNumber, getPhoneCountryCode(formData.crm.companyPhoneCountryCode)) || formData.crm.companyPhoneNationalNumber)}
-            {summaryRow("Sitio web", formData.crm.website)}
+            {summaryRow("Website", formData.crm.website)}
             {summaryRow("Dirección línea 1", formData.crm.addressLine1)}
             {summaryRow("Dirección línea 2", formData.crm.addressLine2)}
             {summaryRow("Ciudad", formData.crm.city)}
             {summaryRow("Departamento", formData.crm.state)}
-            {summaryRow("Código postal", formData.crm.postalCode)}
+            {summaryRow("Postal Code", formData.crm.postalCode)}
             {summaryRow("País", formData.crm.country)}
             {summaryRow("Número de empleados", formData.crm.numberOfEmployees)}
             {summaryRow("Industria", formData.crm.industry)}
             {summaryRow("Tipo", formData.crm.type)}
-            {summaryRow("Responsable de la compañía", effectiveCompanyOwner)}
+            {summaryRow("Responsable interno", effectiveCompanyOwner)}
             {summaryRow("NIT", formData.crm.nit)}
             {summaryRow(
-              "Dígito de verificación",
+              "Dígito de verificación (un carácter)",
               formData.crm.verificationDigit,
             )}
           </div>
@@ -1394,8 +1394,8 @@ export function OwnerOrganizationsPage() {
         <div className="col-12 col-xl-6">
           <div className="border rounded-3 p-3 h-100 d-flex flex-column gap-2">
             <h4 className="h6 mb-0">Perfil de usuario / Logto</h4>
-            {summaryRow("Nombres admin base", formData.baseAdminFirstName)}
-            {summaryRow("Apellidos admin base", formData.baseAdminLastName)}
+            {summaryRow("Admin base nombres", formData.baseAdminFirstName)}
+            {summaryRow("Admin base apellidos", formData.baseAdminLastName)}
             {summaryRow("Email admin base", formData.baseAdminEmail)}
             {summaryRow("Teléfono admin base normalizado", normalizePhoneForSubmission(formData.baseAdminPhoneNationalNumber, getPhoneCountryCode(formData.baseAdminPhoneCountryCode)) || formData.baseAdminPhoneNationalNumber)}
             <div className="small text-secondary">Payload custom del perfil: {JSON.stringify({ phone: normalizePhoneForSubmission(formData.baseAdminPhoneNationalNumber, getPhoneCountryCode(formData.baseAdminPhoneCountryCode)) || undefined, companyOwner: effectiveCompanyOwner })}</div>
@@ -1453,9 +1453,9 @@ export function OwnerOrganizationsPage() {
             <div className="d-flex flex-wrap gap-2">
               {wordpressRoles.length ? wordpressRoles.slice(0, 12).map((role) => <Badge key={role.slug} bg="light" text="dark" className="border">{role.name} ({role.slug})</Badge>) : <span className="text-secondary small">Catálogo no cargado o no disponible.</span>}
             </div>
-            <h4 className="h6 mb-0">Descripción / About</h4>
-            {summaryRow("Acerca de la compañía", formData.crm.about)}
-            {summaryRow("Descripción", formData.crm.description)}
+            <h4 className="h6 mb-0">Descripción adicional / About</h4>
+            {summaryRow("About this company", formData.crm.about)}
+            {summaryRow("Descripción adicional", formData.crm.description)}
           </div>
         </div>
       </div>
