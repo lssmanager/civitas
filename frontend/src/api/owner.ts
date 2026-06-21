@@ -258,11 +258,11 @@ export type CreateOwnerOrganizationInput = {
   adminDomain?: string;
   logoUrl?: string;
   faviconUrl?: string;
-  baseAdmin?: { firstName?: string; lastName?: string; name?: string; email?: string; phone?: string; username?: string; logtoUserId?: string; initialOrganizationRole?: string };
+  baseAdmin?: { firstName?: string; lastName?: string; name?: string; email?: string; phone?: string; username?: string; position?: string; phoneExtension?: string; logtoUserId?: string; initialOrganizationRole?: string };
   jitProvisioning?: { domain?: string; defaultRoleNames?: string[] };
   settings?: Record<string, unknown>;
   crm?: FluentCrmCompanyInput;
-  administrativeContacts?: Array<{ kind?: string; name: string; email: string; phone?: string; position?: string; organizationRoleName: string }>;
+  administrativeContacts?: Array<{ kind?: string; firstName?: string; lastName?: string; name: string; email: string; phone?: string; phoneExtension?: string; position?: string; organizationRoleName: string }>;
 };
 
 export const useOwnerApi = () => {
@@ -309,7 +309,7 @@ export const useOwnerApi = () => {
         const query = params.toString();
         return fetchWithToken(`/owner/audit${query ? `?${query}` : ""}`);
       },
-      createOrganization: async (data: CreateOwnerOrganizationInput): Promise<{ organization: OwnerOrganization; status: string; sourceOfTruth: "logto"; adminAssignment?: { status: string; message?: string; logtoUserId?: string; roleName?: string }; jitProvisioning?: { status: string; domain?: string; defaultRoleNames?: string[] }; steps?: Record<string, unknown>; fluentcrm?: Record<string, unknown>; warning?: string }> =>
+      createOrganization: async (data: CreateOwnerOrganizationInput): Promise<{ operationId?: string; status: string; statusUrl?: string; canonicalStatus?: string; downstreamStatus?: string; correlationId?: string; organizationId?: string | null; jobId?: string; sourceOfTruth: "logto"; message?: string; organization?: OwnerOrganization; adminAssignment?: { status: string; message?: string; logtoUserId?: string; roleName?: string }; jitProvisioning?: { status: string; domain?: string; defaultRoleNames?: string[] }; steps?: Record<string, unknown>; fluentcrm?: Record<string, unknown>; warning?: string }> =>
         fetchWithToken("/owner/organizations", { method: "POST", body: JSON.stringify(data) }),
       updateOrganizationFluentCrm: async (organizationId: string, crm: FluentCrmCompanyInput): Promise<{ status: string; fluentcrm?: Record<string, unknown> }> =>
         fetchWithToken(`/owner/organizations/${encodeURIComponent(organizationId)}/fluentcrm`, { method: "PATCH", body: JSON.stringify({ crm }) }),

@@ -313,10 +313,17 @@ function normalizeLogtoPrimaryPhone(phone) {
   return digits || undefined;
 }
 
-async function updateLogtoUser({ userId, email, name, phone, username }) {
+async function updateLogtoUser({ userId, email, primaryEmail, name, phone, primaryPhone, username, profile, customData }) {
   return callLogtoManagementApi(`/users/${encodeURIComponent(userId)}`, {
     method: "PATCH",
-    body: JSON.stringify({ primaryEmail: email || undefined, name: name || undefined, primaryPhone: normalizeLogtoPrimaryPhone(phone), username: username || undefined }),
+    body: JSON.stringify({
+      primaryEmail: primaryEmail || email || undefined,
+      name: name || undefined,
+      primaryPhone: normalizeLogtoPrimaryPhone(primaryPhone || phone),
+      username: username || undefined,
+      profile: profile && Object.keys(profile).length ? profile : undefined,
+      customData: customData && Object.keys(customData).length ? customData : undefined,
+    }),
   });
 }
 
@@ -455,26 +462,35 @@ async function findLogtoUserByEmail(email) {
   return users.find((user) => (user.primaryEmail || user.email || user.profile?.email || "").toLowerCase() === normalizedEmail) || null;
 }
 
-async function createLogtoUser({ email, name, phone, username }) {
+async function createLogtoUser({ email, primaryEmail, name, phone, primaryPhone, username, profile, customData }) {
   return callLogtoManagementApi("/users", {
     method: "POST",
-    body: JSON.stringify({ primaryEmail: email, name, username: username || undefined, ...(normalizeLogtoPrimaryPhone(phone) ? { primaryPhone: normalizeLogtoPrimaryPhone(phone) } : {}) }),
+    body: JSON.stringify({
+      primaryEmail: primaryEmail || email,
+      name,
+      username: username || undefined,
+      ...(normalizeLogtoPrimaryPhone(primaryPhone || phone) ? { primaryPhone: normalizeLogtoPrimaryPhone(primaryPhone || phone) } : {}),
+      profile: profile && Object.keys(profile).length ? profile : undefined,
+      customData: customData && Object.keys(customData).length ? customData : undefined,
+    }),
   });
 }
 
-async function createOrResolveLogtoUserByEmail({ email, name, phone, username }) {
+async function createOrResolveLogtoUserByEmail({ email, primaryEmail, name, phone, primaryPhone, username, profile, customData }) {
+  email = primaryEmail || email;
+  phone = primaryPhone || phone;
   const existingUser = await findLogtoUserByEmail(email);
   if (existingUser) {
     const userId = existingUser.id || existingUser.userId || existingUser.logtoUserId;
-    if (userId && (name || phone)) {
-      const updated = await updateLogtoUser({ userId, email, name, phone, username });
+    if (userId && (name || phone || username || profile || customData)) {
+      const updated = await updateLogtoUser({ userId, email, name, phone, username, profile, customData });
       return { user: updated || existingUser, created: false, source: "email_lookup_updated" };
     }
     return { user: existingUser, created: false, source: "email_lookup" };
   }
 
   try {
-    return { user: await createLogtoUser({ email, name, phone, username }), created: true, source: "create_user" };
+    return { user: await createLogtoUser({ email, name, phone, username, profile, customData }), created: true, source: "create_user" };
   } catch (error) {
     if (error instanceof LogtoManagementApiError && [400, 409, 422].includes(error.status)) {
       const reconciledUser = await findLogtoUserByEmail(email);
@@ -483,7 +499,7 @@ async function createOrResolveLogtoUserByEmail({ email, name, phone, username })
         for (let suffix = 1; suffix <= 20; suffix += 1) {
           try {
             const fallbackUsername = `${username}${suffix}`;
-            return { user: await createLogtoUser({ email, name, phone, username: fallbackUsername }), created: true, source: "create_user_username_suffix", username: fallbackUsername };
+            return { user: await createLogtoUser({ email, name, phone, username: fallbackUsername, profile: { ...(profile || {}), preferredUsername: fallbackUsername }, customData }), created: true, source: "create_user_username_suffix", username: fallbackUsername };
           } catch (retryError) {
             if (!(retryError instanceof LogtoManagementApiError) || ![400, 409, 422].includes(retryError.status)) throw retryError;
           }
