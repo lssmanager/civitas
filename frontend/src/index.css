@@ -280,10 +280,31 @@ body.theme-dark .btn-outline-primary {
   padding: 1rem;
   border: 1px solid var(--civitas-border);
   border-radius: 1rem;
-  color: #dbeafe;
-  background: #0f172a;
+  color: #17315c;
+  background: linear-gradient(180deg, #f8fbff 0%, #eef5ff 100%);
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.civitas-audit-pagination {
+  align-items: center;
+}
+
+.civitas-audit-pagination .page-link {
+  border-color: var(--civitas-border);
+  color: var(--civitas-primary);
+  background: #ffffff;
+}
+
+.civitas-audit-pagination .page-item.active .page-link {
+  border-color: var(--civitas-primary);
+  color: #ffffff;
+  background: var(--civitas-primary);
+}
+
+.civitas-audit-pagination .page-item.disabled .page-link {
+  color: var(--civitas-muted);
+  background: #f6f8fc;
 }
 
 .civitas-audit-table {
@@ -1131,4 +1152,34 @@ body.theme-dark .civitas-sidebar__panel {
 body.theme-dark .civitas-organization-card__logo {
   border-color: rgba(255, 255, 255, 0.12) !important;
   background: rgba(255, 255, 255, 0.1);
+}
+
+[data-bs-theme="dark"] .civitas-json-view,
+.theme-dark .civitas-json-view,
+body.theme-dark .civitas-json-view {
+  color: #dbeafe;
+  background: #0f172a;
+}
+
+[data-bs-theme="dark"] .civitas-audit-pagination .page-link,
+.theme-dark .civitas-audit-pagination .page-link,
+body.theme-dark .civitas-audit-pagination .page-link {
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #dceaff;
+  background: #102748;
+}
+
+[data-bs-theme="dark"] .civitas-audit-pagination .page-item.active .page-link,
+.theme-dark .civitas-audit-pagination .page-item.active .page-link,
+body.theme-dark .civitas-audit-pagination .page-item.active .page-link {
+  border-color: #4b9ef1;
+  color: #031c44;
+  background: #4b9ef1;
+}
+
+[data-bs-theme="dark"] .civitas-audit-pagination .page-item.disabled .page-link,
+.theme-dark .civitas-audit-pagination .page-item.disabled .page-link,
+body.theme-dark .civitas-audit-pagination .page-item.disabled .page-link {
+  color: rgba(232, 239, 250, 0.58);
+  background: #0d2240;
 }
