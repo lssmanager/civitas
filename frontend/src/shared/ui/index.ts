@@ -2,6 +2,8 @@ export { DataTable } from "./DataTable";
 export type { DataTableColumn } from "./DataTable";
 export { EmptyState } from "./EmptyState";
 export { ErrorState } from "./ErrorState";
+export { KeyValueList } from "./KeyValueList";
 export { LoadingState } from "./LoadingState";
+export { MetricCard } from "./MetricCard";
 export { PageCard } from "./PageCard";
 export { PageShell } from "./PageShell";
