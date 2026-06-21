@@ -3,7 +3,7 @@ const test = require("node:test");
 
 const { QUEUE_NAMES, getBullMqPrefix, getRedisUrl } = require("../queues/config");
 const { OPERATION_STATUSES, PHASE_STATUSES, STEP_STATUSES, classifyOperationalError } = require("../services/syncOperations");
-const { STEP_NAMES } = require("../services/organizationBootstrapOrchestrator");
+const { FOUNDATION_STEP_NAME } = require("../workers/organizationBootstrapFoundation");
 
 test("REDIS_URL is read from a single URL env var", () => {
   const previous = process.env.REDIS_URL;
@@ -20,21 +20,15 @@ test("missing REDIS_URL fails with a clear worker/API configuration error", () =
   if (previous) process.env.REDIS_URL = previous;
 });
 
-test("orchestration exposes canonical/downstream statuses and bootstrap step names", () => {
+test("foundation exposes reusable operation statuses without enabling owner bootstrap migration", () => {
+  assert.equal(OPERATION_STATUSES.QUEUED, "queued");
+  assert.equal(OPERATION_STATUSES.RUNNING, "running");
   assert.equal(OPERATION_STATUSES.CANONICAL_COMPLETED, "canonical_completed");
   assert.equal(OPERATION_STATUSES.PARTIAL_FAILED, "partial_failed");
-  assert.equal(PHASE_STATUSES.COMPLETED, "completed");
-  assert.equal(STEP_STATUSES.FAILED, "failed");
+  assert.equal(PHASE_STATUSES.PENDING, "pending");
+  assert.equal(STEP_STATUSES.COMPLETED, "completed");
   assert.equal(QUEUE_NAMES.ORGANIZATION_BOOTSTRAP, "organization.bootstrap");
-  assert.deepEqual(Object.values(STEP_NAMES), [
-    "validate_input",
-    "logto_canonical_bootstrap",
-    "reconcile_organization_profile",
-    "prepare_crm_payload",
-    "fluentcrm_company",
-    "fluentcrm_contacts",
-    "finalize",
-  ]);
+  assert.equal(FOUNDATION_STEP_NAME, "foundation_worker_received");
 });
 
 test("FluentCRM 422 is classified as non-retryable downstream validation failure", () => {
