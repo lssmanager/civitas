@@ -201,6 +201,23 @@ export type OwnerFluentCrmHealthResponse = {
   details?: Record<string, unknown> | null;
 };
 
+
+export type OwnerBootstrapMicroRequest = {
+  id: string;
+  parentOperationId: string;
+  logtoOrganizationId: string | null;
+  microRequestType: string;
+  targetEntityType: string;
+  targetEntityId: string | null;
+  sourceStep?: string | null;
+  status: string;
+  payloadSnapshot?: Record<string, unknown> | null;
+  lastError?: Record<string, unknown> | null;
+  retryCount: number;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 export type CreateOwnerOrganizationInput = {
   name: string;
   description?: string;
@@ -225,6 +242,9 @@ export const useOwnerApi = () => {
     () => ({
       getOwnerMe: async (): Promise<OwnerMeResponse> => fetchWithToken("/owner/me"),
       getOrganizations: async (): Promise<{ organizations: OwnerOrganization[] }> => fetchWithToken("/owner/organizations"),
+      getBootstrapMicroRequests: async (): Promise<{ microRequests: OwnerBootstrapMicroRequest[] }> => fetchWithToken("/owner/bootstrap/micro-requests"),
+      retryBootstrapMicroRequest: async (microRequestId: string): Promise<{ microRequest: OwnerBootstrapMicroRequest; status: string; note?: string }> =>
+        fetchWithToken(`/owner/bootstrap/micro-requests/${encodeURIComponent(microRequestId)}/retry`, { method: "POST" }),
       getOrganizationTemplate: async (): Promise<OwnerOrganizationTemplate> => fetchWithToken("/owner/organization-template"),
       getFluentCrmHealth: async (): Promise<OwnerFluentCrmHealthResponse> => fetchWithToken("/owner/integrations/fluentcrm/health"),
       getFluentCrmRoleMappings: async (): Promise<OwnerCrmRoleMappingsResponse> => fetchWithToken("/owner/integrations/fluentcrm/role-mappings"),
