@@ -67,6 +67,7 @@ export type OwnerOrganizationEvent = { id: string; at: string | null; type: stri
 export type OwnerOrganizationProfileResponse = {
   organization: OwnerOrganization;
   canonical: { source: "logto"; topLevelFields: string[]; customData: Record<string, unknown> };
+  readModel?: { business?: Record<string, string | null>; contact?: Record<string, string | null>; branding?: Record<string, string | null>; crm?: Record<string, unknown>; sourcePriority?: string[] };
   customDataShape: { root: string; sections: string[] };
   downstreamOnly: string[];
   sync: { pending: OwnerPendingSync[]; events: OwnerOrganizationEvent[] };

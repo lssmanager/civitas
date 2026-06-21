@@ -40,6 +40,7 @@ const {
   ensureOrganizationTagsAndLists,
   getOrCreateCompanyForOrganization,
   normalizeCrmCompanyInput,
+  searchCompanies,
   searchContacts,
   syncOrganizationContactsToFluentCrm,
   upsertContactFromLogtoIdentity,
@@ -1095,12 +1096,60 @@ const buildCivitasCustomData = (customData = {}, patch = {}) => {
   };
 };
 
+const firstValue = (...values) => values.find((value) => value !== undefined && value !== null && value !== "") ?? null;
+
+async function loadFluentCrmCompanySnapshot(profile) {
+  if (!profile?.fluentcrmCompanyId) return null;
+  try {
+    const matches = await searchCompanies({ companyId: profile.fluentcrmCompanyId });
+    return matches[0]?.company || matches[0] || null;
+  } catch (error) {
+    console.error("Failed to load FluentCRM company snapshot for organization profile", { profileId: profile.id, companyId: profile.fluentcrmCompanyId, error });
+    return { unavailable: true, message: safeFunctionalMessage(getSafeErrorMessage(error), "No se pudieron leer datos guardados en FluentCRM.") };
+  }
+}
+
+function buildOrganizationProfileReadModel({ logtoOrganization, profile, fluentCrmCompany }) {
+  const customData = getLogtoOrganizationCustomData(logtoOrganization);
+  const provisioning = customData.provisioning || {};
+  const civitasProfile = customData.civitasProfile || {};
+  const business = civitasProfile.business || {};
+  const contact = civitasProfile.contact || {};
+  const branding = civitasProfile.branding || {};
+  const crm = fluentCrmCompany && !fluentCrmCompany.unavailable ? fluentCrmCompany : {};
+  return {
+    sourcePriority: ["logto.customData.civitasProfile", "logto.customData.provisioning", "fluentcrm.company", "civitas.operational_cache"],
+    business: {
+      slug: firstValue(business.slug, provisioning.slug, profile?.slug),
+      subdomain: firstValue(business.subdomain, provisioning.appSubdomain, profile?.subdomain),
+      website: firstValue(business.website, crm.website, crm.url),
+      institutionalDomain: firstValue(business.institutionalDomain, provisioning.institutionalDomain, profile?.adminDomain),
+      nit: firstValue(business.nit, crm.nit, crm.custom_values?.nit),
+      verificationDigit: firstValue(business.verificationDigit, crm.verification_digit, crm.custom_values?.verification_digit),
+      country: firstValue(business.country, crm.country),
+      department: firstValue(business.department, crm.state, crm.region),
+      city: firstValue(business.city, crm.city),
+      postalCode: firstValue(business.postalCode, crm.postal_code, crm.zip),
+      addressLine1: firstValue(business.addressLine1, crm.address_line_1, crm.address1, crm.address),
+      addressLine2: firstValue(business.addressLine2, crm.address_line_2, crm.address2),
+    },
+    contact: {
+      owner: firstValue(contact.owner, crm.company_owner, crm.owner),
+      email: firstValue(contact.email, crm.email),
+      phone: firstValue(contact.phone, crm.phone),
+    },
+    branding,
+    crm: { companyId: profile?.fluentcrmCompanyId || null, company: fluentCrmCompany },
+  };
+}
+
 app.get("/owner/organizations/:organizationId/profile", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
   try {
     const profile = await resolveOrganizationProfileForRequest(req.params.organizationId);
     const logtoOrganizationId = profile?.logtoOrganizationId || req.params.organizationId;
-    const [logtoOrganization, pending, events] = await Promise.all([
+    const [logtoOrganization, fluentCrmCompany, pending, events] = await Promise.all([
       getLogtoOrganizationById(logtoOrganizationId),
+      loadFluentCrmCompanySnapshot(profile),
       listOrganizationPendingSync({ organizationId: logtoOrganizationId }).catch((error) => {
         console.error("Failed to load pending sync operations", error);
         return [];
@@ -1110,6 +1159,7 @@ app.get("/owner/organizations/:organizationId/profile", requireAuth(API_RESOURCE
     return res.json({
       organization: serializeOwnerOrganization(profile, logtoOrganization),
       canonical: { source: "logto", topLevelFields: ["id", "name", "description"], customData: getLogtoOrganizationCustomData(logtoOrganization) },
+      readModel: buildOrganizationProfileReadModel({ logtoOrganization, profile, fluentCrmCompany }),
       customDataShape: { root: "customData.civitasProfile", sections: ["business", "contact", "branding", "downstream"] },
       downstreamOnly: ["fluentcrmCompanyId", "fluentcrmSyncStatus", "fluentcrmContactSync"],
       sync: { pending, events },
