@@ -663,3 +663,46 @@ body.theme-dark .civitas-page-card__body .badge.bg-light {
     grid-template-columns: 1fr;
   }
 }
+
+.civitas-sidebar,
+.civitas-sidebar .accordion,
+.civitas-sidebar .accordion-item,
+.civitas-sidebar .accordion-body,
+.civitas-sidebar nav {
+  background: transparent !important;
+}
+
+.civitas-sidebar .accordion-item {
+  border: 0 !important;
+}
+
+.civitas-sidebar .accordion-button,
+.civitas-sidebar .accordion-button:not(.collapsed) {
+  color: #f3f7ff !important;
+}
+
+.civitas-sidebar .accordion-button::after {
+  filter: brightness(0) saturate(100%) invert(95%) sepia(15%) saturate(210%) hue-rotate(180deg) brightness(102%) contrast(96%);
+}
+
+.civitas-sidebar .accordion-body {
+  padding-top: 0.75rem !important;
+}
+
+.civitas-sidebar .border-start {
+  border-color: rgba(255, 255, 255, 0.14) !important;
+}
+
+.civitas-sidebar-link,
+.civitas-sidebar-link .fw-semibold {
+  color: #edf4ff !important;
+}
+
+.civitas-sidebar-link__meta {
+  color: rgba(232, 239, 250, 0.72) !important;
+}
+
+.civitas-sidebar-link:hover .civitas-sidebar-link__meta,
+.civitas-sidebar-link.active .civitas-sidebar-link__meta {
+  color: rgba(255, 255, 255, 0.9) !important;
+}
