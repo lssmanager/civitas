@@ -41,7 +41,7 @@ export const appRoutes = {
   },
   selectOrganization: {
     path: "/select-organization",
-    label: "Select Organization",
+    label: "Seleccionar organización",
     description: "Selector visual de organizaciones reales de Logto.",
   },
   account: {
@@ -88,7 +88,7 @@ export type RouteMetadata = { label: string; parentPath?: string };
 
 export const routeMetadata: Record<string, RouteMetadata> = {
   "/owner": { label: "Owner" },
-  "/owner/organizations": { label: "Crear organización", parentPath: appRoutes.owner.path },
+  "/owner/organizations": { label: "Organizaciones", parentPath: appRoutes.owner.path },
   "/owner/logs": { label: appRoutes.ownerLogs.label, parentPath: appRoutes.owner.path },
   "/owner/system": { label: appRoutes.ownerSystem.label, parentPath: appRoutes.owner.path },
   "/owner/audit": { label: appRoutes.ownerLogs.label, parentPath: appRoutes.owner.path },
