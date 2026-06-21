@@ -162,3 +162,70 @@ body {
 .civitas-sidebar-section .accordion-button {
   padding-left: 0.75rem;
 }
+
+.civitas-audit-actions .btn-group {
+  max-width: 100%;
+}
+
+.civitas-audit-list .accordion-button {
+  align-items: flex-start;
+  border-radius: 1rem !important;
+  box-shadow: none;
+}
+
+.civitas-audit-list .accordion-button:not(.collapsed) {
+  color: var(--civitas-text);
+  background: var(--civitas-primary-soft);
+}
+
+.civitas-audit-item {
+  border-color: var(--civitas-border) !important;
+}
+
+.civitas-audit-summary {
+  min-width: 0;
+}
+
+.civitas-audit-detail-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+}
+
+.civitas-json-view {
+  max-height: 28rem;
+  overflow: auto;
+  padding: 1rem;
+  border: 1px solid var(--civitas-border);
+  border-radius: 1rem;
+  color: #dbeafe;
+  background: #0f172a;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.civitas-audit-table {
+  display: none;
+}
+
+@media (min-width: 992px) {
+  .civitas-audit-cards:not(.civitas-audit-cards-force) .civitas-audit-list {
+    display: none !important;
+  }
+
+  .civitas-audit-table {
+    display: block;
+  }
+}
+
+@media (max-width: 575.98px) {
+  .civitas-audit-actions,
+  .civitas-audit-actions .btn-group,
+  .civitas-audit-actions .btn {
+    width: 100%;
+  }
+
+  .civitas-audit-list .accordion-button {
+    padding: 0.875rem;
+  }
+}
