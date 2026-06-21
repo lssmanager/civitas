@@ -1,5 +1,5 @@
 services:
-  backend:
+  api:
     build:
       context: ./backend
     restart: unless-stopped
@@ -13,6 +13,9 @@ services:
       DATABASE_WAIT_TIMEOUT_MS: ${DATABASE_WAIT_TIMEOUT_MS:-60000}
       DATABASE_WAIT_INTERVAL_MS: ${DATABASE_WAIT_INTERVAL_MS:-2000}
       DATABASE_CONNECT_TIMEOUT_MS: ${DATABASE_CONNECT_TIMEOUT_MS:-1500}
+      RUN_MIGRATIONS_ON_STARTUP: ${RUN_MIGRATIONS_ON_STARTUP:-false}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      BULLMQ_PREFIX: ${BULLMQ_PREFIX:-civitas}
       LOGTO_ENDPOINT: ${LOGTO_ENDPOINT:-}
       LOGTO_JWKS_URL: ${LOGTO_JWKS_URL:-}
       LOGTO_ISSUER: ${LOGTO_ISSUER:-}
@@ -29,14 +32,14 @@ services:
       - "${BACKEND_PUBLIC_PORT:-3000}:${BACKEND_PORT:-3000}"
     labels:
       - traefik.enable=true
-      - traefik.http.routers.civitas-backend-api.rule=Host(`civitas.socialstudies.cloud`) && PathPrefix(`/api`)
-      - traefik.http.routers.civitas-backend-api.entrypoints=http,https
-      - traefik.http.routers.civitas-backend-api.tls=true
-      - traefik.http.routers.civitas-backend-api.tls.certresolver=letsencrypt
-      - traefik.http.routers.civitas-backend-api.middlewares=civitas-backend-api-strip
-      - traefik.http.routers.civitas-backend-api.priority=100
-      - traefik.http.middlewares.civitas-backend-api-strip.stripprefix.prefixes=/api
-      - traefik.http.services.civitas-backend-api.loadbalancer.server.port=3000
+      - traefik.http.routers.civitas-api.rule=Host(`civitas.socialstudies.cloud`) && PathPrefix(`/api`)
+      - traefik.http.routers.civitas-api.entrypoints=http,https
+      - traefik.http.routers.civitas-api.tls=true
+      - traefik.http.routers.civitas-api.tls.certresolver=letsencrypt
+      - traefik.http.routers.civitas-api.middlewares=civitas-api-strip
+      - traefik.http.routers.civitas-api.priority=100
+      - traefik.http.middlewares.civitas-api-strip.stripprefix.prefixes=/api
+      - traefik.http.services.civitas-api.loadbalancer.server.port=3000
     healthcheck:
       test:
         [
@@ -47,6 +50,43 @@ services:
       timeout: 5s
       retries: 6
       start_period: 75s
+
+  worker:
+    build:
+      context: ./backend
+    command: ["npm", "run", "start:worker"]
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_started
+    networks:
+      - default
+      - loginet
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      BULLMQ_PREFIX: ${BULLMQ_PREFIX:-civitas}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
+      LOGTO_ENDPOINT: ${LOGTO_ENDPOINT:-}
+      LOGTO_MANAGEMENT_API_TOKEN_ENDPOINT: ${LOGTO_MANAGEMENT_API_TOKEN_ENDPOINT:-}
+      LOGTO_MANAGEMENT_API_APPLICATION_ID: ${LOGTO_MANAGEMENT_API_APPLICATION_ID:-}
+      LOGTO_MANAGEMENT_API_APPLICATION_SECRET: ${LOGTO_MANAGEMENT_API_APPLICATION_SECRET:-}
+      LOGTO_MANAGEMENT_API_RESOURCE: ${LOGTO_MANAGEMENT_API_RESOURCE:-}
+      FLUENTCRM_BASE_URL: ${FLUENTCRM_BASE_URL:-}
+      FLUENTCRM_USERNAME: ${FLUENTCRM_USERNAME:-}
+      FLUENTCRM_APP_PASSWORD: ${FLUENTCRM_APP_PASSWORD:-}
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    networks:
+      - default
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
 
   frontend:
     build:
@@ -61,7 +101,7 @@ services:
         VITE_APP_SIGN_OUT_REDIRECT_URI: ${VITE_APP_SIGN_OUT_REDIRECT_URI:-https://civitas.socialstudies.cloud}
     restart: unless-stopped
     depends_on:
-      backend:
+      api:
         condition: service_healthy
     environment:
       VITE_API_BASE_URL: ${VITE_API_BASE_URL:-https://civitas.socialstudies.cloud/api}

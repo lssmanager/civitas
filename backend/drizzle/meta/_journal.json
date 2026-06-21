@@ -120,6 +120,13 @@
       "when": 1763694000000,
       "tag": "0016_create_bootstrap_operations",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1781712300000,
+      "tag": "0017_create_sync_operations",
+      "breakpoints": true
     }
   ]
 }
