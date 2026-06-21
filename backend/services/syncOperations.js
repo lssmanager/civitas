@@ -21,6 +21,7 @@ function classifyOperationalError(error = {}) {
   if (/redis|ECONNREFUSED|SocketClosed/i.test(message)) { system = "redis"; category = "redis_unavailable"; }
   if (/database|postgres|ECONNREFUSED/i.test(message)) { system = system === "redis" ? system : "database"; category = category === "redis_unavailable" ? category : "db_unavailable"; }
   if (status === 422 || code === "FLUENTCRM_VALIDATION_FAILED" || code === "FLUENTCRM_DUPLICATE_CONTACT") { system = "fluentcrm"; category = "validation_error"; retryable = false; }
+  else if (/CONFIG|CONTRACT|MISMATCH|DUPLICATE|CONFLICT/i.test(String(code))) { category = /CONFLICT|DUPLICATE/.test(String(code)) ? "conflict" : "configuration_or_contract_error"; retryable = false; }
   else if (status === 401 || status === 403 || /AUTH/i.test(String(code))) { category = "auth_error"; retryable = false; }
   else if (status === 404 && system === "wordpress") { category = "route_or_catalog_error"; retryable = false; }
   else if (status >= 400 && status < 500) { category = "validation_error"; retryable = false; }

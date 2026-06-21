@@ -3,7 +3,7 @@ const test = require("node:test");
 
 const { QUEUE_NAMES, getBullMqPrefix, getRedisUrl } = require("../queues/config");
 const { OPERATION_STATUSES, PHASE_STATUSES, STEP_STATUSES, classifyOperationalError } = require("../services/syncOperations");
-const { FOUNDATION_STEP_NAME } = require("../workers/organizationBootstrapFoundation");
+const { STEP_NAMES } = require("../services/organizationBootstrapOrchestrator");
 
 test("REDIS_URL is read from a single URL env var", () => {
   const previous = process.env.REDIS_URL;
@@ -20,7 +20,7 @@ test("missing REDIS_URL fails with a clear worker/API configuration error", () =
   if (previous) process.env.REDIS_URL = previous;
 });
 
-test("foundation exposes reusable operation statuses without enabling owner bootstrap migration", () => {
+test("orchestration exposes reusable operation statuses and bootstrap steps", () => {
   assert.equal(OPERATION_STATUSES.QUEUED, "queued");
   assert.equal(OPERATION_STATUSES.RUNNING, "running");
   assert.equal(OPERATION_STATUSES.CANONICAL_COMPLETED, "canonical_completed");
@@ -28,7 +28,9 @@ test("foundation exposes reusable operation statuses without enabling owner boot
   assert.equal(PHASE_STATUSES.PENDING, "pending");
   assert.equal(STEP_STATUSES.COMPLETED, "completed");
   assert.equal(QUEUE_NAMES.ORGANIZATION_BOOTSTRAP, "organization.bootstrap");
-  assert.equal(FOUNDATION_STEP_NAME, "foundation_worker_received");
+  assert.equal(STEP_NAMES.LOGTO_CANONICAL_BOOTSTRAP, "logto_canonical_bootstrap");
+  assert.equal(STEP_NAMES.FLUENTCRM_COMPANY, "fluentcrm_company");
+  assert.equal(STEP_NAMES.FINALIZE, "finalize");
 });
 
 test("FluentCRM 422 is classified as non-retryable downstream validation failure", () => {
@@ -42,4 +44,13 @@ test("Logto timeout remains retryable and canonical-scoped", () => {
   const classified = classifyOperationalError({ message: "Logto timeout", code: "LOGTO_TIMEOUT" });
   assert.equal(classified.system, "logto");
   assert.equal(classified.retryable, true);
+});
+
+test("configuration and conflict errors are non-retryable", () => {
+  const config = classifyOperationalError({ message: "FluentCRM is not configured", code: "FLUENTCRM_CONFIG_MISSING" });
+  assert.equal(config.retryable, false);
+  assert.equal(config.category, "configuration_or_contract_error");
+
+  const conflict = classifyOperationalError({ message: "Duplicate contact", code: "FLUENTCRM_DUPLICATE_CONTACT" });
+  assert.equal(conflict.retryable, false);
 });
