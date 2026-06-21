@@ -48,6 +48,20 @@ export type OwnerOrganization = {
 };
 
 
+export type OwnerOperationsSummary = {
+  counts: { queued: number; running: number; partialFailed: number; failed: number; retryable: number; organizationsWithPendingDownstreamSync: number };
+  functionalHealth: { status: string; severity: "success" | "warning" | "critical" | string; message: string; code: string };
+  incidents: Array<{ type: string; organizationId: string | null; organizationName: string | null; message: string; retryable: boolean }>;
+  organizations: Array<{ organizationId: string | null; profileId: string; name: string | null; bootstrapStatus: string; canonicalStatus: string; downstreamStatus: string; currentStep: string; lastFunctionalError: string | null; retryable: boolean; conflictType: string | null }>;
+};
+
+export type OwnerWorkerHealth = {
+  readiness: string;
+  worker: { heartbeatAt: string | null; heartbeatStale: boolean; source?: string };
+  redis: { status: string };
+  queues: Array<{ name: string; waiting: number; active: number; delayed: number; failed: number; oldestJobAgeSeconds: number }>;
+};
+
 export type OwnerAuditActor = {
   internalUserId: string | null;
   logtoUserId: string | null;
@@ -226,6 +240,8 @@ export const useOwnerApi = () => {
       getOwnerMe: async (): Promise<OwnerMeResponse> => fetchWithToken("/owner/me"),
       getOrganizations: async (): Promise<{ organizations: OwnerOrganization[] }> => fetchWithToken("/owner/organizations"),
       getOrganizationTemplate: async (): Promise<OwnerOrganizationTemplate> => fetchWithToken("/owner/organization-template"),
+      getOperationsSummary: async (): Promise<OwnerOperationsSummary> => fetchWithToken("/owner/operations/summary"),
+      getWorkerHealth: async (): Promise<OwnerWorkerHealth> => fetchWithToken("/owner/system/worker-health"),
       getFluentCrmHealth: async (): Promise<OwnerFluentCrmHealthResponse> => fetchWithToken("/owner/integrations/fluentcrm/health"),
       getFluentCrmRoleMappings: async (): Promise<OwnerCrmRoleMappingsResponse> => fetchWithToken("/owner/integrations/fluentcrm/role-mappings"),
       updateFluentCrmRoleMappings: async (mappings: OwnerCrmRoleMapping[]): Promise<OwnerCrmRoleMappingsResponse> =>
