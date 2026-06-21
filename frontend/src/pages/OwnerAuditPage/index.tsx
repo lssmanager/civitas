@@ -1,13 +1,11 @@
-import { useMemo, useState } from "react";
-import { Accordion, Badge, Button, ButtonGroup, Form } from "react-bootstrap";
+import { useState } from "react";
+import { Accordion, Badge, Button, Pagination } from "react-bootstrap";
 import { useOwnerApi, type OwnerAuditLog, type OwnerAuditPagination, type OwnerAuditResponse } from "../../api/owner";
 import { useStableResource } from "../../shared/hooks/useStableResource";
-import { DataTable, ErrorState, LoadingState, PageCard, PageShell } from "../../shared/ui";
+import { EmptyState, ErrorState, LoadingState, PageCard, PageShell } from "../../shared/ui";
 
 const PAGE_SIZE = 25;
 const INITIAL_AUDIT_PARAMS: Required<OwnerAuditPagination> = { limit: PAGE_SIZE, offset: 0 };
-
-type AuditViewMode = "friendly" | "json";
 
 const getAuditParamsKey = (params: Required<OwnerAuditPagination>) => `${params.limit}:${params.offset}`;
 
@@ -46,19 +44,9 @@ const formatOrganization = (row: OwnerAuditLog) => {
 const formatLogStatement = (row: OwnerAuditLog) =>
   `${row.result.toUpperCase()} · ${row.action} · ${formatOrganization(row)} · ${formatDate(row.createdAt)}`;
 
-const getMetadataBullets = (metadata: Record<string, unknown> | null) => {
-  if (!metadata) return [];
-  return Object.entries(metadata).map(([key, value]) => ({
-    key,
-    value: typeof value === "string" ? value : JSON.stringify(value),
-  }));
-};
-
 const getJsonPayload = (row: OwnerAuditLog) => JSON.stringify(row, null, 2);
 
-function AuditLogCard({ row, viewMode }: { row: OwnerAuditLog; viewMode: AuditViewMode }) {
-  const metadataBullets = getMetadataBullets(row.metadata);
-
+function AuditLogCard({ row }: { row: OwnerAuditLog }) {
   return (
     <Accordion.Item eventKey={row.id} className="civitas-audit-item border rounded-4 overflow-hidden">
       <Accordion.Header>
@@ -73,49 +61,19 @@ function AuditLogCard({ row, viewMode }: { row: OwnerAuditLog; viewMode: AuditVi
         </div>
       </Accordion.Header>
       <Accordion.Body>
-        {viewMode === "json" ? (
-          <pre className="civitas-json-view mb-0"><code>{getJsonPayload(row)}</code></pre>
-        ) : (
-          <div className="civitas-audit-detail-grid">
-            <section>
-              <h3 className="h6">Enunciado del log</h3>
-              <p className="mb-0 text-break">{formatLogStatement(row)}</p>
-            </section>
-            <section>
-              <h3 className="h6">Identidad</h3>
-              <ul className="mb-0 ps-3">
-                <li><strong>Actor:</strong> {formatActor(row)}</li>
-                <li><strong>Logto:</strong> {row.actor?.logtoUserId ?? "No resuelto"}</li>
-                <li><strong>Interno:</strong> {row.actor?.internalUserId ?? row.actorUserId ?? "No resuelto"}</li>
-                <li><strong>Organización:</strong> {formatOrganization(row)}</li>
-              </ul>
-            </section>
-            <section>
-              <h3 className="h6">Detalle comprimido</h3>
-              {metadataBullets.length > 0 ? (
-                <ul className="mb-0 ps-3">
-                  {metadataBullets.map((item) => (
-                    <li key={item.key} className="text-break"><strong>{item.key}:</strong> {item.value}</li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="mb-0 text-secondary">Sin metadata adicional.</p>
-              )}
-            </section>
-          </div>
-        )}
+        <pre className="civitas-json-view mb-0"><code>{getJsonPayload(row)}</code></pre>
       </Accordion.Body>
     </Accordion.Item>
   );
 }
 
-function AuditLogList({ rows, viewMode }: { rows: OwnerAuditLog[]; viewMode: AuditViewMode }) {
+function AuditLogList({ rows }: { rows: OwnerAuditLog[] }) {
   if (rows.length === 0) return null;
 
   return (
     <Accordion alwaysOpen className="civitas-audit-list d-grid gap-3">
       {rows.map((row) => (
-        <AuditLogCard key={row.id} row={row} viewMode={viewMode} />
+        <AuditLogCard key={row.id} row={row} />
       ))}
     </Accordion>
   );
@@ -123,7 +81,7 @@ function AuditLogList({ rows, viewMode }: { rows: OwnerAuditLog[]; viewMode: Aud
 
 export function OwnerAuditPage() {
   const { getAuditLogs } = useOwnerApi();
-  const [viewMode, setViewMode] = useState<AuditViewMode>("friendly");
+  const [expandedEventKeys, setExpandedEventKeys] = useState<string[]>([]);
   const {
     data,
     error,
@@ -141,50 +99,16 @@ export function OwnerAuditPage() {
   const events = data?.auditLogs ?? [];
   const total = data?.pagination.total ?? 0;
   const offset = params.offset;
-
-  const columns = useMemo(
-    () => [
-      { key: "createdAt", header: "Fecha", render: (row: OwnerAuditLog) => formatDate(row.createdAt) },
-      {
-        key: "statement",
-        header: "Enunciado del log",
-        render: (row: OwnerAuditLog) => <span className="text-break">{formatLogStatement(row)}</span>,
-      },
-      {
-        key: "actor",
-        header: "Actor",
-        render: (row: OwnerAuditLog) => (
-          <div className="text-break">
-            <div className="fw-semibold">{formatActor(row)}</div>
-            <div className="text-secondary small">Logto: {row.actor?.logtoUserId ?? "No resuelto"}</div>
-            <div className="text-secondary small">Interno: {row.actor?.internalUserId ?? row.actorUserId ?? "No resuelto"}</div>
-          </div>
-        ),
-      },
-      { key: "action", header: "Acción", render: (row: OwnerAuditLog) => <code>{row.action}</code> },
-      { key: "stage", header: "Etapa", render: (row: OwnerAuditLog) => <Badge bg="info" text="dark">{formatStage(row)}</Badge> },
-      {
-        key: "result",
-        header: "Resultado",
-        render: (row: OwnerAuditLog) => <Badge bg={resultVariant(row.result)}>{row.result}</Badge>,
-      },
-      {
-        key: "organization",
-        header: "Organización",
-        render: (row: OwnerAuditLog) => (
-          <div className="text-break">
-            <div className="fw-semibold">{formatOrganization(row)}</div>
-            <div className="text-secondary small">organization_id: {row.organization?.id ?? row.organizationId ?? "Global"}</div>
-          </div>
-        ),
-      },
-    ],
-    []
-  );
-
   const currentPage = Math.floor(offset / PAGE_SIZE) + 1;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const hasPrevious = offset > 0;
   const hasNext = offset + PAGE_SIZE < total;
+
+  const goToPage = (page: number) => {
+    const nextOffset = Math.max(0, (page - 1) * PAGE_SIZE);
+    setExpandedEventKeys([]);
+    reload((current) => ({ ...current, offset: nextOffset }));
+  };
 
   return (
     <PageShell
@@ -195,36 +119,20 @@ export function OwnerAuditPage() {
     >
       <PageCard
         title="Logs operativos"
-        subtitle="Vista responsive con enunciado comprimido por log. Expande cada evento para ver detalle normal o payload JSON."
+        subtitle="Vista JSON expandible por evento para inspección y soporte."
         actions={
-          <div className="civitas-audit-actions d-flex flex-wrap justify-content-end gap-2">
-            <ButtonGroup size="sm" aria-label="Vista de logs">
-              <Button variant={viewMode === "friendly" ? "primary" : "outline-secondary"} onClick={() => setViewMode("friendly")}>Normal</Button>
-              <Button variant={viewMode === "json" ? "primary" : "outline-secondary"} onClick={() => setViewMode("json")}>JSON</Button>
-            </ButtonGroup>
-            <ButtonGroup size="sm" aria-label="Paginación de auditoría">
-              <Button
-                variant="outline-secondary"
-                disabled={isLoading || !hasPrevious}
-                onClick={() => reload((current) => ({ ...current, offset: Math.max(0, current.offset - PAGE_SIZE) }))}
-              >
-                Anterior
-              </Button>
-              <Button variant="outline-secondary" disabled>
-                Página {currentPage}
-              </Button>
-              <Button
-                variant="outline-secondary"
-                disabled={isLoading || !hasNext}
-                onClick={() => reload((current) => ({ ...current, offset: current.offset + PAGE_SIZE }))}
-              >
-                Siguiente
-              </Button>
-            </ButtonGroup>
-          </div>
+          totalPages > 1 ? (
+            <Pagination size="sm" className="mb-0 civitas-audit-pagination">
+              <Pagination.Prev disabled={isLoading || !hasPrevious} onClick={() => goToPage(currentPage - 1)} />
+              <Pagination.Item active>{currentPage}</Pagination.Item>
+              <Pagination.Next disabled={isLoading || !hasNext} onClick={() => goToPage(currentPage + 1)} />
+            </Pagination>
+          ) : undefined
         }
       >
-        <Form.Text className="d-block mb-3">Mostrando {events.length} de {total} logs. Usa los bullets expandidos para diagnosticar sin romper el layout móvil.</Form.Text>
+        <p className="text-secondary small mb-3">
+          Mostrando {events.length} de {total} logs. Abre cada evento para ver su payload estructurado.
+        </p>
         {isLoading ? (
           <LoadingState title="Cargando logs" description="Consultando eventos owner registrados en Civitas." />
         ) : error ? (
@@ -234,22 +142,12 @@ export function OwnerAuditPage() {
             action={<Button onClick={retry}>Reintentar</Button>}
           />
         ) : events.length === 0 ? (
-          <DataTable
-            columns={columns}
-            rows={events}
-            getRowKey={(row) => row.id}
-            emptyTitle="Sin logs"
-            emptyDescription="Cuando un owner cree organizaciones o falle una creación relevante, los eventos aparecerán aquí."
+          <EmptyState
+            title="Sin logs"
+            description="Cuando un owner cree organizaciones o falle una creación relevante, los eventos aparecerán aquí."
           />
         ) : (
-          <>
-            <div className={viewMode === "friendly" ? "civitas-audit-cards" : "civitas-audit-cards civitas-audit-cards-force"}>
-              <AuditLogList rows={events} viewMode={viewMode} />
-            </div>
-            <div className={viewMode === "friendly" ? "civitas-audit-table mt-4" : "civitas-audit-table d-none"}>
-              <DataTable columns={columns} rows={events} getRowKey={(row) => row.id} />
-            </div>
-          </>
+          <AuditLogList rows={events} />
         )}
       </PageCard>
     </PageShell>
