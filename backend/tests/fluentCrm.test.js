@@ -251,8 +251,8 @@ test("normalizeCrmCompanyInput maps minimal FluentCRM company fields without ide
 test("buildOrganizationCrmTaxonomy is deterministic so tags/lists need not be stored locally", () => {
   const { buildOrganizationCrmTaxonomy } = require("../services/fluentCrm");
   assert.deepEqual(buildOrganizationCrmTaxonomy({ logtoOrganizationId: "org-1", slug: "school-one", name: "School One" }), {
-    tag: { title: "Civitas Organization: School One", slug: "civitas-org-school-one" },
-    list: { title: "Civitas School One", slug: "civitas-school-one" },
+    tag: { title: "School One", slug: "school-one" },
+    list: { title: "School One", slug: "school-one" },
   });
 });
 
@@ -515,8 +515,24 @@ test("normalizeCrmCompanyInput builds legacy address from structured owner addre
   const { normalizeCrmCompanyInput, buildFluentCrmCompanyPayload } = require("../services/fluentCrm");
   const normalized = normalizeCrmCompanyInput({ addressLine1: " Calle 1 ", addressLine2: " Piso 2 ", city: " Bogotá ", state: " Cundinamarca ", postalCode: "110111", country: "Colombia" }, { name: "Colegio" });
 
+  const payload = buildFluentCrmCompanyPayload(normalized);
+
   assert.equal(normalized.address, "Calle 1, Piso 2, Bogotá, Cundinamarca, 110111, Colombia");
-  assert.equal(buildFluentCrmCompanyPayload(normalized).address, "Calle 1, Piso 2, Bogotá, Cundinamarca, 110111, Colombia");
+  assert.equal(payload.address, "Calle 1, Piso 2, Bogotá, Cundinamarca, 110111, Colombia");
+  assert.equal(payload.address_line_1, "Calle 1");
+  assert.equal(payload.address_line_2, "Piso 2");
+  assert.equal(payload.city, "Bogotá");
+  assert.equal(payload.state, "Cundinamarca");
+  assert.equal(payload.postal_code, "110111");
+  assert.equal(payload.country, "Colombia");
+  assert.deepEqual(payload.custom_values, {
+    address_line_1: "Calle 1",
+    address_line_2: "Piso 2",
+    city: "Bogotá",
+    state: "Cundinamarca",
+    postal_code: "110111",
+    country: "Colombia",
+  });
 });
 
 test("buildFluentCrmCompanyPayload maps NIT and verification digit to custom values", () => {
@@ -527,6 +543,12 @@ test("buildFluentCrmCompanyPayload maps NIT and verification digit to custom val
     nit: 900123456,
     verificationDigit: 5,
     address: "Calle 123",
+    addressLine1: "Calle 123",
+    city: "Bogotá",
+    state: "Cundinamarca",
+    postalCode: "110111",
+    country: "Colombia",
+    numberOfEmployees: 42,
     tags: ["Admin-org"],
     lists: ["Colegio San Jose"],
   });
@@ -534,8 +556,20 @@ test("buildFluentCrmCompanyPayload maps NIT and verification digit to custom val
   assert.deepEqual(payload.custom_values, {
     nit: 900123456,
     "digito_de_verificación": 5,
+    address_line_1: "Calle 123",
+    city: "Bogotá",
+    state: "Cundinamarca",
+    postal_code: "110111",
+    country: "Colombia",
+    number_of_employees: 42,
   });
   assert.equal(payload.address, "Calle 123");
+  assert.equal(payload.address_line_1, "Calle 123");
+  assert.equal(payload.city, "Bogotá");
+  assert.equal(payload.state, "Cundinamarca");
+  assert.equal(payload.postal_code, "110111");
+  assert.equal(payload.country, "Colombia");
+  assert.equal(payload.number_of_employees, 42);
   assert.deepEqual(payload.tags, ["Admin-org"]);
   assert.deepEqual(payload.lists, ["Colegio San Jose"]);
 });

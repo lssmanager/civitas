@@ -143,6 +143,13 @@ function buildFluentCrmCompanyPayload(company = {}) {
   const customValues = {};
   if (company.nit != null) customValues.nit = company.nit;
   if (company.verificationDigit != null) customValues["digito_de_verificación"] = company.verificationDigit;
+  if (company.addressLine1) customValues.address_line_1 = company.addressLine1;
+  if (company.addressLine2) customValues.address_line_2 = company.addressLine2;
+  if (company.city) customValues.city = company.city;
+  if (company.state) customValues.state = company.state;
+  if (company.postalCode) customValues.postal_code = company.postalCode;
+  if (company.country) customValues.country = company.country;
+  if (company.numberOfEmployees != null) customValues.number_of_employees = company.numberOfEmployees;
 
   return {
     name: company.companyName || company.name || company.nameCache,
@@ -150,6 +157,12 @@ function buildFluentCrmCompanyPayload(company = {}) {
     phone: company.companyPhone || company.phone || undefined,
     website: company.website || company.adminDomain || undefined,
     address: company.address || buildStructuredAddress(company) || undefined,
+    address_line_1: company.addressLine1 || undefined,
+    address_line_2: company.addressLine2 || undefined,
+    city: company.city || undefined,
+    state: company.state || undefined,
+    postal_code: company.postalCode || undefined,
+    country: company.country || undefined,
     number_of_employees: company.numberOfEmployees ?? undefined,
     industry: company.industry || undefined,
     type: company.type || undefined,
@@ -327,9 +340,10 @@ async function ensureFluentCrmCollectionItem(path, { title, slug }) {
 
 function buildOrganizationCrmTaxonomy({ logtoOrganizationId, slug, name }) {
   const safeSlug = normalizeName(slug || name || logtoOrganizationId || "organization")?.replace(/\s+/g, "-") || "organization";
+  const title = name || safeSlug;
   return {
-    tag: { title: `Civitas Organization: ${name || safeSlug}`, slug: `civitas-org-${safeSlug}` },
-    list: { title: `Civitas ${name || safeSlug}`, slug: `civitas-${safeSlug}` },
+    tag: { title, slug: safeSlug },
+    list: { title, slug: safeSlug },
   };
 }
 
@@ -449,8 +463,16 @@ async function cleanupContactInFluentCrm({
 
   const currentTagNames = collectionNames(contact.tags);
   const currentListNames = collectionNames(contact.lists);
-  const nextTags = currentTagNames.filter((name) => name !== taxonomy.tag.title && name !== taxonomy.tag.slug);
-  const nextLists = currentListNames.filter((name) => name !== taxonomy.list.title && name !== taxonomy.list.slug);
+  const legacyTaxonomy = {
+    tagTitle: `Civitas Organization: ${taxonomy.tag.title}`,
+    tagSlug: `civitas-org-${taxonomy.tag.slug}`,
+    listTitle: `Civitas ${taxonomy.list.title}`,
+    listSlug: `civitas-${taxonomy.list.slug}`,
+  };
+  const organizationTagNames = new Set([taxonomy.tag.title, taxonomy.tag.slug, legacyTaxonomy.tagTitle, legacyTaxonomy.tagSlug]);
+  const organizationListNames = new Set([taxonomy.list.title, taxonomy.list.slug, legacyTaxonomy.listTitle, legacyTaxonomy.listSlug]);
+  const nextTags = currentTagNames.filter((name) => !organizationTagNames.has(name));
+  const nextLists = currentListNames.filter((name) => !organizationListNames.has(name));
   const ownsCompany = profile.fluentcrmCompanyId && String(contactCompanyId(contact)) === String(profile.fluentcrmCompanyId);
   const payload = {
     ...(ownsCompany ? { company_id: null } : {}),
