@@ -73,6 +73,7 @@ const {
 } = require("./services/organizationBootstrapOperations");
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 >>>>>>> 0a946f9 (Generate Logto usernames for contacts, relax base-admin role constraint, and enhance owner org UI (role selection, phone ext, previews))
 =======
 const { enqueueOrganizationBootstrap } = require("./services/organizationBootstrapOrchestrator");
@@ -80,6 +81,10 @@ const { getLatestOperationForOrganization, getSyncOperationWithSteps } = require
 >>>>>>> 45e1f94 (Add BullMQ orchestration worker foundation)
 =======
 >>>>>>> d19b99b (Rescope orchestration changes to foundation)
+=======
+const { enqueueOrganizationBootstrap } = require("./services/organizationBootstrapOrchestrator");
+const { getLatestOperationForOrganization, getSyncOperationWithSteps } = require("./services/syncOperations");
+>>>>>>> de6f13f (Move owner bootstrap to orchestration worker)
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -781,7 +786,83 @@ app.post("/owner/bootstrap/micro-requests/:microRequestId/retry", requireAuth(AP
   }
 });
 
+function serializeSyncOperationStatus(operation) {
+  const steps = operation.steps || [];
+  const currentStep = steps.slice().reverse().find((step) => ["queued", "running"].includes(step.status)) || null;
+  return {
+    id: operation.id,
+    operationType: operation.operationType,
+    entityType: operation.entityType,
+    entityId: operation.entityId,
+    logtoOrganizationId: operation.logtoOrganizationId,
+    logtoUserId: operation.logtoUserId,
+    status: operation.status,
+    canonicalStatus: operation.canonicalStatus,
+    downstreamStatus: operation.downstreamStatus,
+    currentStep: currentStep?.stepName || null,
+    completedSteps: steps.filter((step) => step.status === "completed").map((step) => step.stepName),
+    failedSteps: steps.filter((step) => step.status === "failed").map((step) => ({ stepName: step.stepName, error: step.lastErrorJson })),
+    lastError: operation.lastErrorJson,
+    retryable: operation.lastErrorJson?.retryable ?? null,
+    correlationId: operation.correlationId,
+    idempotencyKey: operation.idempotencyKey,
+    payloadSnapshot: operation.payloadSnapshotJson,
+    resultSnapshot: operation.resultSnapshotJson,
+    retryCount: operation.retryCount,
+    steps,
+    createdAt: operation.createdAt,
+    updatedAt: operation.updatedAt,
+    finishedAt: operation.finishedAt,
+  };
+}
+
+app.get("/owner/operations/:operationId", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  try {
+    const operation = await getSyncOperationWithSteps(req.params.operationId);
+    if (!operation) return res.status(404).json({ error: "Not Found", message: "Operation not found" });
+    return res.json({ operation: serializeSyncOperationStatus(operation) });
+  } catch (error) {
+    return res.status(500).json({ error: "Internal Server Error", message: getSafeErrorMessage(error) });
+  }
+});
+
+app.get("/owner/organizations/:organizationId/provisioning-status", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  try {
+    const operation = await getLatestOperationForOrganization(req.params.organizationId);
+    if (!operation) return res.status(404).json({ error: "Not Found", message: "Provisioning operation not found for organization" });
+    return res.json({
+      organizationId: req.params.organizationId,
+      operation: serializeSyncOperationStatus(operation),
+    });
+  } catch (error) {
+    return res.status(500).json({ error: "Internal Server Error", message: getSafeErrorMessage(error) });
+  }
+});
+
 app.post("/owner/organizations", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  if (String(process.env.ORGANIZATION_BOOTSTRAP_ORCHESTRATION || "true").toLowerCase() !== "false") {
+    try {
+      const { operation, jobId } = await enqueueOrganizationBootstrap({ body: req.body || {}, authUser: req.user });
+      return res.status(202).json({
+        operationId: operation.id,
+        status: operation.status,
+        statusUrl: `/owner/operations/${operation.id}`,
+        canonicalStatus: operation.canonicalStatus,
+        downstreamStatus: operation.downstreamStatus,
+        correlationId: operation.correlationId,
+        organizationId: operation.logtoOrganizationId || null,
+        jobId,
+        sourceOfTruth: "logto",
+        message: "Organization bootstrap was queued. Logto canonical provisioning will run in the worker before downstream FluentCRM propagation.",
+      });
+    } catch (error) {
+      if (error.status === 400) return res.status(400).json({ error: "Bad Request", message: error.message, details: error.details || [] });
+      if (/REDIS_URL/.test(error.message)) return res.status(503).json({ error: "Service Unavailable", message: error.message });
+      console.error("Failed to enqueue organization bootstrap", error);
+      return res.status(500).json({ error: "Internal Server Error", message: getSafeErrorMessage(error) });
+    }
+  }
+
   let internalUser = null;
   let logtoOrganization = null;
   let logtoOrganizationId = null;
