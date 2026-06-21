@@ -146,6 +146,7 @@ const commercialEvents = pgTable(
 );
 
 
+<<<<<<< HEAD
 const syncOperations = pgTable(
   "sync_operations",
   {
@@ -181,13 +182,60 @@ const syncOperationSteps = pgTable(
     metadata: jsonb("metadata"),
     startedAt: timestamp("started_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
+=======
+const organizationBootstrapOperations = pgTable(
+  "organization_bootstrap_operations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    logtoOrganizationId: varchar("logto_organization_id", { length: 255 }),
+    organizationProfileId: uuid("organization_profile_id").references(() => organizationProfiles.id, { onDelete: "set null" }),
+    status: varchar("status", { length: 32 }).notNull().default("pending"),
+    payloadSnapshot: jsonb("payload_snapshot").notNull(),
+    stepResults: jsonb("step_results"),
+    lastError: jsonb("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (table) => ({
+    actorUserIdx: index("organization_bootstrap_operations_actor_user_idx").on(table.actorUserId),
+    logtoOrganizationIdx: index("organization_bootstrap_operations_logto_org_idx").on(table.logtoOrganizationId),
+    statusIdx: index("organization_bootstrap_operations_status_idx").on(table.status),
+    createdAtIdx: index("organization_bootstrap_operations_created_at_idx").on(table.createdAt),
+  })
+);
+
+const organizationBootstrapMicroRequests = pgTable(
+  "organization_bootstrap_micro_requests",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    parentOperationId: uuid("parent_operation_id").notNull().references(() => organizationBootstrapOperations.id, { onDelete: "cascade" }),
+    logtoOrganizationId: varchar("logto_organization_id", { length: 255 }),
+    microRequestType: varchar("micro_request_type", { length: 128 }).notNull(),
+    targetEntityType: varchar("target_entity_type", { length: 64 }).notNull(),
+    targetEntityId: varchar("target_entity_id", { length: 255 }),
+    sourceStep: varchar("source_step", { length: 64 }),
+    status: varchar("status", { length: 32 }).notNull().default("pending"),
+    payloadSnapshot: jsonb("payload_snapshot"),
+    lastError: jsonb("last_error"),
+    retryCount: integer("retry_count").notNull().default(0),
+>>>>>>> 0a946f9 (Generate Logto usernames for contacts, relax base-admin role constraint, and enhance owner org UI (role selection, phone ext, previews))
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
+<<<<<<< HEAD
     operationIdx: index("sync_operation_steps_operation_idx").on(table.operationId),
     organizationIdx: index("sync_operation_steps_organization_idx").on(table.organizationId),
     statusIdx: index("sync_operation_steps_status_idx").on(table.status),
+=======
+    parentOperationIdx: index("organization_bootstrap_micro_requests_parent_idx").on(table.parentOperationId),
+    logtoOrganizationIdx: index("organization_bootstrap_micro_requests_logto_org_idx").on(table.logtoOrganizationId),
+    statusIdx: index("organization_bootstrap_micro_requests_status_idx").on(table.status),
+    typeIdx: index("organization_bootstrap_micro_requests_type_idx").on(table.microRequestType),
+    targetIdx: index("organization_bootstrap_micro_requests_target_idx").on(table.targetEntityType, table.targetEntityId),
+>>>>>>> 0a946f9 (Generate Logto usernames for contacts, relax base-admin role constraint, and enhance owner org UI (role selection, phone ext, previews))
   })
 );
 
@@ -215,6 +263,8 @@ module.exports = {
   commercialEvents,
   crmRoleMappings,
   healthChecks,
+  organizationBootstrapMicroRequests,
+  organizationBootstrapOperations,
   organizationProfiles,
   syncOperations,
   syncOperationSteps,

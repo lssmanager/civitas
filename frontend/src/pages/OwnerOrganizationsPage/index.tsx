@@ -10,6 +10,7 @@ import {
 import { useStableResource } from "../../shared/hooks/useStableResource";
 import { ErrorState, LoadingState, PageCard, PageShell } from "../../shared/ui";
 
+<<<<<<< HEAD
 const OWNER_ORGANIZATION_DRAFT_KEY = "civitas.owner.organization.create.draft.v2";
 
 type WizardStep = 1 | 2 | 3;
@@ -80,6 +81,11 @@ type DirtyState = {
 };
 
 type DraftSnapshot = {
+=======
+const OWNER_ORGANIZATION_DRAFT_KEY = "civitas.owner.organization.create.draft.v1";
+
+type OwnerOrganizationDraftSnapshot = {
+>>>>>>> 0a946f9 (Generate Logto usernames for contacts, relax base-admin role constraint, and enhance owner org UI (role selection, phone ext, previews))
   formData: OwnerOrganizationFormData;
   dirty: DirtyState;
   currentStep: WizardStep;
@@ -472,9 +478,13 @@ export function OwnerOrganizationsPage() {
   >(null);
   const [crmHealthChecking, setCrmHealthChecking] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+<<<<<<< HEAD
   const [tagInput, setTagInput] = useState("");
   const [listInput, setListInput] = useState("");
   const [draftSnapshot, setDraftSnapshot] = useState<DraftSnapshot | null>(null);
+=======
+  const [draftSnapshot, setDraftSnapshot] = useState<OwnerOrganizationDraftSnapshot | null>(null);
+>>>>>>> 0a946f9 (Generate Logto usernames for contacts, relax base-admin role constraint, and enhance owner org UI (role selection, phone ext, previews))
   const [draftMessage, setDraftMessage] = useState<string | null>(null);
   const hasHydratedDraftRef = useRef(false);
 
@@ -492,6 +502,12 @@ export function OwnerOrganizationsPage() {
     load: ownerApi.getWordPressRoles,
     getKey: () => "owner-organization-wordpress-role-catalog",
     getErrorMessage: (error) => error instanceof Error ? error.message : "No se pudo cargar catálogo WordPress.",
+  });
+  const microRequestsResource = useStableResource({
+    initialParams: {},
+    load: ownerApi.getBootstrapMicroRequests,
+    getKey: () => "owner-bootstrap-micro-requests",
+    getErrorMessage: (error) => error instanceof Error ? error.message : "No se pudo cargar pendientes de sincronización.",
   });
 
   const roles = templateResource.data?.roles.filter((role) => role.name) ?? [];
@@ -589,6 +605,39 @@ export function OwnerOrganizationsPage() {
   const primaryHeadContact = formData.administrativeContacts.find((contact) => contact.key === "director" && [contact.firstName, contact.lastName].some((value) => value.trim())) || null;
   const effectiveCompanyOwner = primaryHeadContact ? [primaryHeadContact.firstName, primaryHeadContact.lastName].map((value) => value.trim()).filter(Boolean).join(" ") : baseAdminFullName || formData.crm.companyOwner.trim();
 >>>>>>> bf6280a (Fix Logto user creation payload and owner form flow)
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(OWNER_ORGANIZATION_DRAFT_KEY);
+      if (raw) setDraftSnapshot(JSON.parse(raw) as OwnerOrganizationDraftSnapshot);
+    } catch {
+      window.localStorage.removeItem(OWNER_ORGANIZATION_DRAFT_KEY);
+    } finally {
+      hasHydratedDraftRef.current = true;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!hasHydratedDraftRef.current || typeof window === "undefined" || isSubmitting) return;
+    const snapshot: OwnerOrganizationDraftSnapshot = { formData, dirty, currentStep, savedAt: new Date().toISOString() };
+    window.localStorage.setItem(OWNER_ORGANIZATION_DRAFT_KEY, JSON.stringify(snapshot));
+  }, [formData, dirty, currentStep, isSubmitting]);
+
+  const restoreDraft = () => {
+    if (!draftSnapshot) return;
+    setFormData(draftSnapshot.formData);
+    setDirty(draftSnapshot.dirty);
+    setCurrentStep(draftSnapshot.currentStep);
+    setDraftMessage(`Borrador restaurado (${new Date(draftSnapshot.savedAt).toLocaleString()}).`);
+    setDraftSnapshot(null);
+  };
+
+  const discardDraft = () => {
+    if (typeof window !== "undefined") window.localStorage.removeItem(OWNER_ORGANIZATION_DRAFT_KEY);
+    setDraftSnapshot(null);
+    setDraftMessage("Borrador descartado.");
+  };
 
   useEffect(() => {
     setFormData((current) => ({
@@ -1228,7 +1277,17 @@ export function OwnerOrganizationsPage() {
         ...getFriendlyFluentCrmHints(diagnostic?.likelyCauses),
       ];
 
+<<<<<<< HEAD
       resetForm();
+=======
+      setFormData(initialFormData);
+      setDirty(initialDirty);
+      setCurrentStep(1);
+      setTagInput("");
+      setListInput("");
+      if (typeof window !== "undefined") window.localStorage.removeItem(OWNER_ORGANIZATION_DRAFT_KEY);
+      setDraftSnapshot(null);
+>>>>>>> 0a946f9 (Generate Logto usernames for contacts, relax base-admin role constraint, and enhance owner org UI (role selection, phone ext, previews))
       if (result.warning) {
         setSubmitWarning(result.warning);
       }
@@ -1969,11 +2028,6 @@ export function OwnerOrganizationsPage() {
           <h4 className="h6 mb-0">Roles y usuarios adicionales</h4>
         </div>
         <div className="d-flex flex-column gap-3">
-          {formData.administrativeContacts.length === 0 ? (
-            <div className="text-secondary small border rounded-3 p-3 bg-white">
-              Usa “+” solo si necesitas más roles o usuarios administrativos.
-            </div>
-          ) : null}
           {formData.administrativeContacts.map((contact) => {
             const previewTag = deriveContactTag(contact.organizationRoleName);
             return (
@@ -2415,6 +2469,13 @@ export function OwnerOrganizationsPage() {
     </section>
   );
 
+  const retryMicroRequest = async (microRequestId: string) => {
+    await ownerApi.retryBootstrapMicroRequest(microRequestId);
+    microRequestsResource.retry();
+  };
+
+  const openMicroRequests = microRequestsResource.data?.microRequests ?? [];
+
   return (
     <PageShell
       eyebrow="Owner / Organizaciones"
@@ -2474,8 +2535,24 @@ export function OwnerOrganizationsPage() {
                     </div>
                   </Alert>
                 ) : null}
+<<<<<<< HEAD
                 {draftMessage ? <Alert variant="secondary" className="mb-0">{draftMessage}</Alert> : null}
                 {stepError ? <Alert variant="warning" className="mb-0">{stepError}</Alert> : null}
+=======
+                {draftSnapshot ? (
+                  <Alert variant="info" className="mb-0 d-flex flex-column flex-lg-row justify-content-between gap-3">
+                    <div>
+                      <div className="fw-semibold">Hay un borrador guardado automáticamente.</div>
+                      <div className="small">Guardado: {new Date(draftSnapshot.savedAt).toLocaleString()}. Puedes restaurarlo, descartarlo o continuar con el formulario actual.</div>
+                    </div>
+                    <div className="d-flex gap-2 align-self-lg-center">
+                      <Button type="button" size="sm" onClick={restoreDraft}>Restaurar</Button>
+                      <Button type="button" size="sm" variant="outline-secondary" onClick={discardDraft}>Descartar</Button>
+                    </div>
+                  </Alert>
+                ) : null}
+                {draftMessage ? <Alert variant="secondary" className="mb-0">{draftMessage}</Alert> : null}
+>>>>>>> 0a946f9 (Generate Logto usernames for contacts, relax base-admin role constraint, and enhance owner org UI (role selection, phone ext, previews))
                 {templateResource.data && !templateResource.data.ready ? (
                   <Alert variant="danger" className="mb-0">
                     Falta configurar la plantilla de Logto. Roles requeridos ausentes: {templateResource.data.missingRoleNames.join(", ") || ORGANIZATION_BOOTSTRAP_ADMIN_ROLE}.
@@ -2529,6 +2606,30 @@ export function OwnerOrganizationsPage() {
                   </div>
                 </div>
               </Form>
+            )}
+          </PageCard>
+        </div>
+        <div className="col-12">
+          <PageCard title="Pendientes de sincronización / conflictos / reintentos" subtitle="Micro-solicitudes específicas: no requieren reenviar todo el formulario ni recrear lo que Logto ya aceptó.">
+            {microRequestsResource.isLoading ? (
+              <LoadingState title="Cargando pendientes" description="Consultando micro-operaciones abiertas." />
+            ) : microRequestsResource.error ? (
+              <ErrorState title="No se pudieron cargar pendientes" message={microRequestsResource.error} action={<Button onClick={microRequestsResource.retry}>Reintentar</Button>} />
+            ) : openMicroRequests.length === 0 ? (
+              <div className="text-secondary small">No hay micro-solicitudes abiertas.</div>
+            ) : (
+              <div className="d-flex flex-column gap-3">
+                {openMicroRequests.map((request) => (
+                  <div key={request.id} className="border rounded-3 p-3 d-flex flex-column flex-lg-row justify-content-between gap-3">
+                    <div>
+                      <div className="fw-semibold">{request.microRequestType}</div>
+                      <div className="small text-secondary">{request.targetEntityType} · {request.targetEntityId || "sin target"} · estado: {request.status}</div>
+                      {request.lastError?.message ? <div className="small text-danger mt-1">{String(request.lastError.message)}</div> : null}
+                    </div>
+                    <Button type="button" size="sm" variant="outline-primary" onClick={() => retryMicroRequest(request.id)}>Reintentar solo este pendiente</Button>
+                  </div>
+                ))}
+              </div>
             )}
           </PageCard>
         </div>
