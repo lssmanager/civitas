@@ -1036,3 +1036,99 @@ body.theme-dark .civitas-status-badge--danger {
   background: rgba(225, 92, 124, 0.16);
   border-color: rgba(225, 92, 124, 0.2);
 }
+
+.civitas-sidebar__nav {
+  min-height: 0;
+}
+
+.civitas-sidebar__panel {
+  padding: 0.35rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 1.2rem;
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.civitas-sidebar__panel--secondary {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.civitas-sidebar__panel-header {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.civitas-sidebar__panel .accordion-button {
+  padding-left: 0.95rem;
+  padding-right: 0.95rem;
+}
+
+.civitas-sidebar__panel .accordion-body {
+  padding-left: 0.35rem !important;
+  padding-right: 0.35rem !important;
+}
+
+.civitas-organization-card__hero {
+  padding: 1.35rem 1.5rem;
+}
+
+.civitas-organization-card__identity {
+  display: flex;
+  align-items: center;
+  gap: 1.15rem;
+}
+
+.civitas-organization-card__logo {
+  width: 104px;
+  height: 104px;
+  flex: 0 0 104px;
+  border-color: rgba(255, 255, 255, 0.18) !important;
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff !important;
+}
+
+.civitas-organization-card__copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.civitas-organization-card__copy h2,
+.civitas-organization-card__copy .h3,
+.civitas-organization-card__copy .h4 {
+  line-height: 1.05;
+}
+
+.civitas-select-card__body {
+  background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+}
+
+@media (max-width: 991.98px) {
+  .civitas-organization-card__identity {
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 767.98px) {
+  .civitas-organization-card__identity {
+    flex-direction: column;
+  }
+
+  .civitas-organization-card__logo {
+    width: 88px;
+    height: 88px;
+    flex-basis: 88px;
+  }
+}
+
+[data-bs-theme="dark"] .civitas-sidebar__panel,
+.theme-dark .civitas-sidebar__panel,
+body.theme-dark .civitas-sidebar__panel {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+[data-bs-theme="dark"] .civitas-organization-card__logo,
+.theme-dark .civitas-organization-card__logo,
+body.theme-dark .civitas-organization-card__logo {
+  border-color: rgba(255, 255, 255, 0.12) !important;
+  background: rgba(255, 255, 255, 0.1);
+}
