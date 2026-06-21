@@ -113,6 +113,13 @@
       "when": 1781712240000,
       "tag": "0015_normalize_role_mapping_schemas",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1763694000000,
+      "tag": "0016_create_bootstrap_operations",
+      "breakpoints": true
     }
   ]
 }

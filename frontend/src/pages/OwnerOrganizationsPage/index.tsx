@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Country, State } from "country-state-city";
 import { Alert, Badge, Button, Form } from "react-bootstrap";
 import { ApiRequestError } from "../../api/base";
@@ -10,9 +10,28 @@ import {
 import { useStableResource } from "../../shared/hooks/useStableResource";
 import { ErrorState, LoadingState, PageCard, PageShell } from "../../shared/ui";
 
+const OWNER_ORGANIZATION_DRAFT_KEY = "civitas.owner.organization.create.draft.v1";
+
+type OwnerOrganizationDraftSnapshot = {
+  formData: OwnerOrganizationFormData;
+  dirty: DirtyState;
+  currentStep: WizardStep;
+  savedAt: string;
+};
+
 const FLUENTCRM_LIKELY_CAUSE_LABELS: Record<string, string> = {
   invalid_username:
     "El usuario no coincide con el username/API username entregado por FluentCRM.",
+  duplicate_email:
+    "FluentCRM reportó que ya existe un contacto con ese correo; revisa duplicados antes de sincronizar.",
+  invalid_payload:
+    "FluentCRM rechazó algún dato del contacto: revisa correo, nombres, apellidos, teléfono, cargo y rol/listas/tags.",
+  invalid_company_id:
+    "FluentCRM rechazó el company_id asociado; verifica que la compañía exista y esté vinculada correctamente.",
+  invalid_tag:
+    "FluentCRM rechazó uno o más tags; verifica que existan y que el nombre no tenga valores inválidos.",
+  invalid_list:
+    "FluentCRM rechazó una o más listas; verifica que existan y que el nombre no tenga valores inválidos.",
   invalid_application_password:
     "La Application Password es inválida, fue truncada o ya no corresponde al usuario elegido.",
   basic_auth_blocked:
@@ -70,6 +89,7 @@ type AdministrativeContact = {
   email: string;
   phoneCountryCode: string;
   phoneNationalNumber: string;
+  phoneExtension: string;
   position: string;
   organizationRoleName: string;
 };
@@ -85,7 +105,8 @@ type OwnerOrganizationFormData = {
   baseAdminEmail: string;
   baseAdminPhoneCountryCode: string;
   baseAdminPhoneNationalNumber: string;
-  baseAdminLogtoUserId: string;
+  baseAdminPhoneExtension: string;
+  baseAdminPosition: string;
   adminRoleName: string;
   jitDefaultRoleName: string;
   crm: {
@@ -135,7 +156,8 @@ const initialFormData: OwnerOrganizationFormData = {
   baseAdminEmail: "",
   baseAdminPhoneCountryCode: "",
   baseAdminPhoneNationalNumber: "",
-  baseAdminLogtoUserId: "",
+  baseAdminPhoneExtension: "",
+  baseAdminPosition: "Admin base",
   adminRoleName: ORGANIZATION_BOOTSTRAP_ADMIN_ROLE,
   jitDefaultRoleName: ORGANIZATION_JIT_DEFAULT_ROLE,
   crm: {
@@ -216,6 +238,17 @@ const slugify = (value: string) =>
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
+const buildLogtoUsernamePreview = (email: string) =>
+  email
+    .trim()
+    .split("@")[0]
+    ?.normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9_]/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^([^a-z_])/, "_$1")
+    .replace(/^_+$/, "") || "—";
 const normalizePhoneForSubmission = (phone: string, callingCode?: string) => {
   const raw = phone.trim();
   if (!raw) return "";
@@ -244,6 +277,9 @@ export function OwnerOrganizationsPage() {
   >(null);
   const [crmHealthChecking, setCrmHealthChecking] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [draftSnapshot, setDraftSnapshot] = useState<OwnerOrganizationDraftSnapshot | null>(null);
+  const [draftMessage, setDraftMessage] = useState<string | null>(null);
+  const hasHydratedDraftRef = useRef(false);
 
   const templateResource = useStableResource({
     initialParams: {},
@@ -259,6 +295,12 @@ export function OwnerOrganizationsPage() {
     load: ownerApi.getWordPressRoles,
     getKey: () => "owner-organization-wordpress-role-catalog",
     getErrorMessage: (error) => error instanceof Error ? error.message : "No se pudo cargar catálogo WordPress.",
+  });
+  const microRequestsResource = useStableResource({
+    initialParams: {},
+    load: ownerApi.getBootstrapMicroRequests,
+    getKey: () => "owner-bootstrap-micro-requests",
+    getErrorMessage: (error) => error instanceof Error ? error.message : "No se pudo cargar pendientes de sincronización.",
   });
 
   const roles = templateResource.data?.roles.filter((role) => role.name) ?? [];
@@ -290,6 +332,39 @@ export function OwnerOrganizationsPage() {
   const baseAdminFullName = [formData.baseAdminFirstName, formData.baseAdminLastName].map((value) => value.trim()).filter(Boolean).join(" ");
   const primaryHeadContact = formData.administrativeContacts.find((contact) => contact.key === "director" && [contact.firstName, contact.lastName].some((value) => value.trim())) || null;
   const effectiveCompanyOwner = primaryHeadContact ? [primaryHeadContact.firstName, primaryHeadContact.lastName].map((value) => value.trim()).filter(Boolean).join(" ") : baseAdminFullName || formData.crm.companyOwner.trim();
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(OWNER_ORGANIZATION_DRAFT_KEY);
+      if (raw) setDraftSnapshot(JSON.parse(raw) as OwnerOrganizationDraftSnapshot);
+    } catch {
+      window.localStorage.removeItem(OWNER_ORGANIZATION_DRAFT_KEY);
+    } finally {
+      hasHydratedDraftRef.current = true;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!hasHydratedDraftRef.current || typeof window === "undefined" || isSubmitting) return;
+    const snapshot: OwnerOrganizationDraftSnapshot = { formData, dirty, currentStep, savedAt: new Date().toISOString() };
+    window.localStorage.setItem(OWNER_ORGANIZATION_DRAFT_KEY, JSON.stringify(snapshot));
+  }, [formData, dirty, currentStep, isSubmitting]);
+
+  const restoreDraft = () => {
+    if (!draftSnapshot) return;
+    setFormData(draftSnapshot.formData);
+    setDirty(draftSnapshot.dirty);
+    setCurrentStep(draftSnapshot.currentStep);
+    setDraftMessage(`Borrador restaurado (${new Date(draftSnapshot.savedAt).toLocaleString()}).`);
+    setDraftSnapshot(null);
+  };
+
+  const discardDraft = () => {
+    if (typeof window !== "undefined") window.localStorage.removeItem(OWNER_ORGANIZATION_DRAFT_KEY);
+    setDraftSnapshot(null);
+    setDraftMessage("Borrador descartado.");
+  };
 
   useEffect(() => {
     setFormData((current) => ({
@@ -516,6 +591,7 @@ export function OwnerOrganizationsPage() {
             email: "",
             phoneCountryCode: defaultCallingCode,
             phoneNationalNumber: "",
+            phoneExtension: "",
             position: "",
             organizationRoleName: ORGANIZATION_BOOTSTRAP_ADMIN_ROLE,
           },
@@ -526,7 +602,7 @@ export function OwnerOrganizationsPage() {
 
   const updateAdministrativeContact = (
     key: AdministrativeContactKey,
-    field: "firstName" | "lastName" | "email" | "phoneCountryCode" | "phoneNationalNumber" | "position" | "organizationRoleName",
+    field: "firstName" | "lastName" | "email" | "phoneCountryCode" | "phoneNationalNumber" | "phoneExtension" | "position" | "organizationRoleName",
     value: string,
   ) => {
     setStepError(null);
@@ -711,7 +787,7 @@ export function OwnerOrganizationsPage() {
           name: baseAdminFullName || undefined,
           email: formData.baseAdminEmail || undefined,
           phone: normalizePhoneForSubmission(formData.baseAdminPhoneNationalNumber, getPhoneCountryCode(formData.baseAdminPhoneCountryCode)) || undefined,
-          initialOrganizationRole: ORGANIZATION_BOOTSTRAP_ADMIN_ROLE,
+          initialOrganizationRole: selectedAdminRole,
         },
         jitProvisioning: {
           domain: formData.adminDomain || undefined,
@@ -751,15 +827,22 @@ export function OwnerOrganizationsPage() {
         | Record<string, unknown>
         | undefined;
       const diagnostic = getDiagnosticFromUnknown(fluentCrmStep?.diagnostic);
-      const likelyCauseHints = getFriendlyFluentCrmHints(
-        diagnostic?.likelyCauses,
-      );
+      const likelyCauseHints = [
+        ...(diagnostic?.code === "FLUENTCRM_VALIDATION_FAILED" || diagnostic?.code === "FLUENTCRM_DUPLICATE_CONTACT"
+          ? diagnostic?.message
+            ? [diagnostic.message]
+            : []
+          : []),
+        ...getFriendlyFluentCrmHints(diagnostic?.likelyCauses),
+      ];
 
       setFormData(initialFormData);
       setDirty(initialDirty);
       setCurrentStep(1);
       setTagInput("");
       setListInput("");
+      if (typeof window !== "undefined") window.localStorage.removeItem(OWNER_ORGANIZATION_DRAFT_KEY);
+      setDraftSnapshot(null);
       if (result.warning) {
         if (diagnostic?.code === "FLUENTCRM_AUTHENTICATION_FAILED") {
           setSubmitWarning(
@@ -857,7 +940,7 @@ export function OwnerOrganizationsPage() {
         </p>
       </div>
       <Form.Group controlId="ownerOrganizationCompanyName">
-        <Form.Label>Nombre de la compañía</Form.Label>
+        <Form.Label>Nombre organización</Form.Label>
         <Form.Control
           size="lg"
           value={formData.name}
@@ -868,7 +951,7 @@ export function OwnerOrganizationsPage() {
       </Form.Group>
       <div className="row g-3">
         <Form.Group className="col-12 col-xl-6" controlId="ownerOrganizationCrmWebsite">
-          <Form.Label>Sitio web</Form.Label>
+          <Form.Label>Website</Form.Label>
           <Form.Control
             value={formData.crm.website}
             onChange={(event) => updateCrmField("website", event.target.value)}
@@ -905,10 +988,10 @@ export function OwnerOrganizationsPage() {
           </Form.Select>
         </Form.Group>
         <Form.Group className="col-12 col-xl-3" controlId="ownerOrganizationCrmState">
-          <Form.Label>Estado / provincia / departamento</Form.Label>
+          <Form.Label>Departamento</Form.Label>
           {countryStates.length > 0 ? (
             <Form.Select value={formData.crm.state} disabled={!selectedCountry} onChange={(event) => updateCrmField("state", event.target.value)}>
-              <option value="">Selecciona estado / provincia</option>
+              <option value="">Selecciona departamento</option>
               {countryStates.map((state) => <option key={state.isoCode} value={state.name}>{state.name}</option>)}
             </Form.Select>
           ) : (
@@ -925,7 +1008,7 @@ export function OwnerOrganizationsPage() {
           <Form.Control value={formData.crm.city} onChange={(event) => updateCrmField("city", event.target.value)} placeholder="Ingresa ciudad" />
         </Form.Group>
         <Form.Group className="col-12 col-xl-3" controlId="ownerOrganizationCrmPostalCode">
-          <Form.Label>Código postal</Form.Label>
+          <Form.Label>Postal Code</Form.Label>
           <Form.Control value={formData.crm.postalCode} onChange={(event) => updateCrmField("postalCode", event.target.value)} placeholder="Ingresa código postal" />
         </Form.Group>
       </div>
@@ -941,7 +1024,7 @@ export function OwnerOrganizationsPage() {
       </div>
       <div className="row g-3 align-items-end">
         <Form.Group className="col-12 col-xl-7" controlId="ownerOrganizationCrmCompanyEmail">
-          <Form.Label>Correo de la compañía</Form.Label>
+          <Form.Label>Company Email</Form.Label>
           <Form.Control type="email" value={formData.crm.companyEmail} onChange={(event) => updateCrmField("companyEmail", event.target.value)} placeholder={`contacto@${getEmailDomainExample()}`} />
         </Form.Group>
         <Form.Group className="col-4 col-xl-1" controlId="ownerOrganizationCrmCompanyPhoneCode">
@@ -949,7 +1032,7 @@ export function OwnerOrganizationsPage() {
           <Form.Control inputMode="numeric" maxLength={4} value={formData.crm.companyPhoneCountryCode} onChange={(event) => updateCrmField("companyPhoneCountryCode", event.target.value.replace(/\D/g, "").slice(0, 4))} placeholder={defaultCallingCode || "57"} />
         </Form.Group>
         <Form.Group className="col-8 col-xl-4" controlId="ownerOrganizationCrmCompanyPhoneNumber">
-          <Form.Label>Número de compañía</Form.Label>
+          <Form.Label>Teléfono compañía</Form.Label>
           <Form.Control inputMode="tel" value={formData.crm.companyPhoneNationalNumber} onChange={(event) => updateCrmField("companyPhoneNationalNumber", event.target.value)} placeholder="3001112233" />
         </Form.Group>
       </div>
@@ -963,12 +1046,12 @@ export function OwnerOrganizationsPage() {
           <Form.Control type="number" min="0" value={formData.crm.nit} onChange={(event) => updateCrmField("nit", event.target.value)} placeholder="Ingresa NIT" />
         </Form.Group>
         <Form.Group className="col-12 col-xl-4" controlId="ownerOrganizationCrmVerificationDigit">
-          <Form.Label>Dígito de verificación</Form.Label>
-          <Form.Control type="number" min="0" value={formData.crm.verificationDigit} onChange={(event) => updateCrmField("verificationDigit", event.target.value)} placeholder="Ingresa dígito de verificación" />
+          <Form.Label>Dígito de verificación (un carácter)</Form.Label>
+          <Form.Control type="number" min="0" maxLength={1} value={formData.crm.verificationDigit} onChange={(event) => updateCrmField("verificationDigit", event.target.value.slice(0, 1))} placeholder="0" />
         </Form.Group>
       </div>
       <Form.Group controlId="ownerOrganizationCrmAbout">
-        <Form.Label>Acerca de la compañía</Form.Label>
+        <Form.Label>About this company</Form.Label>
         <Form.Control as="textarea" rows={2} value={formData.crm.about} onChange={(event) => updateCrmField("about", event.target.value)} placeholder="Describe la compañía" />
       </Form.Group>
       <div className="row g-3">
@@ -981,12 +1064,12 @@ export function OwnerOrganizationsPage() {
           <Form.Control value={formData.crm.type} onChange={(event) => updateCrmField("type", event.target.value)} placeholder="Ingresa tipo" />
         </Form.Group>
         <Form.Group className="col-12 col-lg-4" controlId="ownerOrganizationCrmOwner">
-          <Form.Label>Responsable de la compañía</Form.Label>
+          <Form.Label>Responsable interno</Form.Label>
           <Form.Control value={formData.crm.companyOwner} onChange={(event) => updateCrmField("companyOwner", event.target.value)} placeholder="Ingresa responsable de la compañía" />
         </Form.Group>
       </div>
       <Form.Group controlId="ownerOrganizationCrmDescription">
-        <Form.Label>Descripción</Form.Label>
+        <Form.Label>Descripción adicional</Form.Label>
         <Form.Control as="textarea" rows={2} value={formData.crm.description} onChange={(event) => updateCrmField("description", event.target.value)} placeholder="Ingresa descripción" />
       </Form.Group>
     </section>
@@ -1032,13 +1115,13 @@ export function OwnerOrganizationsPage() {
         </Alert>
       ) : null}
       <div className="border rounded-3 p-3 d-flex flex-column gap-3 bg-light bg-opacity-50">
-        <h4 className="h6 mb-0">Creación de roles · Admin base</h4>
+        <h4 className="h6 mb-0">Creación de roles</h4>
         <div className="row g-3">
           <Form.Group
             className="col-12 col-xl-3"
             controlId="ownerOrganizationBaseAdminFirstName"
           >
-            <Form.Label>Nombres admin base</Form.Label>
+            <Form.Label>Nombres</Form.Label>
             <Form.Control
               value={formData.baseAdminFirstName}
               onChange={(event) => updateField("baseAdminFirstName", event.target.value)}
@@ -1050,7 +1133,7 @@ export function OwnerOrganizationsPage() {
             className="col-12 col-xl-3"
             controlId="ownerOrganizationBaseAdminLastName"
           >
-            <Form.Label>Apellidos admin base</Form.Label>
+            <Form.Label>Apellidos</Form.Label>
             <Form.Control
               value={formData.baseAdminLastName}
               onChange={(event) => updateField("baseAdminLastName", event.target.value)}
@@ -1062,7 +1145,7 @@ export function OwnerOrganizationsPage() {
             className="col-12 col-xl-3"
             controlId="ownerOrganizationBaseAdminEmail"
           >
-            <Form.Label>Correo admin base</Form.Label>
+            <Form.Label>Correo</Form.Label>
             <Form.Control
               type="email"
               value={formData.baseAdminEmail}
@@ -1074,7 +1157,7 @@ export function OwnerOrganizationsPage() {
             />
           </Form.Group>
           <Form.Group className="col-12 col-xl-2" controlId="ownerOrganizationBaseAdminPhoneCode">
-            <Form.Label>Indicativo admin base</Form.Label>
+            <Form.Label>Indicativo</Form.Label>
             <Form.Control
               type="tel"
               inputMode="numeric"
@@ -1085,7 +1168,7 @@ export function OwnerOrganizationsPage() {
             />
           </Form.Group>
           <Form.Group className="col-12 col-xl-2" controlId="ownerOrganizationBaseAdminPhoneNumber">
-            <Form.Label>Número admin base</Form.Label>
+            <Form.Label>Teléfono</Form.Label>
             <Form.Control
               type="tel"
               value={formData.baseAdminPhoneNationalNumber}
@@ -1093,26 +1176,50 @@ export function OwnerOrganizationsPage() {
               placeholder="3001112233"
             />
           </Form.Group>
+          <Form.Group className="col-12 col-xl-1" controlId="ownerOrganizationBaseAdminPhoneExtension">
+            <Form.Label>Ext.</Form.Label>
+            <Form.Control
+              value={formData.baseAdminPhoneExtension}
+              onChange={(event) => updateField("baseAdminPhoneExtension", event.target.value)}
+              placeholder="101"
+            />
+          </Form.Group>
+          <Form.Group className="col-12 col-xl-4" controlId="ownerOrganizationBaseAdminPosition">
+            <Form.Label>Cargo</Form.Label>
+            <Form.Control
+              value={formData.baseAdminPosition}
+              onChange={(event) => updateField("baseAdminPosition", event.target.value)}
+              placeholder="Admin base"
+            />
+          </Form.Group>
+          <Form.Group className="col-12 col-xl-4" controlId="ownerOrganizationBaseAdminRole">
+            <Form.Label>Rol Logto</Form.Label>
+            <Form.Select
+              value={selectedAdminRole}
+              onChange={(event) => updateField("adminRoleName", event.target.value)}
+              disabled={roles.length === 0}
+            >
+              {!roles.some((role) => role.name === selectedAdminRole) ? (
+                <option value={selectedAdminRole}>{selectedAdminRole}</option>
+              ) : null}
+              {roles.map((role) => (
+                <option value={role.name} key={`base-admin-${role.id}`}>
+                  {role.name}
+                </option>
+              ))}
+            </Form.Select>
+          </Form.Group>
+        </div>
+        <div className="d-flex flex-wrap gap-3 small text-secondary">
+          <span>Username Logto: <Badge bg="light" text="primary" className="border ms-1">{buildLogtoUsernamePreview(formData.baseAdminEmail)}</Badge></span>
+          <span>Tag por contacto: <Badge bg="light" text="dark" className="border ms-1">{deriveContactTag(selectedAdminRole) || "—"}</Badge></span>
         </div>
       </div>
       <div className="border rounded-3 p-3 d-flex flex-column gap-3 bg-light bg-opacity-50">
         <div className="d-flex flex-column flex-md-row justify-content-between gap-2">
-          <h4 className="h6 mb-0">Usuarios adicionales</h4>
-          <Button
-            type="button"
-            variant="outline-primary"
-            size="sm"
-            onClick={addAdministrativeContact}
-          >
-            + Añadir usuario
-          </Button>
+          <h4 className="h6 mb-0">Roles y usuarios adicionales</h4>
         </div>
         <div className="d-flex flex-column gap-3">
-          {formData.administrativeContacts.length === 0 ? (
-            <div className="text-secondary small border rounded-3 p-3 bg-white">
-              El admin base será el primer usuario con rol Admin-org. Usa “+ Añadir usuario” solo si necesitas más usuarios administrativos.
-            </div>
-          ) : null}
           {formData.administrativeContacts.map((contact) => {
             const previewTag = deriveContactTag(contact.organizationRoleName);
             return (
@@ -1122,23 +1229,23 @@ export function OwnerOrganizationsPage() {
               >
                 <div className="d-flex flex-column flex-lg-row justify-content-between gap-2">
                   <h5 className="h6 mb-0">{contact.label}</h5>
-                  <span className="small text-secondary">
-                    Tag por contacto:{" "}
-                    {previewTag ? (
+                  <div className="d-flex flex-wrap gap-3 small text-secondary">
+                    <span>Username Logto: <Badge bg="light" text="primary" className="border ms-1">{buildLogtoUsernamePreview(contact.email)}</Badge></span>
+                    <span>Tag por contacto: {previewTag ? (
                       <Badge bg="light" text="dark" className="border ms-1">
                         {previewTag}
                       </Badge>
                     ) : (
                       "—"
-                    )}
-                  </span>
+                    )}</span>
+                  </div>
                 </div>
                 <div className="row g-3">
                   <Form.Group
                     className="col-12 col-xl-3"
                     controlId={`ownerOrganizationAdminContactFirstName-${contact.key}`}
                   >
-                    <Form.Label>{contact.label} nombres</Form.Label>
+                    <Form.Label>Nombres</Form.Label>
                     <Form.Control
                       value={contact.firstName}
                       onChange={(event) =>
@@ -1155,7 +1262,7 @@ export function OwnerOrganizationsPage() {
                     className="col-12 col-xl-3"
                     controlId={`ownerOrganizationAdminContactLastName-${contact.key}`}
                   >
-                    <Form.Label>{contact.label} apellidos</Form.Label>
+                    <Form.Label>Apellidos</Form.Label>
                     <Form.Control
                       value={contact.lastName}
                       onChange={(event) =>
@@ -1172,7 +1279,7 @@ export function OwnerOrganizationsPage() {
                     className="col-12 col-xl-6"
                     controlId={`ownerOrganizationAdminContactEmail-${contact.key}`}
                   >
-                    <Form.Label>{contact.label} correo</Form.Label>
+                    <Form.Label>Correo</Form.Label>
                     <Form.Control
                       type="email"
                       value={contact.email}
@@ -1192,7 +1299,7 @@ export function OwnerOrganizationsPage() {
                     className="col-12 col-xl-2"
                     controlId={`ownerOrganizationAdminContactPhoneCode-${contact.key}`}
                   >
-                    <Form.Label>{contact.label} indicativo</Form.Label>
+                    <Form.Label>Indicativo</Form.Label>
                     <Form.Control
                       type="tel"
                       inputMode="numeric"
@@ -1212,7 +1319,7 @@ export function OwnerOrganizationsPage() {
                     className="col-12 col-xl-2"
                     controlId={`ownerOrganizationAdminContactPhoneNumber-${contact.key}`}
                   >
-                    <Form.Label>{contact.label} número</Form.Label>
+                    <Form.Label>Teléfono</Form.Label>
                     <Form.Control
                       type="tel"
                       value={contact.phoneNationalNumber}
@@ -1227,10 +1334,27 @@ export function OwnerOrganizationsPage() {
                     />
                   </Form.Group>
                   <Form.Group
-                    className="col-12 col-xl-4"
+                    className="col-12 col-xl-1"
+                    controlId={`ownerOrganizationAdminContactPhoneExtension-${contact.key}`}
+                  >
+                    <Form.Label>Ext.</Form.Label>
+                    <Form.Control
+                      value={contact.phoneExtension}
+                      onChange={(event) =>
+                        updateAdministrativeContact(
+                          contact.key,
+                          "phoneExtension",
+                          event.target.value,
+                        )
+                      }
+                      placeholder="101"
+                    />
+                  </Form.Group>
+                  <Form.Group
+                    className="col-12 col-xl-3"
                     controlId={`ownerOrganizationAdminContactPosition-${contact.key}`}
                   >
-                    <Form.Label>{contact.label} cargo</Form.Label>
+                    <Form.Label>Cargo</Form.Label>
                     <Form.Control
                       value={contact.position}
                       onChange={(event) =>
@@ -1247,7 +1371,7 @@ export function OwnerOrganizationsPage() {
                     className="col-12 col-xl-4"
                     controlId={`ownerOrganizationAdminContactRole-${contact.key}`}
                   >
-                    <Form.Label>{contact.label} rol Logto</Form.Label>
+                    <Form.Label>Rol Logto</Form.Label>
                     <Form.Select
                       value={contact.organizationRoleName}
                       onChange={(event) =>
@@ -1280,6 +1404,11 @@ export function OwnerOrganizationsPage() {
               </div>
             );
           })}
+          <div className="d-flex justify-content-end">
+            <Button type="button" variant="outline-primary" size="sm" onClick={addAdministrativeContact} aria-label="Añadir rol">
+              +
+            </Button>
+          </div>
         </div>
       </div>
       <div className="border rounded-3 p-3 d-flex flex-column gap-3 bg-light bg-opacity-50">
@@ -1352,7 +1481,7 @@ export function OwnerOrganizationsPage() {
                 Editar
               </Button>
             </div>
-            {summaryRow("Nombre de la compañía", formData.name)}
+            {summaryRow("Nombre organización", formData.name)}
             {summaryRow("Slug", formData.slug)}
             {summaryRow("Subdominio app", formData.appSubdomain)}
             {summaryRow("Dominio de aprovisionamiento", formData.adminDomain)}
@@ -1371,22 +1500,22 @@ export function OwnerOrganizationsPage() {
                 Editar
               </Button>
             </div>
-            {summaryRow("Correo de la compañía", formData.crm.companyEmail)}
+            {summaryRow("Company Email", formData.crm.companyEmail)}
             {summaryRow("Teléfono de la compañía", normalizePhoneForSubmission(formData.crm.companyPhoneNationalNumber, getPhoneCountryCode(formData.crm.companyPhoneCountryCode)) || formData.crm.companyPhoneNationalNumber)}
-            {summaryRow("Sitio web", formData.crm.website)}
+            {summaryRow("Website", formData.crm.website)}
             {summaryRow("Dirección línea 1", formData.crm.addressLine1)}
             {summaryRow("Dirección línea 2", formData.crm.addressLine2)}
             {summaryRow("Ciudad", formData.crm.city)}
             {summaryRow("Departamento", formData.crm.state)}
-            {summaryRow("Código postal", formData.crm.postalCode)}
+            {summaryRow("Postal Code", formData.crm.postalCode)}
             {summaryRow("País", formData.crm.country)}
             {summaryRow("Número de empleados", formData.crm.numberOfEmployees)}
             {summaryRow("Industria", formData.crm.industry)}
             {summaryRow("Tipo", formData.crm.type)}
-            {summaryRow("Responsable de la compañía", effectiveCompanyOwner)}
+            {summaryRow("Responsable interno", effectiveCompanyOwner)}
             {summaryRow("NIT", formData.crm.nit)}
             {summaryRow(
-              "Dígito de verificación",
+              "Dígito de verificación (un carácter)",
               formData.crm.verificationDigit,
             )}
           </div>
@@ -1394,10 +1523,12 @@ export function OwnerOrganizationsPage() {
         <div className="col-12 col-xl-6">
           <div className="border rounded-3 p-3 h-100 d-flex flex-column gap-2">
             <h4 className="h6 mb-0">Perfil de usuario / Logto</h4>
-            {summaryRow("Nombres admin base", formData.baseAdminFirstName)}
-            {summaryRow("Apellidos admin base", formData.baseAdminLastName)}
+            {summaryRow("Nombres", formData.baseAdminFirstName)}
+            {summaryRow("Apellidos", formData.baseAdminLastName)}
             {summaryRow("Email admin base", formData.baseAdminEmail)}
             {summaryRow("Teléfono admin base normalizado", normalizePhoneForSubmission(formData.baseAdminPhoneNationalNumber, getPhoneCountryCode(formData.baseAdminPhoneCountryCode)) || formData.baseAdminPhoneNationalNumber)}
+            {summaryRow("Cargo", formData.baseAdminPosition)}
+            {summaryRow("Rol Logto", selectedAdminRole)}
             <div className="small text-secondary">Payload custom del perfil: {JSON.stringify({ phone: normalizePhoneForSubmission(formData.baseAdminPhoneNationalNumber, getPhoneCountryCode(formData.baseAdminPhoneCountryCode)) || undefined, companyOwner: effectiveCompanyOwner })}</div>
             <h4 className="h6 mb-0 mt-2">Creación de usuarios</h4>
             {formData.administrativeContacts.map((contact) => (
@@ -1453,14 +1584,21 @@ export function OwnerOrganizationsPage() {
             <div className="d-flex flex-wrap gap-2">
               {wordpressRoles.length ? wordpressRoles.slice(0, 12).map((role) => <Badge key={role.slug} bg="light" text="dark" className="border">{role.name} ({role.slug})</Badge>) : <span className="text-secondary small">Catálogo no cargado o no disponible.</span>}
             </div>
-            <h4 className="h6 mb-0">Descripción / About</h4>
-            {summaryRow("Acerca de la compañía", formData.crm.about)}
-            {summaryRow("Descripción", formData.crm.description)}
+            <h4 className="h6 mb-0">Descripción adicional / About</h4>
+            {summaryRow("About this company", formData.crm.about)}
+            {summaryRow("Descripción adicional", formData.crm.description)}
           </div>
         </div>
       </div>
     </section>
   );
+
+  const retryMicroRequest = async (microRequestId: string) => {
+    await ownerApi.retryBootstrapMicroRequest(microRequestId);
+    microRequestsResource.retry();
+  };
+
+  const openMicroRequests = microRequestsResource.data?.microRequests ?? [];
 
   return (
     <PageShell
@@ -1519,6 +1657,19 @@ export function OwnerOrganizationsPage() {
                     {stepError}
                   </Alert>
                 ) : null}
+                {draftSnapshot ? (
+                  <Alert variant="info" className="mb-0 d-flex flex-column flex-lg-row justify-content-between gap-3">
+                    <div>
+                      <div className="fw-semibold">Hay un borrador guardado automáticamente.</div>
+                      <div className="small">Guardado: {new Date(draftSnapshot.savedAt).toLocaleString()}. Puedes restaurarlo, descartarlo o continuar con el formulario actual.</div>
+                    </div>
+                    <div className="d-flex gap-2 align-self-lg-center">
+                      <Button type="button" size="sm" onClick={restoreDraft}>Restaurar</Button>
+                      <Button type="button" size="sm" variant="outline-secondary" onClick={discardDraft}>Descartar</Button>
+                    </div>
+                  </Alert>
+                ) : null}
+                {draftMessage ? <Alert variant="secondary" className="mb-0">{draftMessage}</Alert> : null}
                 {templateResource.data && !templateResource.data.ready ? (
                   <Alert variant="danger" className="mb-0">
                     Falta configurar la plantilla de Logto. Roles requeridos
@@ -1594,6 +1745,30 @@ export function OwnerOrganizationsPage() {
                   </div>
                 </div>
               </Form>
+            )}
+          </PageCard>
+        </div>
+        <div className="col-12">
+          <PageCard title="Pendientes de sincronización / conflictos / reintentos" subtitle="Micro-solicitudes específicas: no requieren reenviar todo el formulario ni recrear lo que Logto ya aceptó.">
+            {microRequestsResource.isLoading ? (
+              <LoadingState title="Cargando pendientes" description="Consultando micro-operaciones abiertas." />
+            ) : microRequestsResource.error ? (
+              <ErrorState title="No se pudieron cargar pendientes" message={microRequestsResource.error} action={<Button onClick={microRequestsResource.retry}>Reintentar</Button>} />
+            ) : openMicroRequests.length === 0 ? (
+              <div className="text-secondary small">No hay micro-solicitudes abiertas.</div>
+            ) : (
+              <div className="d-flex flex-column gap-3">
+                {openMicroRequests.map((request) => (
+                  <div key={request.id} className="border rounded-3 p-3 d-flex flex-column flex-lg-row justify-content-between gap-3">
+                    <div>
+                      <div className="fw-semibold">{request.microRequestType}</div>
+                      <div className="small text-secondary">{request.targetEntityType} · {request.targetEntityId || "sin target"} · estado: {request.status}</div>
+                      {request.lastError?.message ? <div className="small text-danger mt-1">{String(request.lastError.message)}</div> : null}
+                    </div>
+                    <Button type="button" size="sm" variant="outline-primary" onClick={() => retryMicroRequest(request.id)}>Reintentar solo este pendiente</Button>
+                  </div>
+                ))}
+              </div>
             )}
           </PageCard>
         </div>
