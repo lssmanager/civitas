@@ -20,7 +20,106 @@ function getCivitasProfile(data?: OwnerOrganizationProfileResponse | null) {
   };
 }
 
-function OrganizationSnapshotCard({ name, business, contact, logoUrl }: { name: string; business: Record<string, string | null>; contact: Record<string, string | null>; logoUrl?: string | null }) { const entryHost = business.slug ? `${business.slug}.learnsocialstudies.com` : business.subdomain ? `${business.subdomain}.learnsocialstudies.com` : null; const entryUrl = entryHost ? `https://${entryHost}` : null; const website = business.website || business.institutionalDomain || null; const addressLine = [business.addressLine1, business.addressLine2].filter(Boolean).join(', '); const locationLine = [business.city, business.department, business.country, business.postalCode].filter(Boolean).join(' · '); const nit = [business.nit, business.verificationDigit].filter(Boolean).join(' · Establecimiento '); return <Card className="border shadow-sm overflow-hidden mx-auto" style={{ maxWidth: 920 }}><div className="bg-primary text-white p-4"><span className="badge rounded-pill text-bg-light bg-opacity-25 border border-light border-opacity-25 mb-3">▦ Institución educativa</span><h2 className="h3 fw-bold mb-1">{name || 'Organización sin nombre'}</h2><p className="mb-0 opacity-75">{nit ? `NIT ${nit}` : entryHost ?? 'Identificación pendiente'}</p></div><div className="row g-0"><div className="col-12 col-md-3 bg-light border-end d-flex align-items-center justify-content-center p-4"><div className="border rounded-3 d-flex flex-column align-items-center justify-content-center text-secondary" style={{ width: 150, height: 150 }}>{logoUrl ? <img src={logoUrl} alt={`Logo de ${name}`} className="img-fluid p-3" /> : <><span className="fs-1">⌂</span><span className="small">Logo</span></>}</div></div><div className="col-12 col-md-9 p-4"><div className="d-flex gap-3 pb-3 border-bottom"><span className="badge text-bg-primary bg-opacity-10 text-primary rounded-3 align-self-start">⌖</span><div><p className="text-uppercase text-secondary small fw-bold mb-1">Dirección</p><p className="fw-semibold mb-0">{addressLine || 'Dirección pendiente'}</p><p className="fw-semibold mb-0">{locationLine || 'Ubicación pendiente'}</p></div></div><div className="d-flex gap-3 py-3 border-bottom"><span className="badge text-bg-primary bg-opacity-10 text-primary rounded-3 align-self-start">☏</span><div><p className="text-uppercase text-secondary small fw-bold mb-1">Teléfono</p><p className="fw-semibold mb-0">{contact.phone || 'Teléfono pendiente'}</p></div></div><div className="d-flex gap-3 pt-3"><span className="badge text-bg-primary bg-opacity-10 text-primary rounded-3 align-self-start">✉</span><div><p className="text-uppercase text-secondary small fw-bold mb-1">Correo electrónico</p><p className="fw-semibold text-primary mb-0 text-break">{contact.email || 'Email pendiente'}</p></div></div></div></div><Card.Footer className="bg-white p-3"><div className="row g-3"> <div className="col-12 col-md-6">{entryUrl ? <a className="btn btn-primary w-100 rounded-3 fw-semibold" href={entryUrl} target="_blank" rel="noreferrer">URL {entryHost}</a> : <button className="btn btn-outline-secondary w-100 rounded-3 fw-semibold" disabled>URL pendiente</button>}</div><div className="col-12 col-md-6">{website ? <a className="btn btn-primary w-100 rounded-3 fw-semibold" href={website.startsWith('http') ? website : `https://${website}`} target="_blank" rel="noreferrer">Sitio web</a> : <button className="btn btn-outline-secondary w-100 rounded-3 fw-semibold" disabled>Sitio web pendiente</button>}</div></div></Card.Footer></Card>; }
+function OrganizationSnapshotCard({
+  name,
+  business,
+  contact,
+  logoUrl,
+}: {
+  name: string;
+  business: Record<string, string | null>;
+  contact: Record<string, string | null>;
+  logoUrl?: string | null;
+}) {
+  const entryHost = business.slug ? `${business.slug}.learnsocialstudies.com` : business.subdomain ? `${business.subdomain}.learnsocialstudies.com` : null;
+  const entryUrl = entryHost ? `https://${entryHost}` : null;
+  const website = business.website || business.institutionalDomain || null;
+  const addressLine = [business.addressLine1, business.addressLine2].filter(Boolean).join(", ");
+  const locationLine = [business.city, business.department, business.country, business.postalCode].filter(Boolean).join(" · ");
+  const identityLine = [business.nit, business.verificationDigit].filter(Boolean).join(" · ") || entryHost || "Identificación pendiente";
+
+  return (
+    <Card className="border shadow-sm overflow-hidden mx-auto civitas-organization-card" style={{ maxWidth: 920 }}>
+      <div className="bg-primary text-white p-4 civitas-organization-card__hero">
+        <div className="civitas-organization-card__identity">
+          <div className="civitas-select-card__logo civitas-organization-card__logo border rounded-3 d-flex flex-column align-items-center justify-content-center text-secondary">
+            {logoUrl ? (
+              <img src={logoUrl} alt={`Logo de ${name}`} className="img-fluid p-3" />
+            ) : (
+              <>
+                <span className="fs-2">⌂</span>
+                <span className="small">Logo</span>
+              </>
+            )}
+          </div>
+          <div className="civitas-organization-card__copy">
+            <span className="civitas-select-card__eyebrow">▦ Institución educativa</span>
+            <h2 className="h3 fw-bold mb-1">{name || "Organización sin nombre"}</h2>
+            <p className="mb-0">{identityLine}</p>
+          </div>
+        </div>
+      </div>
+      <Card.Body className="civitas-select-card__body p-4">
+        <div className="row g-3">
+          <div className="col-12 col-xl-6">
+            <div className="d-flex gap-3 pb-3 border-bottom h-100">
+              <span className="civitas-select-card__icon align-self-start">⌖</span>
+              <div>
+                <p className="text-uppercase text-secondary small fw-bold mb-1">Dirección</p>
+                <p className="fw-semibold mb-0">{addressLine || "Dirección pendiente"}</p>
+                <p className="fw-semibold mb-0">{locationLine || "Ubicación pendiente"}</p>
+              </div>
+            </div>
+          </div>
+          <div className="col-12 col-xl-6">
+            <div className="d-flex gap-3 pb-3 border-bottom h-100">
+              <span className="civitas-select-card__icon align-self-start">☏</span>
+              <div>
+                <p className="text-uppercase text-secondary small fw-bold mb-1">Teléfono</p>
+                <p className="fw-semibold mb-0">{contact.phone || "Teléfono pendiente"}</p>
+              </div>
+            </div>
+          </div>
+          <div className="col-12">
+            <div className="d-flex gap-3">
+              <span className="civitas-select-card__icon align-self-start">✉</span>
+              <div>
+                <p className="text-uppercase text-secondary small fw-bold mb-1">Correo electrónico</p>
+                <p className="fw-semibold text-primary mb-0 text-break">{contact.email || "Email pendiente"}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Card.Body>
+      <Card.Footer className="civitas-select-card__footer bg-white p-3">
+        <div className="row g-3">
+          <div className="col-12 col-md-6">
+            {entryUrl ? (
+              <a className="btn btn-outline-primary w-100 rounded-3 fw-semibold civitas-select-card__footer-action" href={entryUrl} target="_blank" rel="noreferrer">
+                Sitio web
+              </a>
+            ) : (
+              <button className="btn btn-outline-secondary w-100 rounded-3 fw-semibold civitas-select-card__footer-action" disabled>
+                URL pendiente
+              </button>
+            )}
+          </div>
+          <div className="col-12 col-md-6">
+            {website ? (
+              <a className="btn btn-primary w-100 rounded-3 fw-semibold civitas-select-card__footer-action" href={website.startsWith("http") ? website : `https://${website}`} target="_blank" rel="noreferrer">
+                Abrir sitio
+              </a>
+            ) : (
+              <button className="btn btn-outline-secondary w-100 rounded-3 fw-semibold civitas-select-card__footer-action" disabled>
+                Sitio web pendiente
+              </button>
+            )}
+          </div>
+        </div>
+      </Card.Footer>
+    </Card>
+  );
+}
 
 function ProfileTab({ data, organizationId, onSaved }: { data: OwnerOrganizationProfileResponse; organizationId: string; onSaved: () => void }) {
   const ownerApi = useOwnerApi();
