@@ -91,7 +91,9 @@ function NavigationBranch({
 
 export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   const location = useLocation();
-  const activeOwnerSections = ownerNavigationTree
+  const rootRoute = ownerNavigationTree[0];
+  const sectionRoutes = ownerNavigationTree.slice(1);
+  const activeOwnerSections = sectionRoutes
     .map((item, index) =>
       item.children?.some((child) => child.path === location.pathname)
         ? `owner-section-${index}`
@@ -100,22 +102,24 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
     .filter((key): key is string => Boolean(key));
 
   return (
-    <Nav className="flex-column gap-2 p-3" as="nav">
-      <Accordion defaultActiveKey={["owner", ...activeOwnerSections]} alwaysOpen>
-        <Accordion.Item eventKey="owner" className="border-0">
-          <Accordion.Header>Owner</Accordion.Header>
-          <Accordion.Body className="p-0 pt-2">
-            <div className="d-flex flex-column gap-1">
-              {ownerNavigationTree.map((item, index) => (
-                <NavigationBranch key={item.path} item={item} index={index} onNavigate={onNavigate} />
-              ))}
-            </div>
-          </Accordion.Body>
-        </Accordion.Item>
-      </Accordion>
-      {primaryNavigation.map((item) => (
-        <SidebarLink key={item.path} item={item} onNavigate={onNavigate} />
-      ))}
-    </Nav>
+    <div className="civitas-sidebar__nav flex-grow-1 d-flex flex-column p-3 gap-3">
+      <Nav className="flex-column gap-2 civitas-sidebar__panel" as="nav">
+        <div className="civitas-sidebar__panel-header px-3 py-3">
+          <p className="mb-1 fw-semibold text-white">Owner</p>
+          <p className="mb-0 small civitas-sidebar-link__meta">Espacio global del producto y sus operaciones.</p>
+        </div>
+        {rootRoute ? <SidebarLink item={rootRoute} onNavigate={onNavigate} /> : null}
+        <Accordion defaultActiveKey={activeOwnerSections} alwaysOpen>
+          {sectionRoutes.map((item, index) => (
+            <NavigationBranch key={item.path} item={item} index={index} onNavigate={onNavigate} />
+          ))}
+        </Accordion>
+      </Nav>
+      <Nav className="flex-column gap-2 civitas-sidebar__panel civitas-sidebar__panel--secondary mt-auto" as="nav">
+        {primaryNavigation.map((item) => (
+          <SidebarLink key={item.path} item={item} onNavigate={onNavigate} />
+        ))}
+      </Nav>
+    </div>
   );
 }
