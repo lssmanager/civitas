@@ -94,11 +94,19 @@ const FLUENTCRM_LIKELY_CAUSE_LABELS: Record<string, string> = {
   invalid_payload:
     "FluentCRM rechazó algún dato del contacto: revisa correo, nombres, apellidos, teléfono, cargo y rol/listas/tags.",
   invalid_company_id:
+<<<<<<< HEAD
     "FluentCRM rechazó el company_id asociado; verifica la compañía vinculada.",
   invalid_tag:
     "FluentCRM rechazó uno o más tags; valida que existan.",
   invalid_list:
     "FluentCRM rechazó una o más lists; valida que existan.",
+=======
+    "FluentCRM rechazó el company_id asociado; verifica que la compañía exista y esté vinculada correctamente.",
+  invalid_tag:
+    "FluentCRM rechazó uno o más tags; verifica que existan y que el nombre no tenga valores inválidos.",
+  invalid_list:
+    "FluentCRM rechazó una o más listas; verifica que existan y que el nombre no tenga valores inválidos.",
+>>>>>>> 90a49d0 (Generate Logto usernames for contacts, relax base-admin role constraint, and enhance owner org UI (role selection, phone ext, previews))
   invalid_application_password:
     "La Application Password es inválida o ya no corresponde al usuario elegido.",
   basic_auth_blocked:
@@ -1205,10 +1213,17 @@ export function OwnerOrganizationsPage() {
         | undefined;
       const diagnostic = getDiagnosticFromUnknown(fluentCrmStep?.diagnostic);
       const likelyCauseHints = [
+<<<<<<< HEAD
         ...((diagnostic?.code === "FLUENTCRM_VALIDATION_FAILED" ||
           diagnostic?.code === "FLUENTCRM_DUPLICATE_CONTACT") &&
         diagnostic?.message
           ? [diagnostic.message]
+=======
+        ...(diagnostic?.code === "FLUENTCRM_VALIDATION_FAILED" || diagnostic?.code === "FLUENTCRM_DUPLICATE_CONTACT"
+          ? diagnostic?.message
+            ? [diagnostic.message]
+            : []
+>>>>>>> 90a49d0 (Generate Logto usernames for contacts, relax base-admin role constraint, and enhance owner org UI (role selection, phone ext, previews))
           : []),
         ...getFriendlyFluentCrmHints(diagnostic?.likelyCauses),
       ];
