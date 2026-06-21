@@ -61,6 +61,23 @@ export type OwnerWorkerHealth = {
   queues: Array<{ name: string; waiting: number; active: number; delayed: number; failed: number; oldestJobAgeSeconds: number }>;
 };
 
+export type OwnerPendingSync = { id: string; operationId: string; organizationId: string | null; organizationName: string | null; type: string; affectedSystem: string; status: string; retryable: boolean; lastError: string; suggestedAction: string; };
+export type OwnerOrganizationEvent = { id: string; at: string | null; type: string; result: string; stage: string; message: string; requiresAction: boolean; retryOperationId: string | null };
+export type OwnerOrganizationProfileResponse = {
+  organization: OwnerOrganization;
+  canonical: { source: "logto"; topLevelFields: string[]; customData: Record<string, unknown> };
+  readModel?: { business?: Record<string, string | null>; contact?: Record<string, string | null>; branding?: Record<string, string | null>; crm?: Record<string, unknown>; sourcePriority?: string[] };
+  customDataShape: { root: string; sections: string[] };
+  downstreamOnly: string[];
+  sync: { pending: OwnerPendingSync[]; events: OwnerOrganizationEvent[] };
+};
+export type OwnerOrganizationDirectoryMember = {
+  identity: { logtoUserId: string | null; name: string | null; email: string | null; phone: string | null; roles?: string[]; lastLoginAt?: string | null; mfa?: { enabled: boolean | null; method?: string | null; availability?: string }; sessions?: { availability: string; note?: string }; spentTime?: { availability: string; value: number | null; note?: string } };
+  crm: Record<string, unknown>;
+  civitas: Record<string, unknown>;
+};
+export type OwnerOrganizationDirectoryResponse = { organizationId: string; members: OwnerOrganizationDirectoryMember[] };
+
 export type OwnerAuditActor = {
   internalUserId: string | null;
   logtoUserId: string | null;
@@ -261,6 +278,18 @@ export const useOwnerApi = () => {
       getOrganizationTemplate: async (): Promise<OwnerOrganizationTemplate> => fetchWithToken("/owner/organization-template"),
       getOperationsSummary: async (): Promise<OwnerOperationsSummary> => fetchWithToken("/owner/operations/summary"),
       getWorkerHealth: async (): Promise<OwnerWorkerHealth> => fetchWithToken("/owner/system/worker-health"),
+      getOrganizationProfile: async (organizationId: string): Promise<OwnerOrganizationProfileResponse> =>
+        fetchWithToken(`/owner/organizations/${encodeURIComponent(organizationId)}/profile`),
+      updateOrganizationProfile: async (organizationId: string, data: Record<string, unknown>): Promise<{ status: string; organization: OwnerOrganization; syncOperation: Record<string, unknown> }> =>
+        fetchWithToken(`/owner/organizations/${encodeURIComponent(organizationId)}/profile`, { method: "PATCH", body: JSON.stringify(data) }),
+      retrySyncOperation: async (organizationId: string, operationId: string): Promise<{ status: string; operation: Record<string, unknown> }> =>
+        fetchWithToken(`/owner/organizations/${encodeURIComponent(organizationId)}/sync-operations/${encodeURIComponent(operationId)}/retry`, { method: "POST" }),
+      getOrganizationMembers: async (organizationId: string): Promise<OwnerOrganizationDirectoryResponse> =>
+        fetchWithToken(`/owner/organizations/${encodeURIComponent(organizationId)}/directory`),
+      updateOrganizationMember: async (organizationId: string, logtoUserId: string, data: Record<string, unknown>): Promise<{ status: string; logtoUser: Record<string, unknown>; syncOperation: Record<string, unknown> }> =>
+        fetchWithToken(`/owner/organizations/${encodeURIComponent(organizationId)}/members/${encodeURIComponent(logtoUserId)}`, { method: "PATCH", body: JSON.stringify(data) }),
+      resetOrganizationMemberPassword: async (organizationId: string, logtoUserId: string): Promise<{ status: string; message: string }> =>
+        fetchWithToken(`/owner/organizations/${encodeURIComponent(organizationId)}/members/${encodeURIComponent(logtoUserId)}/reset-password`, { method: "POST" }),
       getFluentCrmHealth: async (): Promise<OwnerFluentCrmHealthResponse> => fetchWithToken("/owner/integrations/fluentcrm/health"),
       getFluentCrmRoleMappings: async (): Promise<OwnerCrmRoleMappingsResponse> => fetchWithToken("/owner/integrations/fluentcrm/role-mappings"),
       updateFluentCrmRoleMappings: async (mappings: OwnerCrmRoleMapping[]): Promise<OwnerCrmRoleMappingsResponse> =>

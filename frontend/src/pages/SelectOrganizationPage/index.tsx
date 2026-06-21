@@ -1,4 +1,5 @@
 import { Alert, Badge, Button, Card } from "react-bootstrap";
+import { Link } from "react-router-dom";
 import { useOrganizationSelectionApi, type SelectableOrganization } from "../../api/organizationSelection";
 import { useStableResource } from "../../shared/hooks/useStableResource";
 import { EmptyState, ErrorState, LoadingState, PageCard, PageShell } from "../../shared/ui";
@@ -20,68 +21,48 @@ const getStatusBadge = (status?: string) => {
   return <Badge bg="secondary">{status}</Badge>;
 };
 
-const getReconciliationLabel = (organization: SelectableOrganization) => {
-  const { reconciliation } = organization;
-
-  if (reconciliation.status === "linked") return "Metadata enlazada por id Logto";
-  if (reconciliation.status === "name_matched_pending_link") return "Metadata local encontrada por nombre; pendiente de enlazar por id Logto";
-  if (reconciliation.status === "metadata_missing") return "Existe en Logto sin metadata local asociada";
-  if (reconciliation.status === "conflict") return "Varios perfiles internos coinciden con esta organización real";
-  return reconciliation.status;
-};
-
 const getOrganizationName = (organization: SelectableOrganization) => organization.name ?? "Organización sin nombre en Logto";
 
-const formatLastSync = (value?: string | null) => value ? new Date(value).toLocaleString() : "Sin sincronización exitosa";
 
 function OrganizationCard({ organization }: { organization: SelectableOrganization }) {
   const profile = organization.profile;
   const canonical = organization.canonical;
-  const subdomain = canonical?.appSubdomain;
+  const subdomain = canonical?.appSubdomain || profile?.subdomain || canonical?.slug;
+  const entryHost = subdomain ? `${subdomain}.learnsocialstudies.com` : null;
+  const customData = canonical.customData || {};
+  const civitasProfile = (customData.civitasProfile && typeof customData.civitasProfile === "object" ? customData.civitasProfile : {}) as { business?: Record<string, string>; contact?: Record<string, string>; branding?: Record<string, string> };
+  const business = civitasProfile.business || {};
+  const contact = civitasProfile.contact || {};
+  const logoUrl = civitasProfile.branding?.lightLogoUrl || civitasProfile.branding?.logoUrl || profile?.branding?.logoUrl || null;
+  const addressLine = [business.addressLine1, business.addressLine2].filter(Boolean).join(', ');
+  const locationLine = [business.city, business.department, business.country, business.postalCode].filter(Boolean).join(' · ');
+  const nit = [business.nit, business.verificationDigit].filter(Boolean).join(' · Establecimiento ');
 
   return (
-    <Card className="h-100 border-0 shadow-sm civitas-select-card">
-      <Card.Body className="d-flex flex-column gap-3">
-        <div className="d-flex justify-content-between gap-3 align-items-start">
-          <div>
-            <Card.Title className="mb-1">{getOrganizationName(organization)}</Card.Title>
-            <Card.Subtitle className="text-secondary small text-break">
-              Organización Logto: {organization.logtoOrganizationId}
-            </Card.Subtitle>
+    <Link className="text-decoration-none text-reset d-block h-100" to={`/owner/organizations/${encodeURIComponent(organization.logtoOrganizationId)}`}>
+      <Card className="h-100 border shadow-sm overflow-hidden civitas-select-card" role="button">
+        <div className="bg-primary text-white p-4">
+          <span className="badge rounded-pill text-bg-light bg-opacity-25 border border-light border-opacity-25 mb-3">▦ Institución educativa</span>
+          <h2 className="h4 fw-bold mb-1">{getOrganizationName(organization)}</h2>
+          <p className="mb-0 opacity-75">{nit ? `NIT ${nit}` : entryHost ?? organization.logtoOrganizationId}</p>
+        </div>
+        <Card.Body className="p-0">
+          <div className="row g-0 h-100">
+            <div className="col-12 col-md-4 bg-light border-end d-flex align-items-center justify-content-center p-4">
+              <div className="border rounded-3 d-flex flex-column align-items-center justify-content-center text-secondary" style={{ width: 128, height: 128 }}>{logoUrl ? <img src={logoUrl} alt={`Logo de ${getOrganizationName(organization)}`} className="img-fluid p-3" /> : <><span className="fs-2">⌂</span><span className="small">Logo</span></>}</div>
+            </div>
+            <div className="col-12 col-md-8 p-4 d-flex flex-column gap-3">
+              <div className="d-flex justify-content-end gap-2">{getStatusBadge(profile?.status)}{getSyncBadge(organization.syncStatus)}</div>
+              <div className="d-flex gap-3 pb-3 border-bottom"><span className="badge text-bg-primary bg-opacity-10 text-primary rounded-3 align-self-start">⌖</span><div><p className="text-uppercase text-secondary small fw-bold mb-1">Dirección</p><p className="fw-semibold mb-0">{addressLine || "Dirección pendiente"}</p><p className="fw-semibold mb-0">{locationLine || "Ubicación pendiente"}</p></div></div>
+              <div className="d-flex gap-3 pb-3 border-bottom"><span className="badge text-bg-primary bg-opacity-10 text-primary rounded-3 align-self-start">☏</span><div><p className="text-uppercase text-secondary small fw-bold mb-1">Teléfono</p><p className="fw-semibold mb-0">{contact.phone || "Teléfono pendiente"}</p></div></div>
+              <div className="d-flex gap-3"><span className="badge text-bg-primary bg-opacity-10 text-primary rounded-3 align-self-start">✉</span><div><p className="text-uppercase text-secondary small fw-bold mb-1">Correo electrónico</p><p className="fw-semibold text-primary mb-0 text-break">{contact.email || "Email pendiente"}</p></div></div>
+              {organization.syncError ? <Alert variant={organization.syncStatus === "conflict" ? "warning" : "danger"} className="small py-2 px-3 mb-0">{organization.syncError}</Alert> : null}
+            </div>
           </div>
-          <div className="d-flex flex-column align-items-end gap-2">
-            {getStatusBadge(profile?.status)}
-            {getSyncBadge(organization.syncStatus)}
-          </div>
-        </div>
-
-        <div className="small text-secondary d-flex flex-column gap-1">
-          <span>{subdomain ? `Subdominio app (Logto): ${subdomain}` : "Sin subdominio canónico en Logto"}</span>
-          {canonical?.oidcRedirectUri ? <span className="text-break">Redirect URI Logto: {canonical.oidcRedirectUri}</span> : null}
-          {profile?.subdomain && profile.subdomain !== subdomain ? <span>Subdominio local legacy: {profile.subdomain}</span> : null}
-          <span>Último bootstrap completo local: {formatLastSync(profile?.logtoSyncedAt)}</span>
-          <span>{getReconciliationLabel(organization)}</span>
-          {organization.reconciliation.profileIds.length > 0 ? (
-            <span className="text-break">Perfiles internos asociados: {organization.reconciliation.profileIds.join(", ")}</span>
-          ) : null}
-        </div>
-
-        {organization.syncError ? (
-          <Alert variant={organization.syncStatus === "conflict" ? "warning" : "danger"} className="small py-2 px-3 mb-0">
-            {organization.syncError}
-          </Alert>
-        ) : null}
-
-        <div className="mt-auto d-flex flex-column gap-2">
-          <Button variant="outline-primary" disabled>
-            Entrar cuando el contexto tenant esté disponible
-          </Button>
-          <p className="text-secondary small mb-0">
-            La identidad visible proviene de Logto. La obtención de organization token y navegación tenant-scoped se conectará en una fase posterior.
-          </p>
-        </div>
-      </Card.Body>
-    </Card>
+        </Card.Body>
+        <Card.Footer className="bg-white p-3"><div className="row g-2"><div className="col-12 col-md-6"><span className="btn btn-primary w-100 rounded-3 fw-semibold">{entryHost ? `URL ${entryHost}` : "URL pendiente"}</span></div><div className="col-12 col-md-6"><span className="btn btn-primary w-100 rounded-3 fw-semibold">Abrir consola</span></div></div></Card.Footer>
+      </Card>
+    </Link>
   );
 }
 
