@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Accordion, Badge, Button, Pagination } from "react-bootstrap";
 import { useOwnerApi, type OwnerAuditLog, type OwnerAuditPagination, type OwnerAuditResponse } from "../../api/owner";
 import { useStableResource } from "../../shared/hooks/useStableResource";
@@ -81,7 +80,6 @@ function AuditLogList({ rows }: { rows: OwnerAuditLog[] }) {
 
 export function OwnerAuditPage() {
   const { getAuditLogs } = useOwnerApi();
-  const [expandedEventKeys, setExpandedEventKeys] = useState<string[]>([]);
   const {
     data,
     error,
@@ -106,7 +104,6 @@ export function OwnerAuditPage() {
 
   const goToPage = (page: number) => {
     const nextOffset = Math.max(0, (page - 1) * PAGE_SIZE);
-    setExpandedEventKeys([]);
     reload((current) => ({ ...current, offset: nextOffset }));
   };
 
