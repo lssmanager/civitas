@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Country, State } from "country-state-city";
 import { Alert, Badge, Button, Form } from "react-bootstrap";
 import { ApiRequestError } from "../../api/base";
@@ -10,9 +10,28 @@ import {
 import { useStableResource } from "../../shared/hooks/useStableResource";
 import { ErrorState, LoadingState, PageCard, PageShell } from "../../shared/ui";
 
+const OWNER_ORGANIZATION_DRAFT_KEY = "civitas.owner.organization.create.draft.v1";
+
+type OwnerOrganizationDraftSnapshot = {
+  formData: OwnerOrganizationFormData;
+  dirty: DirtyState;
+  currentStep: WizardStep;
+  savedAt: string;
+};
+
 const FLUENTCRM_LIKELY_CAUSE_LABELS: Record<string, string> = {
   invalid_username:
     "El usuario no coincide con el username/API username entregado por FluentCRM.",
+  duplicate_email:
+    "FluentCRM reportó que ya existe un contacto con ese correo; revisa duplicados antes de sincronizar.",
+  invalid_payload:
+    "FluentCRM rechazó algún dato del contacto: revisa correo, nombres, apellidos, teléfono, cargo y rol/listas/tags.",
+  invalid_company_id:
+    "FluentCRM rechazó el company_id asociado; verifica que la compañía exista y esté vinculada correctamente.",
+  invalid_tag:
+    "FluentCRM rechazó uno o más tags; verifica que existan y que el nombre no tenga valores inválidos.",
+  invalid_list:
+    "FluentCRM rechazó una o más listas; verifica que existan y que el nombre no tenga valores inválidos.",
   invalid_application_password:
     "La Application Password es inválida, fue truncada o ya no corresponde al usuario elegido.",
   basic_auth_blocked:
@@ -65,9 +84,12 @@ type AdministrativeContactKey = "director" | `responsible${number}`;
 type AdministrativeContact = {
   key: AdministrativeContactKey;
   label: string;
-  name: string;
+  firstName: string;
+  lastName: string;
   email: string;
-  phone: string;
+  phoneCountryCode: string;
+  phoneNationalNumber: string;
+  phoneExtension: string;
   position: string;
   organizationRoleName: string;
 };
@@ -77,15 +99,21 @@ type OwnerOrganizationFormData = {
   slug: string;
   appSubdomain: string;
   adminDomain: string;
+  baseAdminFirstName: string;
+  baseAdminLastName: string;
   baseAdminName: string;
   baseAdminEmail: string;
-  baseAdminLogtoUserId: string;
+  baseAdminPhoneCountryCode: string;
+  baseAdminPhoneNationalNumber: string;
+  baseAdminPhoneExtension: string;
+  baseAdminPosition: string;
   adminRoleName: string;
   jitDefaultRoleName: string;
   crm: {
     companyName: string;
     companyEmail: string;
-    companyPhone: string;
+    companyPhoneCountryCode: string;
+    companyPhoneNationalNumber: string;
     about: string;
     website: string;
     addressLine1: string;
@@ -117,22 +145,26 @@ type DirtyState = {
   };
 };
 
-const DIRECTOR_DEFAULT_ROLE = "Headmaster-org";
-
 const initialFormData: OwnerOrganizationFormData = {
   name: "",
   slug: "",
   appSubdomain: "",
   adminDomain: "",
+  baseAdminFirstName: "",
+  baseAdminLastName: "",
   baseAdminName: "",
   baseAdminEmail: "",
-  baseAdminLogtoUserId: "",
+  baseAdminPhoneCountryCode: "",
+  baseAdminPhoneNationalNumber: "",
+  baseAdminPhoneExtension: "",
+  baseAdminPosition: "Admin base",
   adminRoleName: ORGANIZATION_BOOTSTRAP_ADMIN_ROLE,
   jitDefaultRoleName: ORGANIZATION_JIT_DEFAULT_ROLE,
   crm: {
     companyName: "",
     companyEmail: "",
-    companyPhone: "",
+    companyPhoneCountryCode: "",
+    companyPhoneNationalNumber: "",
     about: "",
     website: "",
     addressLine1: "",
@@ -151,26 +183,7 @@ const initialFormData: OwnerOrganizationFormData = {
     tags: [],
     lists: [],
   },
-  administrativeContacts: [
-    {
-      key: "director",
-      label: "Director",
-      name: "",
-      email: "",
-      phone: "",
-      position: "Director",
-      organizationRoleName: DIRECTOR_DEFAULT_ROLE,
-    },
-    {
-      key: "responsible1",
-      label: "Responsable 1",
-      name: "",
-      email: "",
-      phone: "",
-      position: "",
-      organizationRoleName: ORGANIZATION_BOOTSTRAP_ADMIN_ROLE,
-    },
-  ],
+  administrativeContacts: [],
 };
 
 const initialDirty: DirtyState = {
@@ -225,6 +238,28 @@ const slugify = (value: string) =>
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
+const buildLogtoUsernamePreview = (email: string) =>
+  email
+    .trim()
+    .split("@")[0]
+    ?.normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9_]/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^([^a-z_])/, "_$1")
+    .replace(/^_+$/, "") || "—";
+const normalizePhoneForSubmission = (phone: string, callingCode?: string) => {
+  const raw = phone.trim();
+  if (!raw) return "";
+  const compact = raw.replace(/[\s().-]+/g, "");
+  const withCode = compact.startsWith("+")
+    ? compact
+    : callingCode
+      ? `+${callingCode.replace(/\D/g, "")}${compact.replace(/^0+/, "")}`
+      : compact;
+  return /^\+[1-9]\d{6,14}$/.test(withCode) ? withCode : "";
+};
 
 export function OwnerOrganizationsPage() {
   const ownerApi = useOwnerApi();
@@ -246,6 +281,10 @@ export function OwnerOrganizationsPage() {
   >(null);
   const [crmHealthChecking, setCrmHealthChecking] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [draftSnapshot, setDraftSnapshot] =
+    useState<OwnerOrganizationDraftSnapshot | null>(null);
+  const [draftMessage, setDraftMessage] = useState<string | null>(null);
+  const hasHydratedDraftRef = useRef(false);
 
   const templateResource = useStableResource({
     initialParams: {},
@@ -256,8 +295,18 @@ export function OwnerOrganizationsPage() {
         ? error.message
         : "No se pudo cargar la plantilla de organización de Logto.",
   });
+  const wordpressRolesResource = useStableResource({
+    initialParams: {},
+    load: ownerApi.getWordPressRoles,
+    getKey: () => "owner-organization-wordpress-role-catalog",
+    getErrorMessage: (error) =>
+      error instanceof Error
+        ? error.message
+        : "No se pudo cargar catálogo WordPress.",
+  });
 
   const roles = templateResource.data?.roles.filter((role) => role.name) ?? [];
+  const wordpressRoles = wordpressRolesResource.data?.roles ?? [];
   const selectedAdminRole = roles.some(
     (role) => role.name === formData.adminRoleName,
   )
@@ -268,14 +317,6 @@ export function OwnerOrganizationsPage() {
   )
     ? formData.jitDefaultRoleName
     : ORGANIZATION_JIT_DEFAULT_ROLE;
-  const logtoUserIdLooksLikeRole = [
-    ORGANIZATION_BOOTSTRAP_ADMIN_ROLE,
-    ORGANIZATION_JIT_DEFAULT_ROLE,
-  ].includes(
-    formData.baseAdminLogtoUserId.trim() as
-      | typeof ORGANIZATION_BOOTSTRAP_ADMIN_ROLE
-      | typeof ORGANIZATION_JIT_DEFAULT_ROLE,
-  );
   const countries = useMemo(() => Country.getAllCountries(), []);
   const selectedCountry =
     countries.find(
@@ -288,6 +329,78 @@ export function OwnerOrganizationsPage() {
       selectedCountry ? State.getStatesOfCountry(selectedCountry.isoCode) : [],
     [selectedCountry],
   );
+  const defaultCallingCode =
+    selectedCountry?.phonecode?.replace(/\D/g, "") || "";
+  const getPhoneCountryCode = (value: string) => value.trim() || defaultCallingCode;
+  const baseAdminFullName = [
+    formData.baseAdminFirstName,
+    formData.baseAdminLastName,
+  ]
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .join(" ");
+  const primaryHeadContact =
+    formData.administrativeContacts.find(
+      (contact) =>
+        contact.key === "director" &&
+        [contact.firstName, contact.lastName].some((value) => value.trim()),
+    ) || null;
+  const effectiveCompanyOwner = primaryHeadContact
+    ? [primaryHeadContact.firstName, primaryHeadContact.lastName]
+        .map((value) => value.trim())
+        .filter(Boolean)
+        .join(" ")
+    : baseAdminFullName || formData.crm.companyOwner.trim();
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(OWNER_ORGANIZATION_DRAFT_KEY);
+      if (raw) setDraftSnapshot(JSON.parse(raw) as OwnerOrganizationDraftSnapshot);
+    } catch {
+      window.localStorage.removeItem(OWNER_ORGANIZATION_DRAFT_KEY);
+    } finally {
+      hasHydratedDraftRef.current = true;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (
+      !hasHydratedDraftRef.current ||
+      typeof window === "undefined" ||
+      isSubmitting
+    )
+      return;
+    const snapshot: OwnerOrganizationDraftSnapshot = {
+      formData,
+      dirty,
+      currentStep,
+      savedAt: new Date().toISOString(),
+    };
+    window.localStorage.setItem(
+      OWNER_ORGANIZATION_DRAFT_KEY,
+      JSON.stringify(snapshot),
+    );
+  }, [formData, dirty, currentStep, isSubmitting]);
+
+  const restoreDraft = () => {
+    if (!draftSnapshot) return;
+    setFormData(draftSnapshot.formData);
+    setDirty(draftSnapshot.dirty);
+    setCurrentStep(draftSnapshot.currentStep);
+    setDraftMessage(
+      `Borrador restaurado (${new Date(draftSnapshot.savedAt).toLocaleString()}).`,
+    );
+    setDraftSnapshot(null);
+  };
+
+  const discardDraft = () => {
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem(OWNER_ORGANIZATION_DRAFT_KEY);
+    }
+    setDraftSnapshot(null);
+    setDraftMessage("Borrador descartado.");
+  };
 
   useEffect(() => {
     setFormData((current) => ({
@@ -303,6 +416,11 @@ export function OwnerOrganizationsPage() {
           ? current.crm.companyEmail
           : current.baseAdminEmail,
         website: dirty.crm.website ? current.crm.website : current.adminDomain,
+        companyOwner:
+          current.crm.companyOwner ||
+          [current.baseAdminFirstName, current.baseAdminLastName]
+            .filter(Boolean)
+            .join(" "),
         tags: dirty.crm.tags
           ? current.crm.tags
           : deriveOrganizationTags(current.name),
@@ -314,6 +432,8 @@ export function OwnerOrganizationsPage() {
   }, [
     formData.name,
     formData.baseAdminEmail,
+    formData.baseAdminFirstName,
+    formData.baseAdminLastName,
     formData.adminDomain,
     selectedAdminRole,
     selectedJitRole,
@@ -329,7 +449,19 @@ export function OwnerOrganizationsPage() {
     value: string,
   ) => {
     setStepError(null);
-    setFormData((current) => ({ ...current, [field]: value }));
+    setFormData((current) => {
+      const next = { ...current, [field]: value };
+      if (field === "baseAdminFirstName" || field === "baseAdminLastName") {
+        next.baseAdminName = [
+          field === "baseAdminFirstName" ? value : current.baseAdminFirstName,
+          field === "baseAdminLastName" ? value : current.baseAdminLastName,
+        ]
+          .map((item) => item.trim())
+          .filter(Boolean)
+          .join(" ");
+      }
+      return next;
+    });
   };
 
   const updateCompanyName = (value: string) => {
@@ -353,14 +485,54 @@ export function OwnerOrganizationsPage() {
         crm: { ...current.crm, [field]: true },
       }));
     }
-    setFormData((current) => ({
-      ...current,
-      crm: {
-        ...current.crm,
-        [field]: value,
-        ...(field === "country" ? { state: "", city: "" } : {}),
-      },
-    }));
+    setFormData((current) => {
+      const selected =
+        field === "country"
+          ? countries.find(
+              (country) =>
+                country.name === value || country.isoCode === value,
+            )
+          : null;
+      const selectedCallingCode =
+        selected?.phonecode?.replace(/\D/g, "") || "";
+      return {
+        ...current,
+        ...(field === "country" && selectedCallingCode
+          ? {
+              baseAdminPhoneCountryCode:
+                !current.baseAdminPhoneCountryCode ||
+                current.baseAdminPhoneCountryCode === defaultCallingCode
+                  ? selectedCallingCode
+                  : current.baseAdminPhoneCountryCode,
+              administrativeContacts: current.administrativeContacts.map(
+                (contact) => ({
+                  ...contact,
+                  phoneCountryCode:
+                    !contact.phoneCountryCode ||
+                    contact.phoneCountryCode === defaultCallingCode
+                      ? selectedCallingCode
+                      : contact.phoneCountryCode,
+                }),
+              ),
+            }
+          : {}),
+        crm: {
+          ...current.crm,
+          [field]: value,
+          ...(field === "country"
+            ? {
+                state: "",
+                city: "",
+                companyPhoneCountryCode:
+                  !current.crm.companyPhoneCountryCode ||
+                  current.crm.companyPhoneCountryCode === defaultCallingCode
+                    ? selectedCallingCode
+                    : current.crm.companyPhoneCountryCode,
+              }
+            : {}),
+        },
+      };
+    });
   };
 
   const getInstitutionalEmailSuffix = () =>
@@ -368,35 +540,54 @@ export function OwnerOrganizationsPage() {
   const getEmailDomainExample = () =>
     formData.adminDomain.trim() || "ejemplo.com.co";
   const getAdministrativeEmailPlaceholder = (key: AdministrativeContactKey) =>
-    `${key === "director" ? "director" : key.replace("responsible", "responsable")}@${getEmailDomainExample()}`;
+    `${
+      key === "director"
+        ? "director"
+        : key.replace("responsible", "responsable")
+    }@${getEmailDomainExample()}`;
   const isOnlyInstitutionalEmailSuffix = (email: string) =>
     Boolean(getInstitutionalEmailSuffix()) &&
-    email.trim().toLowerCase() === getInstitutionalEmailSuffix().toLowerCase();
+    email.trim().toLowerCase() ===
+      getInstitutionalEmailSuffix().toLowerCase();
   const normalizeAdministrativeEmail = (email: string) =>
     isOnlyInstitutionalEmailSuffix(email) ? "" : email.trim();
   const normalizeAdministrativeContactForSubmission = (
     contact: AdministrativeContact,
-  ): {
-    value?: {
-      kind: AdministrativeContactKey;
-      name: string;
-      email: string;
-      phone?: string;
-      position?: string;
-      organizationRoleName: string;
-    };
-    error?: string;
-  } | null => {
-    const name = contact.name.trim();
+  ):
+    | {
+        value?: {
+          kind: AdministrativeContactKey;
+          name: string;
+          email: string;
+          phone?: string;
+          position?: string;
+          organizationRoleName: string;
+        };
+        error?: string;
+      }
+    | null => {
+    const name = [contact.firstName, contact.lastName]
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .join(" ");
     const email = normalizeAdministrativeEmail(contact.email);
-    const phone = contact.phone.trim();
+    const phone = normalizePhoneForSubmission(
+      contact.phoneNationalNumber,
+      getPhoneCountryCode(contact.phoneCountryCode),
+    );
     const position = contact.position.trim();
     const organizationRoleName = contact.organizationRoleName.trim();
-    const hasAnyUserInput = Boolean(name || email || phone || position);
+    const hasAnyUserInput = Boolean(
+      contact.firstName.trim() ||
+        contact.lastName.trim() ||
+        email ||
+        contact.phoneNationalNumber.trim() ||
+        position,
+    );
     if (!hasAnyUserInput) return null;
     if (!name || !email || !organizationRoleName)
       return {
-        error: `${contact.label}: completa nombre, email real y rol Logto, o deja el bloque vacío.`,
+        error: `${contact.label}: completa nombres, apellidos, correo real y rol Logto, o deja el bloque vacío.`,
       };
     return {
       value: {
@@ -414,9 +605,54 @@ export function OwnerOrganizationsPage() {
     formData.administrativeContacts.map(
       normalizeAdministrativeContactForSubmission,
     );
-  const getAdministrativeContactValidationError = () =>
-    getNormalizedAdministrativeContacts().find((result) => result?.error)
-      ?.error || null;
+  const getAdministrativeContactValidationError = () => {
+    const normalized = getNormalizedAdministrativeContacts();
+    const fieldError = normalized.find((result) => result?.error)?.error;
+    if (fieldError) return fieldError;
+    for (const contact of formData.administrativeContacts) {
+      if (
+        contact.phoneNationalNumber.trim() &&
+        !normalizePhoneForSubmission(
+          contact.phoneNationalNumber,
+          getPhoneCountryCode(contact.phoneCountryCode),
+        )
+      ) {
+        return `Teléfono inválido para ${contact.email || contact.label}. Usa indicativo de país y número nacional válido.`;
+      }
+    }
+
+    const seen = new Map<
+      string,
+      { label: string; name: string; position: string; role: string }
+    >();
+    for (const result of normalized) {
+      if (!result?.value) continue;
+      const emailKey = result.value.email.trim().toLowerCase();
+      const previous = seen.get(emailKey);
+      if (previous) {
+        const current = {
+          label: String(result.value.kind),
+          name: result.value.name.trim(),
+          position: (result.value.position || "").trim(),
+          role: result.value.organizationRoleName.trim(),
+        };
+        const differs =
+          previous.name !== current.name ||
+          previous.position !== current.position ||
+          previous.role !== current.role;
+        return differs
+          ? `El correo ${result.value.email} está repetido con nombre, cargo o rol distinto. Usa un contacto administrativo único por correo antes de enviar.`
+          : `El correo ${result.value.email} está repetido en contactos administrativos. Elimina el duplicado antes de enviar.`;
+      }
+      seen.set(emailKey, {
+        label: String(result.value.kind),
+        name: result.value.name.trim(),
+        position: (result.value.position || "").trim(),
+        role: result.value.organizationRoleName.trim(),
+      });
+    }
+    return null;
+  };
   const getAdministrativeContactsPayload = () =>
     getNormalizedAdministrativeContacts()
       .map((result) => result?.value)
@@ -436,20 +672,20 @@ export function OwnerOrganizationsPage() {
   const addAdministrativeContact = () => {
     setStepError(null);
     setFormData((current) => {
-      const nextResponsibleNumber =
-        current.administrativeContacts.filter((contact) =>
-          contact.key.startsWith("responsible"),
-        ).length + 1;
+      const nextResponsibleNumber = current.administrativeContacts.length + 1;
       return {
         ...current,
         administrativeContacts: [
           ...current.administrativeContacts,
           {
             key: `responsible${nextResponsibleNumber}`,
-            label: `Responsable ${nextResponsibleNumber}`,
-            name: "",
+            label: `Usuario ${nextResponsibleNumber}`,
+            firstName: "",
+            lastName: "",
             email: "",
-            phone: "",
+            phoneCountryCode: defaultCallingCode,
+            phoneNationalNumber: "",
+            phoneExtension: "",
             position: "",
             organizationRoleName: ORGANIZATION_BOOTSTRAP_ADMIN_ROLE,
           },
@@ -460,7 +696,15 @@ export function OwnerOrganizationsPage() {
 
   const updateAdministrativeContact = (
     key: AdministrativeContactKey,
-    field: "name" | "email" | "phone" | "position" | "organizationRoleName",
+    field:
+      | "firstName"
+      | "lastName"
+      | "email"
+      | "phoneCountryCode"
+      | "phoneNationalNumber"
+      | "phoneExtension"
+      | "position"
+      | "organizationRoleName",
     value: string,
   ) => {
     setStepError(null);
@@ -516,17 +760,43 @@ export function OwnerOrganizationsPage() {
     ) {
       return "Completa los datos generales obligatorios de la compañía antes de avanzar.";
     }
-    if (!templateResource.data?.ready)
+    if (!templateResource.data?.ready) {
       return "Falta configurar la plantilla de Logto antes de continuar.";
+    }
+    if (!formData.crm.country.trim()) {
+      return "Selecciona país antes de validar estado/departamento y teléfonos.";
+    }
+    if (
+      formData.crm.companyPhoneNationalNumber.trim() &&
+      !normalizePhoneForSubmission(
+        formData.crm.companyPhoneNationalNumber,
+        getPhoneCountryCode(formData.crm.companyPhoneCountryCode),
+      )
+    ) {
+      return "Teléfono de la compañía inválido: verifica indicativo de país y número nacional.";
+    }
     return null;
   };
 
   const validateStepTwo = (): string | null => {
-    if (!formData.baseAdminName.trim() || !formData.baseAdminEmail.trim())
-      return "Completa nombre y correo del admin base antes de continuar.";
-    if (logtoUserIdLooksLikeRole)
-      return "Admin-org y Student-org son roles, no user ids de Logto.";
-    const administrativeValidationError = getAdministrativeContactValidationError();
+    if (
+      !formData.baseAdminFirstName.trim() ||
+      !formData.baseAdminLastName.trim() ||
+      !formData.baseAdminEmail.trim()
+    ) {
+      return "Completa nombres, apellidos y correo del admin base antes de continuar.";
+    }
+    if (
+      formData.baseAdminPhoneNationalNumber.trim() &&
+      !normalizePhoneForSubmission(
+        formData.baseAdminPhoneNationalNumber,
+        getPhoneCountryCode(formData.baseAdminPhoneCountryCode),
+      )
+    ) {
+      return "Teléfono del admin base inválido; usa indicativo de país y número nacional válido.";
+    }
+    const administrativeValidationError =
+      getAdministrativeContactValidationError();
     if (administrativeValidationError) return administrativeValidationError;
     return null;
   };
@@ -639,10 +909,16 @@ export function OwnerOrganizationsPage() {
         subdomain: formData.appSubdomain,
         adminDomain: formData.adminDomain || undefined,
         baseAdmin: {
-          name: formData.baseAdminName || undefined,
+          firstName: formData.baseAdminFirstName || undefined,
+          lastName: formData.baseAdminLastName || undefined,
+          name: baseAdminFullName || undefined,
           email: formData.baseAdminEmail || undefined,
-          logtoUserId: formData.baseAdminLogtoUserId || undefined,
-          initialOrganizationRole: ORGANIZATION_BOOTSTRAP_ADMIN_ROLE,
+          phone:
+            normalizePhoneForSubmission(
+              formData.baseAdminPhoneNationalNumber,
+              getPhoneCountryCode(formData.baseAdminPhoneCountryCode),
+            ) || undefined,
+          initialOrganizationRole: selectedAdminRole,
         },
         jitProvisioning: {
           domain: formData.adminDomain || undefined,
@@ -652,7 +928,11 @@ export function OwnerOrganizationsPage() {
           companyName: formData.crm.companyName || formData.name,
           companyEmail:
             formData.crm.companyEmail || formData.baseAdminEmail || undefined,
-          companyPhone: formData.crm.companyPhone || undefined,
+          companyPhone:
+            normalizePhoneForSubmission(
+              formData.crm.companyPhoneNationalNumber,
+              getPhoneCountryCode(formData.crm.companyPhoneCountryCode),
+            ) || undefined,
           about: formData.crm.about || undefined,
           website: formData.crm.website || formData.adminDomain || undefined,
           addressLine1: formData.crm.addressLine1 || undefined,
@@ -666,7 +946,7 @@ export function OwnerOrganizationsPage() {
             : undefined,
           industry: formData.crm.industry || undefined,
           type: formData.crm.type || undefined,
-          companyOwner: formData.crm.companyOwner || undefined,
+          companyOwner: effectiveCompanyOwner || undefined,
           description: formData.crm.description || undefined,
           nit: formData.crm.nit ? Number(formData.crm.nit) : undefined,
           verificationDigit: formData.crm.verificationDigit
@@ -682,15 +962,24 @@ export function OwnerOrganizationsPage() {
         | Record<string, unknown>
         | undefined;
       const diagnostic = getDiagnosticFromUnknown(fluentCrmStep?.diagnostic);
-      const likelyCauseHints = getFriendlyFluentCrmHints(
-        diagnostic?.likelyCauses,
-      );
+      const likelyCauseHints = [
+        ...((diagnostic?.code === "FLUENTCRM_VALIDATION_FAILED" ||
+          diagnostic?.code === "FLUENTCRM_DUPLICATE_CONTACT") &&
+        diagnostic?.message
+          ? [diagnostic.message]
+          : []),
+        ...getFriendlyFluentCrmHints(diagnostic?.likelyCauses),
+      ];
 
       setFormData(initialFormData);
       setDirty(initialDirty);
       setCurrentStep(1);
       setTagInput("");
       setListInput("");
+      if (typeof window !== "undefined") {
+        window.localStorage.removeItem(OWNER_ORGANIZATION_DRAFT_KEY);
+      }
+      setDraftSnapshot(null);
       if (result.warning) {
         if (diagnostic?.code === "FLUENTCRM_AUTHENTICATION_FAILED") {
           setSubmitWarning(
@@ -788,52 +1077,13 @@ export function OwnerOrganizationsPage() {
         </p>
       </div>
       <Form.Group controlId="ownerOrganizationCompanyName">
-        <Form.Label>Company Name</Form.Label>
+        <Form.Label>Nombre organización</Form.Label>
         <Form.Control
           size="lg"
           value={formData.name}
           onChange={(event) => updateCompanyName(event.target.value)}
           placeholder="Colegio San José"
           required
-        />
-      </Form.Group>
-      <div className="row g-3">
-        <Form.Group
-          className="col-12 col-xl-6"
-          controlId="ownerOrganizationCrmCompanyEmail"
-        >
-          <Form.Label>Company Email</Form.Label>
-          <Form.Control
-            type="email"
-            value={formData.crm.companyEmail}
-            onChange={(event) =>
-              updateCrmField("companyEmail", event.target.value)
-            }
-            placeholder={`contacto@${getEmailDomainExample()}`}
-          />
-        </Form.Group>
-        <Form.Group
-          className="col-12 col-xl-6"
-          controlId="ownerOrganizationCrmCompanyPhone"
-        >
-          <Form.Label>Company Phone Number</Form.Label>
-          <Form.Control
-            value={formData.crm.companyPhone}
-            onChange={(event) =>
-              updateCrmField("companyPhone", event.target.value)
-            }
-            placeholder="+1 555 555 5555"
-          />
-        </Form.Group>
-      </div>
-      <Form.Group controlId="ownerOrganizationCrmAbout">
-        <Form.Label>About this company</Form.Label>
-        <Form.Control
-          as="textarea"
-          rows={2}
-          value={formData.crm.about}
-          onChange={(event) => updateCrmField("about", event.target.value)}
-          placeholder="Describe the company"
         />
       </Form.Group>
       <div className="row g-3">
@@ -855,9 +1105,7 @@ export function OwnerOrganizationsPage() {
           <Form.Label>Subdominio app</Form.Label>
           <Form.Control
             value={formData.appSubdomain}
-            onChange={(event) =>
-              updateField("appSubdomain", event.target.value)
-            }
+            onChange={(event) => updateField("appSubdomain", event.target.value)}
             placeholder="sanjose"
             required
           />
@@ -866,7 +1114,7 @@ export function OwnerOrganizationsPage() {
           className="col-12 col-xl-3"
           controlId="ownerOrganizationAdminDomain"
         >
-          <Form.Label>Dominio institucional de aprovisionamiento</Form.Label>
+          <Form.Label>Dominio de aprovisionamiento</Form.Label>
           <Form.Control
             value={formData.adminDomain}
             onChange={(event) => updateField("adminDomain", event.target.value)}
@@ -877,10 +1125,160 @@ export function OwnerOrganizationsPage() {
       </div>
       <div className="row g-3">
         <Form.Group
+          className="col-12 col-xl-3"
+          controlId="ownerOrganizationCrmCountry"
+        >
+          <Form.Label>País</Form.Label>
+          <Form.Select
+            value={formData.crm.country}
+            onChange={(event) => updateCrmField("country", event.target.value)}
+          >
+            <option value="">Selecciona país primero</option>
+            {countries.map((country) => (
+              <option key={country.isoCode} value={country.name}>
+                {country.name}
+              </option>
+            ))}
+          </Form.Select>
+        </Form.Group>
+        <Form.Group
+          className="col-12 col-xl-3"
+          controlId="ownerOrganizationCrmState"
+        >
+          <Form.Label>Departamento</Form.Label>
+          {countryStates.length > 0 ? (
+            <Form.Select
+              value={formData.crm.state}
+              disabled={!selectedCountry}
+              onChange={(event) => updateCrmField("state", event.target.value)}
+            >
+              <option value="">Selecciona departamento</option>
+              {countryStates.map((state) => (
+                <option key={state.isoCode} value={state.name}>
+                  {state.name}
+                </option>
+              ))}
+            </Form.Select>
+          ) : (
+            <Form.Control
+              value={formData.crm.state}
+              disabled={!selectedCountry}
+              onChange={(event) => updateCrmField("state", event.target.value)}
+              placeholder={
+                selectedCountry
+                  ? "Ingresa región manualmente"
+                  : "Selecciona país primero"
+              }
+            />
+          )}
+        </Form.Group>
+        <Form.Group
+          className="col-12 col-xl-3"
+          controlId="ownerOrganizationCrmCity"
+        >
+          <Form.Label>Ciudad</Form.Label>
+          <Form.Control
+            value={formData.crm.city}
+            onChange={(event) => updateCrmField("city", event.target.value)}
+            placeholder="Ingresa ciudad"
+          />
+        </Form.Group>
+        <Form.Group
+          className="col-12 col-xl-3"
+          controlId="ownerOrganizationCrmPostalCode"
+        >
+          <Form.Label>Postal Code</Form.Label>
+          <Form.Control
+            value={formData.crm.postalCode}
+            onChange={(event) =>
+              updateCrmField("postalCode", event.target.value)
+            }
+            placeholder="Ingresa código postal"
+          />
+        </Form.Group>
+      </div>
+      <div className="row g-3">
+        <Form.Group
+          className="col-12 col-xl-6"
+          controlId="ownerOrganizationCrmAddressLine1"
+        >
+          <Form.Label>Dirección línea 1</Form.Label>
+          <Form.Control
+            value={formData.crm.addressLine1}
+            onChange={(event) =>
+              updateCrmField("addressLine1", event.target.value)
+            }
+            placeholder="Ingresa dirección línea 1"
+          />
+        </Form.Group>
+        <Form.Group
+          className="col-12 col-xl-6"
+          controlId="ownerOrganizationCrmAddressLine2"
+        >
+          <Form.Label>Dirección línea 2 (opcional)</Form.Label>
+          <Form.Control
+            value={formData.crm.addressLine2}
+            onChange={(event) =>
+              updateCrmField("addressLine2", event.target.value)
+            }
+            placeholder="Ingresa dirección línea 2"
+          />
+        </Form.Group>
+      </div>
+      <div className="row g-3 align-items-end">
+        <Form.Group
+          className="col-12 col-xl-7"
+          controlId="ownerOrganizationCrmCompanyEmail"
+        >
+          <Form.Label>Company Email</Form.Label>
+          <Form.Control
+            type="email"
+            value={formData.crm.companyEmail}
+            onChange={(event) =>
+              updateCrmField("companyEmail", event.target.value)
+            }
+            placeholder={`contacto@${getEmailDomainExample()}`}
+          />
+        </Form.Group>
+        <Form.Group
+          className="col-4 col-xl-1"
+          controlId="ownerOrganizationCrmCompanyPhoneCode"
+        >
+          <Form.Label>Indicativo</Form.Label>
+          <Form.Control
+            inputMode="numeric"
+            maxLength={4}
+            value={formData.crm.companyPhoneCountryCode}
+            onChange={(event) =>
+              updateCrmField(
+                "companyPhoneCountryCode",
+                event.target.value.replace(/\D/g, "").slice(0, 4),
+              )
+            }
+            placeholder={defaultCallingCode || "57"}
+          />
+        </Form.Group>
+        <Form.Group
+          className="col-8 col-xl-4"
+          controlId="ownerOrganizationCrmCompanyPhoneNumber"
+        >
+          <Form.Label>Teléfono compañía</Form.Label>
+          <Form.Control
+            inputMode="tel"
+            value={formData.crm.companyPhoneNationalNumber}
+            onChange={(event) =>
+              updateCrmField("companyPhoneNationalNumber", event.target.value)
+            }
+            placeholder="3001112233"
+          />
+        </Form.Group>
+      </div>
+      <div className="row g-3">
+        <Form.Group
           className="col-12 col-xl-4"
           controlId="ownerOrganizationCrmEmployees"
         >
-          <Form.Label>Number of Employees</Form.Label>
+          <Form.Label>Número de empleados</Form.Label>
           <Form.Control
             type="number"
             min="0"
@@ -888,7 +1286,7 @@ export function OwnerOrganizationsPage() {
             onChange={(event) =>
               updateCrmField("numberOfEmployees", event.target.value)
             }
-            placeholder="Enter number of employees"
+            placeholder="Ingresa número de empleados"
           />
         </Form.Group>
         <Form.Group
@@ -901,158 +1299,78 @@ export function OwnerOrganizationsPage() {
             min="0"
             value={formData.crm.nit}
             onChange={(event) => updateCrmField("nit", event.target.value)}
-            placeholder="Enter NIT"
+            placeholder="Ingresa NIT"
           />
         </Form.Group>
         <Form.Group
           className="col-12 col-xl-4"
           controlId="ownerOrganizationCrmVerificationDigit"
         >
-          <Form.Label>Digito de Verificación</Form.Label>
+          <Form.Label>Dígito de verificación (un carácter)</Form.Label>
           <Form.Control
             type="number"
             min="0"
+            maxLength={1}
             value={formData.crm.verificationDigit}
             onChange={(event) =>
-              updateCrmField("verificationDigit", event.target.value)
+              updateCrmField(
+                "verificationDigit",
+                event.target.value.slice(0, 1),
+              )
             }
-            placeholder="Enter verification digit"
+            placeholder="0"
           />
         </Form.Group>
       </div>
-      <div className="row g-3">
-        <Form.Group
-          className="col-12 col-xl-6"
-          controlId="ownerOrganizationCrmAddressLine1"
-        >
-          <Form.Label>Address Line 1</Form.Label>
-          <Form.Control
-            value={formData.crm.addressLine1}
-            onChange={(event) =>
-              updateCrmField("addressLine1", event.target.value)
-            }
-            placeholder="Enter address line 1"
-          />
-        </Form.Group>
-        <Form.Group
-          className="col-12 col-xl-6"
-          controlId="ownerOrganizationCrmAddressLine2"
-        >
-          <Form.Label>Address Line 2 (Optional)</Form.Label>
-          <Form.Control
-            value={formData.crm.addressLine2}
-            onChange={(event) =>
-              updateCrmField("addressLine2", event.target.value)
-            }
-            placeholder="Enter address line 2"
-          />
-        </Form.Group>
-        <Form.Group
-          className="col-12 col-xl-4"
-          controlId="ownerOrganizationCrmCity"
-        >
-          <Form.Label>Ciudad</Form.Label>
-          <Form.Control
-            value={formData.crm.city}
-            onChange={(event) => updateCrmField("city", event.target.value)}
-            placeholder="Enter city"
-          />
-        </Form.Group>
-        <Form.Group
-          className="col-12 col-xl-4"
-          controlId="ownerOrganizationCrmState"
-        >
-          <Form.Label>Departamento</Form.Label>
-          {countryStates.length > 0 ? (
-            <Form.Select
-              value={formData.crm.state}
-              onChange={(event) => updateCrmField("state", event.target.value)}
-            >
-              <option value="">Enter state / province</option>
-              {countryStates.map((state) => (
-                <option key={state.isoCode} value={state.name}>
-                  {state.name}
-                </option>
-              ))}
-            </Form.Select>
-          ) : (
-            <Form.Control
-              value={formData.crm.state}
-              onChange={(event) => updateCrmField("state", event.target.value)}
-              placeholder="Enter state / province"
-            />
-          )}
-        </Form.Group>
-        <Form.Group
-          className="col-12 col-xl-4"
-          controlId="ownerOrganizationCrmPostalCode"
-        >
-          <Form.Label>Postal Code</Form.Label>
-          <Form.Control
-            value={formData.crm.postalCode}
-            onChange={(event) =>
-              updateCrmField("postalCode", event.target.value)
-            }
-            placeholder="Enter postal code"
-          />
-        </Form.Group>
-        <Form.Group
-          className="col-12 col-xl-6"
-          controlId="ownerOrganizationCrmCountry"
-        >
-          <Form.Label>País</Form.Label>
-          <Form.Select
-            value={formData.crm.country}
-            onChange={(event) => updateCrmField("country", event.target.value)}
-          >
-            <option value="">Selecciona país</option>
-            {countries.map((country) => (
-              <option key={country.isoCode} value={country.name}>
-                {country.name}
-              </option>
-            ))}
-          </Form.Select>
-        </Form.Group>
-      </div>
+      <Form.Group controlId="ownerOrganizationCrmAbout">
+        <Form.Label>About this company</Form.Label>
+        <Form.Control
+          as="textarea"
+          rows={2}
+          value={formData.crm.about}
+          onChange={(event) => updateCrmField("about", event.target.value)}
+          placeholder="Describe la compañía"
+        />
+      </Form.Group>
       <div className="row g-3">
         <Form.Group
           className="col-12 col-lg-4"
           controlId="ownerOrganizationCrmIndustry"
         >
-          <Form.Label>Industry</Form.Label>
+          <Form.Label>Industria</Form.Label>
           <Form.Control
             value={formData.crm.industry}
             onChange={(event) => updateCrmField("industry", event.target.value)}
-            placeholder="Enter industry"
+            placeholder="Ingresa industria"
           />
         </Form.Group>
         <Form.Group
           className="col-12 col-lg-4"
           controlId="ownerOrganizationCrmType"
         >
-          <Form.Label>Type</Form.Label>
+          <Form.Label>Tipo</Form.Label>
           <Form.Control
             value={formData.crm.type}
             onChange={(event) => updateCrmField("type", event.target.value)}
-            placeholder="Enter type"
+            placeholder="Ingresa tipo"
           />
         </Form.Group>
         <Form.Group
           className="col-12 col-lg-4"
           controlId="ownerOrganizationCrmOwner"
         >
-          <Form.Label>Company Owner</Form.Label>
+          <Form.Label>Responsable interno</Form.Label>
           <Form.Control
             value={formData.crm.companyOwner}
             onChange={(event) =>
               updateCrmField("companyOwner", event.target.value)
             }
-            placeholder="Enter company owner"
+            placeholder="Ingresa responsable de la compañía"
           />
         </Form.Group>
       </div>
       <Form.Group controlId="ownerOrganizationCrmDescription">
-        <Form.Label>Description</Form.Label>
+        <Form.Label>Descripción adicional</Form.Label>
         <Form.Control
           as="textarea"
           rows={2}
@@ -1060,7 +1378,7 @@ export function OwnerOrganizationsPage() {
           onChange={(event) =>
             updateCrmField("description", event.target.value)
           }
-          placeholder="Enter description"
+          placeholder="Ingresa descripción"
         />
       </Form.Group>
     </section>
@@ -1088,7 +1406,7 @@ export function OwnerOrganizationsPage() {
           </Button>
           <small className="text-secondary text-xl-end">
             Comprueba credenciales, endpoint y permisos antes de crear la
-            Company.
+            compañía.
           </small>
         </div>
       </div>
@@ -1105,6 +1423,352 @@ export function OwnerOrganizationsPage() {
           ) : null}
         </Alert>
       ) : null}
+      <div className="border rounded-3 p-3 d-flex flex-column gap-3 bg-light bg-opacity-50">
+        <h4 className="h6 mb-0">Creación de roles</h4>
+        <div className="row g-3">
+          <Form.Group
+            className="col-12 col-xl-3"
+            controlId="ownerOrganizationBaseAdminFirstName"
+          >
+            <Form.Label>Nombres</Form.Label>
+            <Form.Control
+              value={formData.baseAdminFirstName}
+              onChange={(event) =>
+                updateField("baseAdminFirstName", event.target.value)
+              }
+              placeholder="Mario"
+              required
+            />
+          </Form.Group>
+          <Form.Group
+            className="col-12 col-xl-3"
+            controlId="ownerOrganizationBaseAdminLastName"
+          >
+            <Form.Label>Apellidos</Form.Label>
+            <Form.Control
+              value={formData.baseAdminLastName}
+              onChange={(event) =>
+                updateField("baseAdminLastName", event.target.value)
+              }
+              placeholder="Baracus"
+              required
+            />
+          </Form.Group>
+          <Form.Group
+            className="col-12 col-xl-3"
+            controlId="ownerOrganizationBaseAdminEmail"
+          >
+            <Form.Label>Correo</Form.Label>
+            <Form.Control
+              type="email"
+              value={formData.baseAdminEmail}
+              onChange={(event) =>
+                updateField("baseAdminEmail", event.target.value)
+              }
+              placeholder={`admin@${getEmailDomainExample()}`}
+              required
+            />
+          </Form.Group>
+          <Form.Group
+            className="col-12 col-xl-2"
+            controlId="ownerOrganizationBaseAdminPhoneCode"
+          >
+            <Form.Label>Indicativo</Form.Label>
+            <Form.Control
+              type="tel"
+              inputMode="numeric"
+              maxLength={4}
+              value={formData.baseAdminPhoneCountryCode}
+              onChange={(event) =>
+                updateField(
+                  "baseAdminPhoneCountryCode",
+                  event.target.value.replace(/\D/g, "").slice(0, 4),
+                )
+              }
+              placeholder={defaultCallingCode || "57"}
+            />
+          </Form.Group>
+          <Form.Group
+            className="col-12 col-xl-2"
+            controlId="ownerOrganizationBaseAdminPhoneNumber"
+          >
+            <Form.Label>Teléfono</Form.Label>
+            <Form.Control
+              type="tel"
+              value={formData.baseAdminPhoneNationalNumber}
+              onChange={(event) =>
+                updateField("baseAdminPhoneNationalNumber", event.target.value)
+              }
+              placeholder="3001112233"
+            />
+          </Form.Group>
+          <Form.Group
+            className="col-12 col-xl-1"
+            controlId="ownerOrganizationBaseAdminPhoneExtension"
+          >
+            <Form.Label>Ext.</Form.Label>
+            <Form.Control
+              value={formData.baseAdminPhoneExtension}
+              onChange={(event) =>
+                updateField("baseAdminPhoneExtension", event.target.value)
+              }
+              placeholder="101"
+            />
+          </Form.Group>
+          <Form.Group
+            className="col-12 col-xl-4"
+            controlId="ownerOrganizationBaseAdminPosition"
+          >
+            <Form.Label>Cargo</Form.Label>
+            <Form.Control
+              value={formData.baseAdminPosition}
+              onChange={(event) =>
+                updateField("baseAdminPosition", event.target.value)
+              }
+              placeholder="Admin base"
+            />
+          </Form.Group>
+          <Form.Group
+            className="col-12 col-xl-4"
+            controlId="ownerOrganizationBaseAdminRole"
+          >
+            <Form.Label>Rol Logto</Form.Label>
+            <Form.Select
+              value={selectedAdminRole}
+              onChange={(event) => updateField("adminRoleName", event.target.value)}
+              disabled={roles.length === 0}
+            >
+              {!roles.some((role) => role.name === selectedAdminRole) ? (
+                <option value={selectedAdminRole}>{selectedAdminRole}</option>
+              ) : null}
+              {roles.map((role) => (
+                <option value={role.name} key={`base-admin-${role.id}`}>
+                  {role.name}
+                </option>
+              ))}
+            </Form.Select>
+          </Form.Group>
+        </div>
+        <div className="d-flex flex-wrap gap-3 small text-secondary">
+          <span>
+            Username Logto:
+            <Badge bg="light" text="primary" className="border ms-1">
+              {buildLogtoUsernamePreview(formData.baseAdminEmail)}
+            </Badge>
+          </span>
+          <span>
+            Tag por contacto:
+            <Badge bg="light" text="dark" className="border ms-1">
+              {deriveContactTag(selectedAdminRole) || "—"}
+            </Badge>
+          </span>
+        </div>
+      </div>
+      <div className="border rounded-3 p-3 d-flex flex-column gap-3 bg-light bg-opacity-50">
+        <div className="d-flex flex-column flex-md-row justify-content-between gap-2">
+          <h4 className="h6 mb-0">Roles y usuarios adicionales</h4>
+        </div>
+        <div className="d-flex flex-column gap-3">
+          {formData.administrativeContacts.map((contact) => {
+            const previewTag = deriveContactTag(contact.organizationRoleName);
+            return (
+              <div
+                key={contact.key}
+                className="border rounded-3 p-3 bg-white d-flex flex-column gap-3"
+              >
+                <div className="d-flex flex-column flex-lg-row justify-content-between gap-2">
+                  <h5 className="h6 mb-0">{contact.label}</h5>
+                  <div className="d-flex flex-wrap gap-3 small text-secondary">
+                    <span>
+                      Username Logto:
+                      <Badge bg="light" text="primary" className="border ms-1">
+                        {buildLogtoUsernamePreview(contact.email)}
+                      </Badge>
+                    </span>
+                    <span>
+                      Tag por contacto:{" "}
+                      {previewTag ? (
+                        <Badge bg="light" text="dark" className="border ms-1">
+                          {previewTag}
+                        </Badge>
+                      ) : (
+                        "—"
+                      )}
+                    </span>
+                  </div>
+                </div>
+                <div className="row g-3">
+                  <Form.Group
+                    className="col-12 col-xl-3"
+                    controlId={`ownerOrganizationAdminContactFirstName-${contact.key}`}
+                  >
+                    <Form.Label>Nombres</Form.Label>
+                    <Form.Control
+                      value={contact.firstName}
+                      onChange={(event) =>
+                        updateAdministrativeContact(
+                          contact.key,
+                          "firstName",
+                          event.target.value,
+                        )
+                      }
+                      placeholder="Nombres"
+                    />
+                  </Form.Group>
+                  <Form.Group
+                    className="col-12 col-xl-3"
+                    controlId={`ownerOrganizationAdminContactLastName-${contact.key}`}
+                  >
+                    <Form.Label>Apellidos</Form.Label>
+                    <Form.Control
+                      value={contact.lastName}
+                      onChange={(event) =>
+                        updateAdministrativeContact(
+                          contact.key,
+                          "lastName",
+                          event.target.value,
+                        )
+                      }
+                      placeholder="Apellidos"
+                    />
+                  </Form.Group>
+                  <Form.Group
+                    className="col-12 col-xl-6"
+                    controlId={`ownerOrganizationAdminContactEmail-${contact.key}`}
+                  >
+                    <Form.Label>Correo</Form.Label>
+                    <Form.Control
+                      type="email"
+                      value={contact.email}
+                      onChange={(event) =>
+                        updateAdministrativeContact(
+                          contact.key,
+                          "email",
+                          event.target.value,
+                        )
+                      }
+                      placeholder={getAdministrativeEmailPlaceholder(contact.key)}
+                    />
+                  </Form.Group>
+                  <Form.Group
+                    className="col-12 col-xl-2"
+                    controlId={`ownerOrganizationAdminContactPhoneCode-${contact.key}`}
+                  >
+                    <Form.Label>Indicativo</Form.Label>
+                    <Form.Control
+                      type="tel"
+                      inputMode="numeric"
+                      maxLength={4}
+                      value={contact.phoneCountryCode}
+                      onChange={(event) =>
+                        updateAdministrativeContact(
+                          contact.key,
+                          "phoneCountryCode",
+                          event.target.value.replace(/\D/g, "").slice(0, 4),
+                        )
+                      }
+                      placeholder={defaultCallingCode || "57"}
+                    />
+                  </Form.Group>
+                  <Form.Group
+                    className="col-12 col-xl-2"
+                    controlId={`ownerOrganizationAdminContactPhoneNumber-${contact.key}`}
+                  >
+                    <Form.Label>Teléfono</Form.Label>
+                    <Form.Control
+                      type="tel"
+                      value={contact.phoneNationalNumber}
+                      onChange={(event) =>
+                        updateAdministrativeContact(
+                          contact.key,
+                          "phoneNationalNumber",
+                          event.target.value,
+                        )
+                      }
+                      placeholder="3001112233"
+                    />
+                  </Form.Group>
+                  <Form.Group
+                    className="col-12 col-xl-1"
+                    controlId={`ownerOrganizationAdminContactPhoneExtension-${contact.key}`}
+                  >
+                    <Form.Label>Ext.</Form.Label>
+                    <Form.Control
+                      value={contact.phoneExtension}
+                      onChange={(event) =>
+                        updateAdministrativeContact(
+                          contact.key,
+                          "phoneExtension",
+                          event.target.value,
+                        )
+                      }
+                      placeholder="101"
+                    />
+                  </Form.Group>
+                  <Form.Group
+                    className="col-12 col-xl-3"
+                    controlId={`ownerOrganizationAdminContactPosition-${contact.key}`}
+                  >
+                    <Form.Label>Cargo</Form.Label>
+                    <Form.Control
+                      value={contact.position}
+                      onChange={(event) =>
+                        updateAdministrativeContact(
+                          contact.key,
+                          "position",
+                          event.target.value,
+                        )
+                      }
+                      placeholder={contact.label}
+                    />
+                  </Form.Group>
+                  <Form.Group
+                    className="col-12 col-xl-4"
+                    controlId={`ownerOrganizationAdminContactRole-${contact.key}`}
+                  >
+                    <Form.Label>Rol Logto</Form.Label>
+                    <Form.Select
+                      value={contact.organizationRoleName}
+                      onChange={(event) =>
+                        updateAdministrativeContact(
+                          contact.key,
+                          "organizationRoleName",
+                          event.target.value,
+                        )
+                      }
+                      disabled={roles.length === 0}
+                    >
+                      {!roles.some(
+                        (role) => role.name === contact.organizationRoleName,
+                      ) ? (
+                        <option value={contact.organizationRoleName}>
+                          {contact.organizationRoleName}
+                        </option>
+                      ) : null}
+                      {roles.map((role) => (
+                        <option value={role.name} key={`${contact.key}-${role.id}`}>
+                          {role.name}
+                        </option>
+                      ))}
+                    </Form.Select>
+                  </Form.Group>
+                </div>
+              </div>
+            );
+          })}
+          <div className="d-flex justify-content-end">
+            <Button
+              type="button"
+              variant="outline-primary"
+              size="sm"
+              onClick={addAdministrativeContact}
+              aria-label="Añadir rol"
+            >
+              +
+            </Button>
+          </div>
+        </div>
+      </div>
       <div className="border rounded-3 p-3 d-flex flex-column gap-3 bg-light bg-opacity-50">
         <h4 className="h6 mb-0">Settings globales</h4>
         <div className="row g-3">
@@ -1149,202 +1813,6 @@ export function OwnerOrganizationsPage() {
           </div>
         </div>
       </div>
-      <div className="border rounded-3 p-3 d-flex flex-column gap-3 bg-light bg-opacity-50">
-        <h4 className="h6 mb-0">Admin base</h4>
-        <div className="row g-3">
-          <Form.Group
-            className="col-12 col-xl-4"
-            controlId="ownerOrganizationBaseAdminName"
-          >
-            <Form.Label>Nombre admin base</Form.Label>
-            <Form.Control
-              value={formData.baseAdminName}
-              onChange={(event) =>
-                updateField("baseAdminName", event.target.value)
-              }
-              placeholder="María Admin"
-              required
-            />
-          </Form.Group>
-          <Form.Group
-            className="col-12 col-xl-4"
-            controlId="ownerOrganizationBaseAdminEmail"
-          >
-            <Form.Label>Correo admin base</Form.Label>
-            <Form.Control
-              type="email"
-              value={formData.baseAdminEmail}
-              onChange={(event) =>
-                updateField("baseAdminEmail", event.target.value)
-              }
-              placeholder={`admin@${getEmailDomainExample()}`}
-              required
-            />
-          </Form.Group>
-          <Form.Group
-            className="col-12 col-xl-4"
-            controlId="ownerOrganizationBaseAdminLogtoId"
-          >
-            <Form.Label>Logto user id admin base existente</Form.Label>
-            <Form.Control
-              isInvalid={logtoUserIdLooksLikeRole}
-              value={formData.baseAdminLogtoUserId}
-              onChange={(event) =>
-                updateField("baseAdminLogtoUserId", event.target.value)
-              }
-              placeholder="user_123456789"
-            />
-            <Form.Control.Feedback type="invalid">
-              Admin-org y Student-org son roles, no user ids de Logto.
-            </Form.Control.Feedback>
-          </Form.Group>
-        </div>
-      </div>
-      <div className="border rounded-3 p-3 d-flex flex-column gap-3 bg-light bg-opacity-50">
-        <div className="d-flex flex-column flex-md-row justify-content-between gap-2">
-          <h4 className="h6 mb-0">Creación de roles</h4>
-          <Button
-            type="button"
-            variant="outline-primary"
-            size="sm"
-            onClick={addAdministrativeContact}
-          >
-            + Añadir rol
-          </Button>
-        </div>
-        <div className="d-flex flex-column gap-3">
-          {formData.administrativeContacts.map((contact) => {
-            const previewTag = deriveContactTag(contact.organizationRoleName);
-            return (
-              <div
-                key={contact.key}
-                className="border rounded-3 p-3 bg-white d-flex flex-column gap-3"
-              >
-                <div className="d-flex flex-column flex-lg-row justify-content-between gap-2">
-                  <h5 className="h6 mb-0">{contact.label}</h5>
-                  <span className="small text-secondary">
-                    Tag por contacto:{" "}
-                    {previewTag ? (
-                      <Badge bg="light" text="dark" className="border ms-1">
-                        {previewTag}
-                      </Badge>
-                    ) : (
-                      "—"
-                    )}
-                  </span>
-                </div>
-                <div className="row g-3">
-                  <Form.Group
-                    className="col-12 col-xl-6"
-                    controlId={`ownerOrganizationAdminContactName-${contact.key}`}
-                  >
-                    <Form.Label>{contact.label} nombre</Form.Label>
-                    <Form.Control
-                      value={contact.name}
-                      onChange={(event) =>
-                        updateAdministrativeContact(
-                          contact.key,
-                          "name",
-                          event.target.value,
-                        )
-                      }
-                      placeholder={`${contact.label} name`}
-                    />
-                  </Form.Group>
-                  <Form.Group
-                    className="col-12 col-xl-6"
-                    controlId={`ownerOrganizationAdminContactEmail-${contact.key}`}
-                  >
-                    <Form.Label>{contact.label} email</Form.Label>
-                    <Form.Control
-                      type="email"
-                      value={contact.email}
-                      onChange={(event) =>
-                        updateAdministrativeContact(
-                          contact.key,
-                          "email",
-                          event.target.value,
-                        )
-                      }
-                      placeholder={getAdministrativeEmailPlaceholder(
-                        contact.key,
-                      )}
-                    />
-                  </Form.Group>
-                  <Form.Group
-                    className="col-12 col-xl-4"
-                    controlId={`ownerOrganizationAdminContactPhone-${contact.key}`}
-                  >
-                    <Form.Label>{contact.label} teléfono</Form.Label>
-                    <Form.Control
-                      type="tel"
-                      value={contact.phone}
-                      onChange={(event) =>
-                        updateAdministrativeContact(
-                          contact.key,
-                          "phone",
-                          event.target.value,
-                        )
-                      }
-                      placeholder="Enter phone"
-                    />
-                  </Form.Group>
-                  <Form.Group
-                    className="col-12 col-xl-4"
-                    controlId={`ownerOrganizationAdminContactPosition-${contact.key}`}
-                  >
-                    <Form.Label>{contact.label} cargo</Form.Label>
-                    <Form.Control
-                      value={contact.position}
-                      onChange={(event) =>
-                        updateAdministrativeContact(
-                          contact.key,
-                          "position",
-                          event.target.value,
-                        )
-                      }
-                      placeholder={contact.label}
-                    />
-                  </Form.Group>
-                  <Form.Group
-                    className="col-12 col-xl-4"
-                    controlId={`ownerOrganizationAdminContactRole-${contact.key}`}
-                  >
-                    <Form.Label>{contact.label} rol Logto</Form.Label>
-                    <Form.Select
-                      value={contact.organizationRoleName}
-                      onChange={(event) =>
-                        updateAdministrativeContact(
-                          contact.key,
-                          "organizationRoleName",
-                          event.target.value,
-                        )
-                      }
-                      disabled={roles.length === 0}
-                    >
-                      {!roles.some(
-                        (role) => role.name === contact.organizationRoleName,
-                      ) ? (
-                        <option value={contact.organizationRoleName}>
-                          {contact.organizationRoleName}
-                        </option>
-                      ) : null}
-                      {roles.map((role) => (
-                        <option
-                          value={role.name}
-                          key={`${contact.key}-${role.id}`}
-                        >
-                          {role.name}
-                        </option>
-                      ))}
-                    </Form.Select>
-                  </Form.Group>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
     </section>
   );
 
@@ -1371,10 +1839,10 @@ export function OwnerOrganizationsPage() {
                 Editar
               </Button>
             </div>
-            {summaryRow("Company Name", formData.name)}
+            {summaryRow("Nombre organización", formData.name)}
             {summaryRow("Slug", formData.slug)}
             {summaryRow("Subdominio app", formData.appSubdomain)}
-            {summaryRow("Dominio institucional", formData.adminDomain)}
+            {summaryRow("Dominio de aprovisionamiento", formData.adminDomain)}
           </div>
         </div>
         <div className="col-12 col-xl-6">
@@ -1391,28 +1859,57 @@ export function OwnerOrganizationsPage() {
               </Button>
             </div>
             {summaryRow("Company Email", formData.crm.companyEmail)}
-            {summaryRow("Company Phone Number", formData.crm.companyPhone)}
+            {summaryRow(
+              "Teléfono de la compañía",
+              normalizePhoneForSubmission(
+                formData.crm.companyPhoneNationalNumber,
+                getPhoneCountryCode(formData.crm.companyPhoneCountryCode),
+              ) || formData.crm.companyPhoneNationalNumber,
+            )}
             {summaryRow("Website", formData.crm.website)}
-            {summaryRow("Address Line 1", formData.crm.addressLine1)}
-            {summaryRow("Address Line 2", formData.crm.addressLine2)}
+            {summaryRow("Dirección línea 1", formData.crm.addressLine1)}
+            {summaryRow("Dirección línea 2", formData.crm.addressLine2)}
             {summaryRow("Ciudad", formData.crm.city)}
             {summaryRow("Departamento", formData.crm.state)}
             {summaryRow("Postal Code", formData.crm.postalCode)}
             {summaryRow("País", formData.crm.country)}
-            {summaryRow("Number of Employees", formData.crm.numberOfEmployees)}
-            {summaryRow("Industry", formData.crm.industry)}
-            {summaryRow("Type", formData.crm.type)}
-            {summaryRow("Company Owner", formData.crm.companyOwner)}
+            {summaryRow("Número de empleados", formData.crm.numberOfEmployees)}
+            {summaryRow("Industria", formData.crm.industry)}
+            {summaryRow("Tipo", formData.crm.type)}
+            {summaryRow("Responsable interno", effectiveCompanyOwner)}
             {summaryRow("NIT", formData.crm.nit)}
             {summaryRow(
-              "Digito de Verificación",
+              "Dígito de verificación (un carácter)",
               formData.crm.verificationDigit,
             )}
           </div>
         </div>
         <div className="col-12 col-xl-6">
           <div className="border rounded-3 p-3 h-100 d-flex flex-column gap-2">
-            <h4 className="h6 mb-0">Creación de usuarios</h4>
+            <h4 className="h6 mb-0">Perfil de usuario / Logto</h4>
+            {summaryRow("Nombres", formData.baseAdminFirstName)}
+            {summaryRow("Apellidos", formData.baseAdminLastName)}
+            {summaryRow("Email admin base", formData.baseAdminEmail)}
+            {summaryRow(
+              "Teléfono admin base normalizado",
+              normalizePhoneForSubmission(
+                formData.baseAdminPhoneNationalNumber,
+                getPhoneCountryCode(formData.baseAdminPhoneCountryCode),
+              ) || formData.baseAdminPhoneNationalNumber,
+            )}
+            {summaryRow("Cargo", formData.baseAdminPosition)}
+            {summaryRow("Rol Logto", selectedAdminRole)}
+            <div className="small text-secondary">
+              Payload custom del perfil: {JSON.stringify({
+                phone:
+                  normalizePhoneForSubmission(
+                    formData.baseAdminPhoneNationalNumber,
+                    getPhoneCountryCode(formData.baseAdminPhoneCountryCode),
+                  ) || undefined,
+                companyOwner: effectiveCompanyOwner,
+              })}
+            </div>
+            <h4 className="h6 mb-0 mt-2">Creación de usuarios</h4>
             {formData.administrativeContacts.map((contact) => (
               <div
                 key={`summary-${contact.key}`}
@@ -1420,193 +1917,9 @@ export function OwnerOrganizationsPage() {
               >
                 <div className="fw-semibold">{contact.label}</div>
                 <div className="small text-secondary">
-                  {displayValue(contact.name)} · {displayValue(contact.email)} ·{" "}
-                  {displayValue(contact.phone)} ·{" "}
-                  {displayValue(contact.position)}
-                </div>
-                <div className="small">
-                  Rol Logto: {displayValue(contact.organizationRoleName)}
-                </div>
-                <div className="small">
-                  Tag por contacto:{" "}
-                  {deriveContactTag(contact.organizationRoleName) || "—"}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div className="col-12 col-xl-6">
-          <div className="border rounded-3 p-3 h-100 d-flex flex-column gap-3">
-            <h4 className="h6 mb-0">Settings globales</h4>
-            <h4 className="h6 mb-0">Tags CRM globales de organización</h4>
-            <div className="d-flex flex-wrap gap-2">
-              {formData.crm.tags.length ? (
-                formData.crm.tags.map((tag) => (
-                  <Badge key={tag} bg="light" text="dark" className="border">
-                    {tag}
-                  </Badge>
-                ))
-              ) : (
-                <span className="text-secondary small">Sin tags.</span>
-              )}
-            </div>
-            <h4 className="h6 mb-0">Lists CRM global</h4>
-            <div className="d-flex flex-wrap gap-2">
-              {formData.crm.lists.length ? (
-                formData.crm.lists.map((list) => (
-                  <Badge key={list} bg="light" text="dark" className="border">
-                    {list}
-                  </Badge>
-                ))
-              ) : (
-                <span className="text-secondary small">Sin lists.</span>
-              )}
-            </div>
-            <h4 className="h6 mb-0">Descripción / About</h4>
-            {summaryRow("About this company", formData.crm.about)}
-            {summaryRow("Description", formData.crm.description)}
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-
-  return (
-    <PageShell
-      eyebrow="Owner / Organizaciones"
-      title="Crear organización"
-      description="Flujo Logto-first: la organización nace canónicamente en Logto; Civitas no crea una pre-organización local ni checkpoints pending para validar el alta."
-      actions={<Badge bg="success">organizations:create</Badge>}
-    >
-      <div className="row g-4">
-        <div className="col-12">
-          <PageCard
-            title="Nueva organización"
-            subtitle="Logto es la fuente canónica; la base local queda fuera del camino obligatorio de creación."
-          >
-            {templateResource.isLoading ? (
-              <LoadingState
-                title="Cargando plantilla"
-                description="Consultando roles de la organization template de Logto."
-              />
-            ) : templateResource.error ? (
-              <ErrorState
-                title="No se pudo cargar la plantilla"
-                message={templateResource.error}
-                action={
-                  <Button onClick={templateResource.retry}>Reintentar</Button>
-                }
-              />
-            ) : (
-              <Form
-                onSubmit={(event) => event.preventDefault()}
-                className="d-flex flex-column gap-4"
-              >
-                <div className="d-flex flex-column flex-lg-row gap-2">
-                  {wizardSteps.map((item) => (
-                    <button
-                      key={item.step}
-                      type="button"
-                      className={`btn flex-fill text-start border ${currentStep === item.step ? "btn-primary" : "btn-light"}`}
-                      onClick={() => goToStep(item.step)}
-                    >
-                      <span className="d-block fw-semibold">{item.title}</span>
-                      <span
-                        className={
-                          currentStep === item.step
-                            ? "small text-white-50"
-                            : "small text-secondary"
-                        }
-                      >
-                        {item.description}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-                {stepError ? (
-                  <Alert variant="warning" className="mb-0">
-                    {stepError}
-                  </Alert>
-                ) : null}
-                {templateResource.data && !templateResource.data.ready ? (
-                  <Alert variant="danger" className="mb-0">
-                    Falta configurar la plantilla de Logto. Roles requeridos
-                    ausentes:{" "}
-                    {templateResource.data.missingRoleNames.join(", ") ||
-                      ORGANIZATION_BOOTSTRAP_ADMIN_ROLE}
-                    .
-                  </Alert>
-                ) : null}
-                {currentStep === 1 ? renderStepOne() : null}
-                {currentStep === 2 ? renderStepTwo() : null}
-                {currentStep === 3 ? renderStepThree() : null}
-                {submitError && (
-                  <Alert variant="danger" className="mb-0">
-                    {submitError}
-                  </Alert>
-                )}
-                {submitWarning ? (
-                  <Alert variant="warning" className="mb-0">
-                    <div className="fw-semibold mb-1">
-                      Atención en el paso FluentCRM
-                    </div>
-                    <div>{submitWarning}</div>
-                    {submitHints.length > 0 ? (
-                      <ul className="mt-2 mb-0 ps-3 d-flex flex-column gap-1">
-                        {submitHints.map((hint) => (
-                          <li key={hint}>{hint}</li>
-                        ))}
-                      </ul>
-                    ) : null}
-                  </Alert>
-                ) : null}
-                {createdCrmStatus && (
-                  <Alert variant="success" className="mb-0">
-                    Estado FluentCRM: {createdCrmStatus}. La organización
-                    canónica y permisos siguen en Logto.
-                  </Alert>
-                )}
-                <div className="d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-3">
-                  <small className="text-secondary">
-                    Si FluentCRM falla, la organización igual queda creada
-                    canónicamente en Logto y podrás volver a intentar la
-                    vinculación comercial después.
-                  </small>
-                  <div className="d-flex flex-wrap gap-2 align-self-sm-end">
-                    {currentStep > 1 ? (
-                      <Button
-                        type="button"
-                        variant="outline-secondary"
-                        onClick={() =>
-                          setCurrentStep(
-                            (step) => Math.max(1, step - 1) as WizardStep,
-                          )
-                        }
-                      >
-                        Anterior
-                      </Button>
-                    ) : null}
-                    {currentStep < 3 ? (
-                      <Button type="button" onClick={goNext}>
-                        Siguiente
-                      </Button>
-                    ) : (
-                      <Button
-                        type="button"
-                        onClick={handleCreateOrganization}
-                        disabled={isSubmitting}
-                        className="px-4"
-                      >
-                        {isSubmitting ? "Creando..." : "Crear organización"}
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              </Form>
-            )}
-          </PageCard>
-        </div>
-      </div>
-    </PageShell>
-  );
-}
+                  {displayValue(
+                    [contact.firstName, contact.lastName]
+                      .map((value) => value.trim())
+                      .filter(Boolean)
+                      .join(" "),
+                  )}{
