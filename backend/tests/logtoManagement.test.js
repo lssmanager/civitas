@@ -138,3 +138,38 @@ test("listLogtoOrganizationUserRoles reads only organization roles", async () =>
   const roles = await listLogtoOrganizationUserRoles({ organizationId: "org-1", userId: "user-1" });
   assert.deepEqual(roles, [{ id: "role-admin", name: "Admin-org" }]);
 });
+
+test("createLogtoUserPasswordResetRequest degrades safely when admin reset is disabled", async () => {
+  const { createLogtoUserPasswordResetRequest } = require("../services/logtoManagement");
+  delete process.env.LOGTO_ENABLE_ADMIN_PASSWORD_RESET;
+  await assert.rejects(
+    createLogtoUserPasswordResetRequest({ userId: "user-1" }),
+    (error) => {
+      assert.equal(error.code, "LOGTO_UNSUPPORTED_CAPABILITY");
+      assert.equal(error.body.reason, "unsupported_safe_reset");
+      return true;
+    }
+  );
+});
+
+test("createLogtoUserPasswordResetRequest uses Logto password API only when explicitly enabled", async () => {
+  const { createLogtoUserPasswordResetRequest } = require("../services/logtoManagement");
+  process.env.LOGTO_ENABLE_ADMIN_PASSWORD_RESET = "true";
+  process.env.LOGTO_ADMIN_RESET_PASSWORD_VALUE = "Temp-Password-123!";
+  const requests = [];
+  global.fetch = async (url, options = {}) => {
+    requests.push({ url: String(url), options });
+    if (String(url).endsWith("/oidc/token")) return jsonResponse({ access_token: "token", expires_in: 3600 });
+    if (String(url).endsWith("/api/users/user-1/password")) return jsonResponse({ updated: true });
+    throw new Error(`unexpected request: ${url}`);
+  };
+
+  const result = await createLogtoUserPasswordResetRequest({ userId: "user-1" });
+
+  assert.equal(result.status, "password_regenerated");
+  const passwordRequest = requests.find((request) => request.url.endsWith("/api/users/user-1/password"));
+  assert.equal(passwordRequest.options.method, "PATCH");
+  assert.deepEqual(JSON.parse(passwordRequest.options.body), { password: "Temp-Password-123!" });
+  delete process.env.LOGTO_ENABLE_ADMIN_PASSWORD_RESET;
+  delete process.env.LOGTO_ADMIN_RESET_PASSWORD_VALUE;
+});

@@ -1,5 +1,6 @@
 const express = require("express");
 const cors = require("cors");
+const { eq } = require("drizzle-orm");
 require("dotenv").config();
 const { requireAuth, requireOrganizationAccess, requireScope } = require("./middleware/auth");
 const { requireOwner } = require("./middleware/owner");
@@ -9,7 +10,9 @@ const {
   ORGANIZATION_ADMIN_ROLE_NAME,
   ensureOrganizationTemplate,
   getLogtoUserById,
+  getLogtoOrganizationById,
   removeUserFromLogtoOrganization,
+  updateLogtoOrganization,
   updateLogtoUser,
   listLogtoOrganizationRoles,
   listLogtoOrganizationUserRoles,
@@ -57,9 +60,10 @@ const {
   upsertWordPressRoleMappings,
 } = require("./services/wordpressRoles");
 const { db } = require("./db/client");
-const { crmRoleMappings, wordpressRoleMappings } = require("./db/schema");
+const { crmRoleMappings, organizationProfiles, wordpressRoleMappings } = require("./db/schema");
 const { getCommercialStatusForOrganization, getLatestCommercialEventsForOrganization, processCommercialEvent, verifyCommercialWebhookSignature } = require("./services/commercialEvents");
 const { getWorkerHealthSnapshot, loadOperationsSummary } = require("./services/operationalObservability");
+const { createSyncOperation, listOrganizationEvents, listOrganizationPendingSync, retrySyncOperation, safeFunctionalMessage } = require("./services/syncOperations");
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -382,9 +386,15 @@ const getLogtoUserIdentityFields = (user = {}) => ({
   phone: user.primaryPhone || user.phone || user.profile?.phone || null,
   username: user.username || user.profile?.username || null,
   avatarUrl: user.avatar || user.avatarUrl || user.profile?.picture || null,
-  mfa: { enabled: Boolean(user.hasPassword === false ? user.mfaVerifications?.length : user.mfaEnabled || user.mfa?.enabled || user.twoFactorEnabled) },
+  mfa: {
+    enabled: Array.isArray(user.mfaVerifications) ? user.mfaVerifications.length > 0 : user.mfaEnabled ?? user.mfa?.enabled ?? user.twoFactorEnabled ?? null,
+    method: Array.isArray(user.mfaVerifications) ? user.mfaVerifications.map((factor) => factor.type || factor.usageType || factor).filter(Boolean).join(", ") || null : user.mfa?.method || null,
+    availability: Array.isArray(user.mfaVerifications) || user.mfaEnabled !== undefined || user.mfa?.enabled !== undefined || user.twoFactorEnabled !== undefined ? "available_from_logto" : "not_available_from_provider",
+  },
   connections: Array.isArray(user.identities) ? user.identities.map((identity) => identity.provider || identity.connectorId).filter(Boolean) : Array.isArray(user.ssoIdentities) ? user.ssoIdentities.map((identity) => identity.issuer || identity.connectorId).filter(Boolean) : [],
   lastLoginAt: user.lastSignInAt || user.lastLoginAt || user.updatedAt || null,
+  sessions: { availability: "not_loaded", note: "Logto session details require provider-specific session endpoints; Civitas does not mirror sessions locally." },
+  spentTime: { availability: "not_available", value: null, note: "No reliable Logto v1.40.1 aggregate spent-time signal is persisted in Civitas." },
 });
 
 const getCrmExclusiveFields = (contact = {}, company = null) => ({
@@ -929,19 +939,40 @@ app.patch("/owner/organizations/:organizationId/members/:logtoUserId/identity", 
 
     const logtoUser = await updateLogtoUser({ userId: req.params.logtoUserId, email, name, phone });
     await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: req.params.organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "logto_identity_updated", logtoUserId: req.params.logtoUserId, previousEmail, email } });
-
-    let fluentcrm = null;
-    try {
-      fluentcrm = await updateContactEmailAfterLogtoChange({ previousEmail, newEmail: email, logtoUserId: req.params.logtoUserId, logtoOrganizationId: req.params.organizationId, profile: { name, phone } });
-      await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: req.params.organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_FLUENTCRM_SYNC, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "fluentcrm_contact_identity_updated", logtoUserId: req.params.logtoUserId, previousEmail, email, fluentcrmStatus: fluentcrm.status } });
-    } catch (crmError) {
-      fluentcrm = { status: "error", message: getSafeErrorMessage(crmError), code: crmError.code || null };
-      await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: req.params.organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_FLUENTCRM_ERROR, result: AUDIT_RESULTS.ERROR, metadata: { stage: "fluentcrm_contact_identity_update_failed", logtoUserId: req.params.logtoUserId, previousEmail, email, error: crmError } });
-    }
-
-    return res.json({ status: fluentcrm?.status === "error" ? "logto_updated_fluentcrm_failed" : "updated", logtoUser, fluentcrm, futureSelfServiceRoute: "PATCH /me/identity" });
+    const operation = await createSyncOperation({ organizationId: req.params.organizationId, operationType: "member_identity_downstream_sync", stepName: "fluentcrm_contact_identity_sync", metadata: { logtoUserId: req.params.logtoUserId, previousEmail, email, name, phone, sourceOfTruth: "logto" } });
+    await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: req.params.organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_FLUENTCRM_SYNC, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "fluentcrm_contact_identity_sync_queued", logtoUserId: req.params.logtoUserId, syncOperationId: operation.id } });
+    return res.json({ status: "logto_updated_sync_queued", logtoUser, syncOperation: operation, futureSelfServiceRoute: "PATCH /me/identity" });
   } catch (error) {
     return res.status(error.status || 502).json({ error: "Bad Gateway", message: getSafeErrorMessage(error), integration: "logto_management_api", logtoRequest: error.request || null, logtoErrorBody: error.body || null });
+  }
+});
+
+app.patch("/owner/organizations/:organizationId/members/:logtoUserId", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  let internalUser = null;
+  try {
+    internalUser = await getOrCreateInternalUser(req.user);
+    const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : null;
+    const name = typeof req.body?.name === "string" ? req.body.name.trim() : null;
+    const phone = typeof req.body?.phone === "string" ? req.body.phone.trim() : null;
+    const previousEmail = typeof req.body?.previousEmail === "string" ? req.body.previousEmail.trim().toLowerCase() : email;
+    const logtoUser = await updateLogtoUser({ userId: req.params.logtoUserId, email, name, phone });
+    const operation = await createSyncOperation({ organizationId: req.params.organizationId, operationType: "member_identity_downstream_sync", stepName: "fluentcrm_contact_identity_sync", metadata: { logtoUserId: req.params.logtoUserId, previousEmail, email, name, phone, sourceOfTruth: "logto" } });
+    await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: req.params.organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "member_identity_updated", syncOperationId: operation.id } });
+    return res.json({ status: "logto_updated_sync_queued", logtoUser, syncOperation: operation });
+  } catch (error) {
+    return res.status(error.status || 502).json({ error: "Member update failed", message: safeFunctionalMessage(getSafeErrorMessage(error), "No se pudo actualizar el miembro en Logto.") });
+  }
+});
+
+app.post("/owner/organizations/:organizationId/members/:logtoUserId/reset-password", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  let internalUser = null;
+  try {
+    internalUser = await getOrCreateInternalUser(req.user);
+    const operation = await createSyncOperation({ organizationId: req.params.organizationId, operationType: "member_reset_password", stepName: "logto_member_reset_password", metadata: { logtoUserId: req.params.logtoUserId, sourceOfTruth: "logto", policy: "provider_capability_only_no_local_reset" } });
+    await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: req.params.organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "member_password_reset_queued", logtoUserId: req.params.logtoUserId, syncOperationId: operation.id } });
+    return res.json({ status: "queued", provider: "logto", syncOperation: operation, message: "Reset password encolado para que el worker use solo capacidades reales de Logto; no se creará reset local." });
+  } catch (error) {
+    return res.status(error.status || 502).json({ error: "Password reset unavailable", message: safeFunctionalMessage(getSafeErrorMessage(error), "No se pudo iniciar el reset password en Logto.") });
   }
 });
 
@@ -1044,6 +1075,92 @@ async function resolveOrganizationProfileForRequest(organizationId) {
   const profiles = await listOrganizationProfiles();
   return profiles.find((item) => item.id === organizationId || item.logtoOrganizationId === organizationId) || null;
 }
+
+const buildCivitasCustomData = (customData = {}, patch = {}) => ({
+  ...customData,
+  civitasProfile: {
+    version: 1,
+    ...(customData.civitasProfile && typeof customData.civitasProfile === "object" ? customData.civitasProfile : {}),
+    business: { ...(customData.civitasProfile?.business || {}), ...(patch.business || {}) },
+    contact: { ...(customData.civitasProfile?.contact || {}), ...(patch.contact || {}) },
+    branding: { ...(customData.civitasProfile?.branding || {}), ...(patch.branding || {}) },
+    downstream: { ...(customData.civitasProfile?.downstream || {}), ...(patch.downstream || {}) },
+    updatedAt: new Date().toISOString(),
+  },
+});
+
+app.get("/owner/organizations/:organizationId/profile", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  try {
+    const profile = await resolveOrganizationProfileForRequest(req.params.organizationId);
+    const logtoOrganizationId = profile?.logtoOrganizationId || req.params.organizationId;
+    const [logtoOrganization, pending, events] = await Promise.all([
+      getLogtoOrganizationById(logtoOrganizationId),
+      listOrganizationPendingSync({ organizationId: logtoOrganizationId }).catch((error) => {
+        console.error("Failed to load pending sync operations", error);
+        return [];
+      }),
+      listOrganizationEvents({ organizationId: logtoOrganizationId }).catch(() => []),
+    ]);
+    return res.json({
+      organization: serializeOwnerOrganization(profile, logtoOrganization),
+      canonical: { source: "logto", topLevelFields: ["id", "name", "description"], customData: getLogtoOrganizationCustomData(logtoOrganization) },
+      customDataShape: { root: "customData.civitasProfile", sections: ["business", "contact", "branding", "downstream"] },
+      downstreamOnly: ["fluentcrmCompanyId", "fluentcrmSyncStatus", "fluentcrmContactSync"],
+      sync: { pending, events },
+    });
+  } catch (error) {
+    console.error("Failed to load owner organization profile", error);
+    return res.status(error.status || 502).json({ error: "Organization profile unavailable", message: "No se pudo cargar el perfil de la organización. Intenta de nuevo más tarde." });
+  }
+});
+
+app.patch("/owner/organizations/:organizationId/profile", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  let internalUser = null;
+  try {
+    internalUser = await getOrCreateInternalUser(req.user);
+    const profile = await resolveOrganizationProfileForRequest(req.params.organizationId);
+    const logtoOrganizationId = profile?.logtoOrganizationId || req.params.organizationId;
+    const current = await getLogtoOrganizationById(logtoOrganizationId);
+    const customData = buildCivitasCustomData(getLogtoOrganizationCustomData(current), req.body?.customData || {});
+    const updated = await updateLogtoOrganization({ organizationId: logtoOrganizationId, name: req.body?.name || getLogtoOrganizationName(current), description: req.body?.description || current.description, customData });
+    if (profile) {
+      await db.update(organizationProfiles).set({
+        nameCache: getLogtoOrganizationName(updated) || profile.nameCache,
+        slug: customData.civitasProfile?.business?.slug || profile.slug,
+        adminDomain: customData.civitasProfile?.business?.institutionalDomain || profile.adminDomain,
+        logoUrl: customData.civitasProfile?.branding?.logoUrl || profile.logoUrl,
+        primaryColor: customData.civitasProfile?.branding?.primaryColor || profile.primaryColor,
+        updatedAt: new Date(),
+      }).where(eq(organizationProfiles.id, profile.id));
+    }
+    const operation = await createSyncOperation({ organizationId: logtoOrganizationId, operationType: "organization_profile_downstream_sync", stepName: "fluentcrm_company_profile_sync", metadata: { source: "logto_customData.civitasProfile", target: "fluentcrm", requestedBy: "owner_console" } });
+    await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "organization_profile_custom_data_updated", syncOperationId: operation.id, sourceOfTruth: "logto.customData" } });
+    return res.json({ status: "updated_sync_queued", organization: serializeOwnerOrganization(profile, updated), syncOperation: operation });
+  } catch (error) {
+    await recordAuditLogBestEffort({ actorUserId: internalUser?.id ?? null, organizationId: req.params.organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.ERROR, metadata: { stage: "organization_profile_custom_data_update_failed", error } });
+    return res.status(error.status || 502).json({ error: "Profile update failed", message: safeFunctionalMessage(getSafeErrorMessage(error), "No se pudo guardar el perfil en Logto.") });
+  }
+});
+
+app.get("/owner/organizations/:organizationId/pending-sync", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  const profile = await resolveOrganizationProfileForRequest(req.params.organizationId);
+  const organizationId = profile?.logtoOrganizationId || req.params.organizationId;
+  return res.json({ organizationId, pending: await listOrganizationPendingSync({ organizationId }) });
+});
+
+app.get("/owner/organizations/:organizationId/events", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  const profile = await resolveOrganizationProfileForRequest(req.params.organizationId);
+  const organizationId = profile?.logtoOrganizationId || req.params.organizationId;
+  return res.json({ organizationId, events: await listOrganizationEvents({ organizationId }) });
+});
+
+app.post("/owner/organizations/:organizationId/sync-operations/:operationId/retry", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  const profile = await resolveOrganizationProfileForRequest(req.params.organizationId);
+  const organizationId = profile?.logtoOrganizationId || req.params.organizationId;
+  const operation = await retrySyncOperation({ operationId: req.params.operationId, organizationId });
+  await recordAuditLogBestEffort({ organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "sync_operation_retry_requested", operationId: req.params.operationId } });
+  return res.json({ status: "retry_queued", operation });
+});
 
 const buildContactSyncSettings = (profile, summary) => ({
   ...(profile.settings || {}),

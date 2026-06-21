@@ -1,4 +1,5 @@
 import { Alert, Badge, Button, Card } from "react-bootstrap";
+import { Link } from "react-router-dom";
 import { useOrganizationSelectionApi, type SelectableOrganization } from "../../api/organizationSelection";
 import { useStableResource } from "../../shared/hooks/useStableResource";
 import { EmptyState, ErrorState, LoadingState, PageCard, PageShell } from "../../shared/ui";
@@ -73,11 +74,11 @@ function OrganizationCard({ organization }: { organization: SelectableOrganizati
         ) : null}
 
         <div className="mt-auto d-flex flex-column gap-2">
-          <Button variant="outline-primary" disabled>
-            Entrar cuando el contexto tenant esté disponible
-          </Button>
+          <Link className="btn btn-outline-primary" to={`/owner/organizations/${encodeURIComponent(organization.logtoOrganizationId)}`}>
+            Abrir consola de organización
+          </Link>
           <p className="text-secondary small mb-0">
-            La identidad visible proviene de Logto. La obtención de organization token y navegación tenant-scoped se conectará en una fase posterior.
+            Desde aquí puedes editar customData, revisar pendientes y administrar miembros sin convertir al owner global en miembro del tenant.
           </p>
         </div>
       </Card.Body>
