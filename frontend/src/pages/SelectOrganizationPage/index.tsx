@@ -35,55 +35,65 @@ function OrganizationCard({ organization }: { organization: SelectableOrganizati
   const logoUrl = civitasProfile.branding?.lightLogoUrl || civitasProfile.branding?.logoUrl || profile?.branding?.logoUrl || null;
   const addressLine = [business.addressLine1, business.addressLine2].filter(Boolean).join(", ");
   const locationLine = [business.city, business.department, business.country, business.postalCode].filter(Boolean).join(" · ");
-  const nit = [business.nit, business.verificationDigit].filter(Boolean).join(" · Establecimiento ");
+  const identityLine = [business.nit, business.verificationDigit].filter(Boolean).join(" · ") || entryHost || organization.logtoOrganizationId;
 
   return (
     <Link className="text-decoration-none text-reset d-block h-100" to={`/owner/organizations/${encodeURIComponent(organization.logtoOrganizationId)}`}>
-      <Card className="h-100 border shadow-sm overflow-hidden civitas-select-card" role="button">
-        <div className="civitas-select-card__hero">
-          <span className="civitas-select-card__eyebrow">▦ Institución educativa</span>
-          <h2 className="h4 fw-bold mb-1">{getOrganizationName(organization)}</h2>
-          <p className="mb-0">{nit ? `NIT ${nit}` : entryHost ?? organization.logtoOrganizationId}</p>
+      <Card className="h-100 border shadow-sm overflow-hidden civitas-select-card civitas-organization-card" role="button">
+        <div className="civitas-select-card__hero civitas-organization-card__hero">
+          <div className="civitas-organization-card__identity">
+            <div className="civitas-select-card__logo civitas-organization-card__logo border rounded-3 d-flex flex-column align-items-center justify-content-center text-secondary">
+              {logoUrl ? (
+                <img src={logoUrl} alt={`Logo de ${getOrganizationName(organization)}`} className="img-fluid p-3" />
+              ) : (
+                <>
+                  <span className="fs-2">⌂</span>
+                  <span className="small">Logo</span>
+                </>
+              )}
+            </div>
+            <div className="civitas-organization-card__copy">
+              <span className="civitas-select-card__eyebrow">▦ Institución educativa</span>
+              <h2 className="h4 fw-bold mb-1">{getOrganizationName(organization)}</h2>
+              <p className="mb-0">{identityLine}</p>
+            </div>
+          </div>
         </div>
         <Card.Body className="p-0 civitas-select-card__body">
           <div className="row g-0 h-100">
-            <div className="col-12 col-md-4 civitas-select-card__media d-flex align-items-center justify-content-center p-4">
-              <div className="civitas-select-card__logo border rounded-3 d-flex flex-column align-items-center justify-content-center text-secondary">
-                {logoUrl ? (
-                  <img src={logoUrl} alt={`Logo de ${getOrganizationName(organization)}`} className="img-fluid p-3" />
-                ) : (
-                  <>
-                    <span className="fs-2">⌂</span>
-                    <span className="small">Logo</span>
-                  </>
-                )}
-              </div>
-            </div>
-            <div className="col-12 col-md-8 p-4 d-flex flex-column gap-3">
+            <div className="col-12 p-4 d-flex flex-column gap-3">
               <div className="d-flex justify-content-end gap-2 flex-wrap civitas-select-card__status">
                 {getStatusBadge(profile?.status)}
                 {getSyncBadge(organization.syncStatus)}
               </div>
-              <div className="d-flex gap-3 pb-3 border-bottom">
-                <span className="civitas-select-card__icon align-self-start">⌖</span>
-                <div>
-                  <p className="text-uppercase text-secondary small fw-bold mb-1">Dirección</p>
-                  <p className="fw-semibold mb-0">{addressLine || "Dirección pendiente"}</p>
-                  <p className="fw-semibold mb-0">{locationLine || "Ubicación pendiente"}</p>
+              <div className="row g-3">
+                <div className="col-12 col-xl-6">
+                  <div className="d-flex gap-3 pb-3 border-bottom h-100">
+                    <span className="civitas-select-card__icon align-self-start">⌖</span>
+                    <div>
+                      <p className="text-uppercase text-secondary small fw-bold mb-1">Dirección</p>
+                      <p className="fw-semibold mb-0">{addressLine || "Dirección pendiente"}</p>
+                      <p className="fw-semibold mb-0">{locationLine || "Ubicación pendiente"}</p>
+                    </div>
+                  </div>
                 </div>
-              </div>
-              <div className="d-flex gap-3 pb-3 border-bottom">
-                <span className="civitas-select-card__icon align-self-start">☏</span>
-                <div>
-                  <p className="text-uppercase text-secondary small fw-bold mb-1">Teléfono</p>
-                  <p className="fw-semibold mb-0">{contact.phone || "Teléfono pendiente"}</p>
+                <div className="col-12 col-xl-6">
+                  <div className="d-flex gap-3 pb-3 border-bottom h-100">
+                    <span className="civitas-select-card__icon align-self-start">☏</span>
+                    <div>
+                      <p className="text-uppercase text-secondary small fw-bold mb-1">Teléfono</p>
+                      <p className="fw-semibold mb-0">{contact.phone || "Teléfono pendiente"}</p>
+                    </div>
+                  </div>
                 </div>
-              </div>
-              <div className="d-flex gap-3">
-                <span className="civitas-select-card__icon align-self-start">✉</span>
-                <div>
-                  <p className="text-uppercase text-secondary small fw-bold mb-1">Correo electrónico</p>
-                  <p className="fw-semibold text-primary mb-0 text-break">{contact.email || "Email pendiente"}</p>
+                <div className="col-12">
+                  <div className="d-flex gap-3">
+                    <span className="civitas-select-card__icon align-self-start">✉</span>
+                    <div>
+                      <p className="text-uppercase text-secondary small fw-bold mb-1">Correo electrónico</p>
+                      <p className="fw-semibold text-primary mb-0 text-break">{contact.email || "Email pendiente"}</p>
+                    </div>
+                  </div>
                 </div>
               </div>
               {organization.syncError ? (
@@ -134,7 +144,7 @@ export function SelectOrganizationPage() {
     >
       <PageCard
         title="Directorio canónico de Logto"
-        subtitle="Cada card representa una organización real; los estados de Civitas aparecen como capa operativa y de reconciliación, sin duplicar la identidad." 
+        subtitle="Cada card representa una organización real; los estados de Civitas aparecen como capa operativa y de reconciliación, sin duplicar la identidad."
       >
         {organizationsResource.isLoading ? (
           <LoadingState title="Cargando organizaciones" description="Consultando organizaciones reales desde Logto y combinando metadata operativa de Civitas." />
