@@ -68,6 +68,8 @@ const {
   markMicroRequestForRetry,
   updateBootstrapOperation,
 } = require("./services/organizationBootstrapOperations");
+const { enqueueOrganizationBootstrap } = require("./services/organizationBootstrapOrchestrator");
+const { getLatestOperationForOrganization, getSyncOperationWithSteps } = require("./services/syncOperations");
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -751,7 +753,89 @@ app.post("/owner/bootstrap/micro-requests/:microRequestId/retry", requireAuth(AP
   }
 });
 
+app.get("/owner/operations/:operationId", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  try {
+    const operation = await getSyncOperationWithSteps(req.params.operationId);
+    if (!operation) return res.status(404).json({ error: "Not Found", message: "Operation not found" });
+    const steps = operation.steps || [];
+    const currentStep = steps.slice().reverse().find((step) => ["queued", "running"].includes(step.status)) || null;
+    return res.json({
+      operation: {
+        id: operation.id,
+        operationType: operation.operationType,
+        entityType: operation.entityType,
+        entityId: operation.entityId,
+        logtoOrganizationId: operation.logtoOrganizationId,
+        logtoUserId: operation.logtoUserId,
+        status: operation.status,
+        canonicalStatus: operation.canonicalStatus,
+        downstreamStatus: operation.downstreamStatus,
+        currentStep: currentStep?.stepName || null,
+        completedSteps: steps.filter((step) => step.status === "completed").map((step) => step.stepName),
+        lastError: operation.lastErrorJson,
+        retryable: operation.lastErrorJson?.retryable ?? null,
+        correlationId: operation.correlationId,
+        idempotencyKey: operation.idempotencyKey,
+        payloadSnapshot: operation.payloadSnapshotJson,
+        resultSnapshot: operation.resultSnapshotJson,
+        retryCount: operation.retryCount,
+        steps,
+        createdAt: operation.createdAt,
+        updatedAt: operation.updatedAt,
+        finishedAt: operation.finishedAt,
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({ error: "Internal Server Error", message: getSafeErrorMessage(error) });
+  }
+});
+
+app.get("/owner/organizations/:organizationId/provisioning-status", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  try {
+    const operation = await getLatestOperationForOrganization(req.params.organizationId);
+    if (!operation) return res.status(404).json({ error: "Not Found", message: "Provisioning operation not found for organization" });
+    const steps = operation.steps || [];
+    const currentStep = steps.slice().reverse().find((step) => ["queued", "running"].includes(step.status)) || null;
+    return res.json({
+      organizationId: req.params.organizationId,
+      status: operation.status,
+      canonicalStatus: operation.canonicalStatus,
+      downstreamStatus: operation.downstreamStatus,
+      currentStep: currentStep?.stepName || null,
+      completedSteps: steps.filter((step) => step.status === "completed").map((step) => step.stepName),
+      failedSteps: steps.filter((step) => step.status === "failed").map((step) => ({ stepName: step.stepName, error: step.lastErrorJson })),
+      lastError: operation.lastErrorJson,
+      retryable: operation.lastErrorJson?.retryable ?? null,
+      correlationId: operation.correlationId,
+      operationId: operation.id,
+    });
+  } catch (error) {
+    return res.status(500).json({ error: "Internal Server Error", message: getSafeErrorMessage(error) });
+  }
+});
+
 app.post("/owner/organizations", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  if (String(process.env.ORGANIZATION_BOOTSTRAP_ORCHESTRATION || "true").toLowerCase() !== "false") {
+    try {
+      const { operation, jobId } = await enqueueOrganizationBootstrap({ body: req.body || {}, authUser: req.user });
+      return res.status(202).json({
+        status: "queued",
+        operationId: operation.id,
+        jobId,
+        sourceOfTruth: "logto",
+        canonicalStatus: operation.canonicalStatus,
+        downstreamStatus: operation.downstreamStatus,
+        statusUrl: `/owner/operations/${operation.id}`,
+        message: "Organization bootstrap was queued. Logto canonical provisioning will run before downstream FluentCRM propagation.",
+      });
+    } catch (error) {
+      if (error.status === 400) return res.status(400).json({ error: "Bad Request", message: error.message, details: error.details || [] });
+      if (/REDIS_URL/.test(error.message)) return res.status(503).json({ error: "Service Unavailable", message: error.message });
+      console.error("Failed to enqueue organization bootstrap", error);
+      return res.status(500).json({ error: "Internal Server Error", message: getSafeErrorMessage(error) });
+    }
+  }
+
   let internalUser = null;
   let logtoOrganization = null;
   let logtoOrganizationId = null;
