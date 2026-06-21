@@ -59,9 +59,7 @@ const {
 const { db } = require("./db/client");
 const { crmRoleMappings, wordpressRoleMappings } = require("./db/schema");
 const { getCommercialStatusForOrganization, getLatestCommercialEventsForOrganization, processCommercialEvent, verifyCommercialWebhookSignature } = require("./services/commercialEvents");
-<<<<<<< HEAD
 const { getWorkerHealthSnapshot, loadOperationsSummary } = require("./services/operationalObservability");
-=======
 const {
   BOOTSTRAP_OPERATION_STATUSES,
   buildMicroRequestsForFluentCrmStep,
@@ -71,21 +69,8 @@ const {
   markMicroRequestForRetry,
   updateBootstrapOperation,
 } = require("./services/organizationBootstrapOperations");
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
->>>>>>> 0a946f9 (Generate Logto usernames for contacts, relax base-admin role constraint, and enhance owner org UI (role selection, phone ext, previews))
-=======
 const { enqueueOrganizationBootstrap } = require("./services/organizationBootstrapOrchestrator");
 const { getLatestOperationForOrganization, getSyncOperationWithSteps } = require("./services/syncOperations");
->>>>>>> 45e1f94 (Add BullMQ orchestration worker foundation)
-=======
->>>>>>> d19b99b (Rescope orchestration changes to foundation)
-=======
-const { enqueueOrganizationBootstrap } = require("./services/organizationBootstrapOrchestrator");
-const { getLatestOperationForOrganization, getSyncOperationWithSteps } = require("./services/syncOperations");
->>>>>>> de6f13f (Move owner bootstrap to orchestration worker)
-
 const app = express();
 const port = process.env.PORT || 3000;
 const API_RESOURCE = process.env.LOGTO_API_RESOURCE_INDICATOR;

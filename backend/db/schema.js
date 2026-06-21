@@ -205,43 +205,7 @@ const syncOperationSteps = pgTable(
 );
 
 
-<<<<<<< HEAD
-const syncOperations = pgTable(
-  "sync_operations",
-  {
-    id: uuid("id").defaultRandom().primaryKey(),
-    organizationId: varchar("organization_id", { length: 255 }),
-    operationType: varchar("operation_type", { length: 64 }).notNull().default("organization_sync"),
-    status: varchar("status", { length: 32 }).notNull().default("queued"),
-    retryable: boolean("retryable").notNull().default(false),
-    attempts: integer("attempts").notNull().default(0),
-    lastError: text("last_error"),
-    metadata: jsonb("metadata"),
-    nextRetryAt: timestamp("next_retry_at", { withTimezone: true }),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => ({
-    organizationIdx: index("sync_operations_organization_idx").on(table.organizationId),
-    statusIdx: index("sync_operations_status_idx").on(table.status),
-    updatedAtIdx: index("sync_operations_updated_at_idx").on(table.updatedAt),
-  })
-);
 
-const syncOperationSteps = pgTable(
-  "sync_operation_steps",
-  {
-    id: uuid("id").defaultRandom().primaryKey(),
-    operationId: uuid("operation_id").references(() => syncOperations.id, { onDelete: "cascade" }),
-    organizationId: varchar("organization_id", { length: 255 }),
-    stepName: varchar("step_name", { length: 128 }).notNull(),
-    status: varchar("status", { length: 32 }).notNull().default("queued"),
-    retryable: boolean("retryable").notNull().default(false),
-    errorMessage: text("error_message"),
-    metadata: jsonb("metadata"),
-    startedAt: timestamp("started_at", { withTimezone: true }),
-    completedAt: timestamp("completed_at", { withTimezone: true }),
-=======
 const organizationBootstrapOperations = pgTable(
   "organization_bootstrap_operations",
   {
@@ -279,22 +243,15 @@ const organizationBootstrapMicroRequests = pgTable(
     payloadSnapshot: jsonb("payload_snapshot"),
     lastError: jsonb("last_error"),
     retryCount: integer("retry_count").notNull().default(0),
->>>>>>> 0a946f9 (Generate Logto usernames for contacts, relax base-admin role constraint, and enhance owner org UI (role selection, phone ext, previews))
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
-<<<<<<< HEAD
-    operationIdx: index("sync_operation_steps_operation_idx").on(table.operationId),
-    organizationIdx: index("sync_operation_steps_organization_idx").on(table.organizationId),
-    statusIdx: index("sync_operation_steps_status_idx").on(table.status),
-=======
     parentOperationIdx: index("organization_bootstrap_micro_requests_parent_idx").on(table.parentOperationId),
     logtoOrganizationIdx: index("organization_bootstrap_micro_requests_logto_org_idx").on(table.logtoOrganizationId),
     statusIdx: index("organization_bootstrap_micro_requests_status_idx").on(table.status),
     typeIdx: index("organization_bootstrap_micro_requests_type_idx").on(table.microRequestType),
     targetIdx: index("organization_bootstrap_micro_requests_target_idx").on(table.targetEntityType, table.targetEntityId),
->>>>>>> 0a946f9 (Generate Logto usernames for contacts, relax base-admin role constraint, and enhance owner org UI (role selection, phone ext, previews))
   })
 );
 
@@ -325,13 +282,8 @@ module.exports = {
   organizationBootstrapMicroRequests,
   organizationBootstrapOperations,
   organizationProfiles,
-<<<<<<< HEAD
-  syncOperations,
-  syncOperationSteps,
-=======
   syncOperationSteps,
   syncOperations,
->>>>>>> 45e1f94 (Add BullMQ orchestration worker foundation)
   users,
   wordpressRoleMappings,
 };

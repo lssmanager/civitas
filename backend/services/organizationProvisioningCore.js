@@ -49,52 +49,21 @@ const normalizeAdministrativeContacts = (value, institutionalDomain = null) => {
     }))
     .filter((contact) => contact.name || contact.email || contact.phone || contact.position);
 };
-const looksLikeRoleName = (value) => [ORGANIZATION_ADMIN_ROLE_NAME, JIT_DEFAULT_ORGANIZATION_ROLE_NAME].includes(value);
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> ae8003d (Align organization creation payload previews)
+const looksLikeRoleName = (value) => typeof value === "string" && value.trim().length > 0;
 function normalizeUsernameSeed(value) {
   return String(value || "")
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> bf6280a (Fix Logto user creation payload and owner form flow)
     .replace(/[^a-z0-9_]/g, "_")
     .replace(/_+/g, "_")
     .replace(/^([^a-z_])/, "_$1")
     .replace(/^_+$/, "");
-<<<<<<< HEAD
 }
 
 function buildLogtoUsername({ email }) {
   const localPart = String(email || "").split("@")[0] || "";
   return normalizeUsernameSeed(localPart) || null;
-=======
-    .replace(/[^a-z0-9]/g, "");
-}
-
-function buildLogtoUsername({ subdomain, firstName, lastName }) {
-  const normalizedSubdomain = normalizeUsernameSeed(subdomain);
-  const firstInitial = normalizeUsernameSeed(firstName).charAt(0);
-  const lastInitial = normalizeUsernameSeed(lastName).charAt(0);
-  return normalizedSubdomain && firstInitial && lastInitial ? `${normalizedSubdomain}${firstInitial}${lastInitial}` : null;
->>>>>>> ae8003d (Align organization creation payload previews)
-=======
-    .replace(/[^a-z0-9._-]/g, "")
-    .replace(/^[._-]+|[._-]+$/g, "");
-=======
->>>>>>> bf6280a (Fix Logto user creation payload and owner form flow)
-}
-
-function buildLogtoUsername({ email }) {
-  const localPart = String(email || "").split("@")[0] || "";
-  return normalizeUsernameSeed(localPart) || null;
->>>>>>> d772389 (Fix owner provisioning username and phone inputs)
 }
 
 const normalizePhoneE164 = (value) => {
@@ -105,11 +74,6 @@ const normalizePhoneE164 = (value) => {
   return compact.startsWith("+") ? compact : `+${compact}`;
 };
 
-<<<<<<< HEAD
-=======
->>>>>>> 3bdc9c1 (Validate administrative contact uniqueness before CRM sync)
-=======
->>>>>>> ae8003d (Align organization creation payload previews)
 function getAdministrativeContactUniquenessErrors(administrativeContacts = []) {
   const byEmail = new Map();
   const errors = [];
@@ -138,10 +102,7 @@ function getAdministrativeContactUniquenessErrors(administrativeContacts = []) {
   }
   return errors;
 }
-<<<<<<< HEAD
-=======
 
->>>>>>> 3bdc9c1 (Validate administrative contact uniqueness before CRM sync)
 
 const getLogtoOrganizationId = (organization) => organization.id || organization.organizationId || organization.logtoOrganizationId;
 const getOrganizationRoleId = (role = {}) => role.id || role.organizationRoleId || role.roleId || null;
@@ -163,15 +124,7 @@ function normalizeCanonicalProvisioningInput(body = {}) {
   const jitProvisioningDomain = emptyToNull(jitProvisioning.domain ?? body.adminDomain ?? body.institutionalProvisioningDomain)?.toLowerCase() || null;
   const jitDefaultRoleNames = normalizeRoleNames(jitProvisioning.defaultRoleNames ?? body.defaultRoleNames, DEFAULT_JIT_ROLE_NAMES);
   const administrativeContacts = normalizeAdministrativeContacts(body.administrativeContacts, jitProvisioningDomain).map((contact) => ({ ...contact, phone: normalizePhoneE164(contact.phone) || contact.phone }));
-<<<<<<< HEAD
-<<<<<<< HEAD
   const baseAdminUsername = emptyToNull(baseAdmin.username ?? body.baseAdminUsername) || buildLogtoUsername({ email: baseAdminEmail });
-=======
-  const baseAdminUsername = emptyToNull(baseAdmin.username ?? body.baseAdminUsername) || buildLogtoUsername({ subdomain: body.subdomain ?? body.appSubdomain ?? body.slug, firstName: baseAdminFirstName || baseAdminName, lastName: baseAdminLastName });
->>>>>>> ae8003d (Align organization creation payload previews)
-=======
-  const baseAdminUsername = emptyToNull(baseAdmin.username ?? body.baseAdminUsername) || buildLogtoUsername({ email: baseAdminEmail });
->>>>>>> d772389 (Fix owner provisioning username and phone inputs)
   const errors = [];
 
   if (!name) errors.push({ field: "name", message: "Organization name is required" });
@@ -181,17 +134,9 @@ function normalizeCanonicalProvisioningInput(body = {}) {
   if (!baseAdminEmail) errors.push({ field: "baseAdmin.email", message: "Base admin email is required" });
   if (baseAdminEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(baseAdminEmail)) errors.push({ field: "baseAdmin.email", message: "Base admin email must be a valid email address" });
   if (baseAdminPhoneRaw && !baseAdminPhone) errors.push({ field: "baseAdmin.phone", message: "Base admin phone must include country calling code and a valid national number" });
-<<<<<<< HEAD
-<<<<<<< HEAD
   if (!baseAdminUsername) errors.push({ field: "baseAdmin.username", message: "Base admin username could not be built from the base admin email local part" });
-=======
-  if (!baseAdminUsername) errors.push({ field: "baseAdmin.username", message: "Base admin username could not be built; provide first name, last name and app subdomain" });
->>>>>>> ae8003d (Align organization creation payload previews)
-=======
-  if (!baseAdminUsername) errors.push({ field: "baseAdmin.username", message: "Base admin username could not be built from the base admin email local part" });
->>>>>>> d772389 (Fix owner provisioning username and phone inputs)
   if (baseAdminLogtoUserId && looksLikeRoleName(baseAdminLogtoUserId)) errors.push({ field: "baseAdmin.logtoUserId", message: "Base admin Logto user id cannot be an organization role name" });
-  if (!baseAdminInitialOrganizationRole) errors.push({ field: "baseAdmin.initialOrganizationRole", message: "Base admin initial organization role is required" });
+  if (baseAdminInitialOrganizationRole !== ORGANIZATION_ADMIN_ROLE_NAME) errors.push({ field: "baseAdmin.initialOrganizationRole", message: `Base admin initial organization role must be ${ORGANIZATION_ADMIN_ROLE_NAME}` });
   if (!jitProvisioningDomain) errors.push({ field: "jitProvisioning.domain", message: "JIT provisioning domain is required" });
   if (!jitDefaultRoleNames.includes(JIT_DEFAULT_ORGANIZATION_ROLE_NAME)) errors.push({ field: "jitProvisioning.defaultRoleNames", message: `JIT default organization roles must include ${JIT_DEFAULT_ORGANIZATION_ROLE_NAME}` });
   administrativeContacts.forEach((contact, index) => {
@@ -201,7 +146,6 @@ function normalizeCanonicalProvisioningInput(body = {}) {
     if (contact.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact.email)) errors.push({ field: `${prefix}.email`, message: "Administrative contact email must be a valid email address" });
     if (contact.rawPhone && !normalizePhoneE164(contact.rawPhone)) errors.push({ field: `${prefix}.phone`, message: "Administrative contact phone must include country calling code and a valid national number" });
     if (!contact.organizationRoleName) errors.push({ field: `${prefix}.organizationRoleName`, message: "Administrative contact organization role is required" });
-    if (!contact.username) errors.push({ field: `${prefix}.username`, message: "Administrative contact username could not be built from the email local part" });
   });
   errors.push(...getAdministrativeContactUniquenessErrors(administrativeContacts));
 
@@ -240,8 +184,8 @@ async function resolveLogtoOrganizationForSync({ name, description, customData }
 }
 
 async function resolveAdministrativeContactUser({ contact, logtoOrganizationId, internalUser }) {
-  const resolved = await createOrResolveLogtoUserByEmail({ email: contact.email, name: contact.name, phone: contact.phone, username: contact.username });
-  await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: resolved.created ? "administrative_contact_user_created" : "administrative_contact_user_resolved", administrativeContactEmail: contact.email, administrativeContactKey: contact.key, phone: contact.phone, position: contact.position, roleName: contact.organizationRoleName, username: contact.username, source: resolved.source } });
+  const resolved = await createOrResolveLogtoUserByEmail({ email: contact.email, name: contact.name, phone: contact.phone });
+  await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: resolved.created ? "administrative_contact_user_created" : "administrative_contact_user_resolved", administrativeContactEmail: contact.email, administrativeContactKey: contact.key, phone: contact.phone, position: contact.position, roleName: contact.organizationRoleName, source: resolved.source } });
   return resolved;
 }
 
@@ -452,12 +396,4 @@ async function resumeOrganizationBootstrap(options) {
   return runCanonicalOrganizationBootstrap(options);
 }
 
-<<<<<<< HEAD
-<<<<<<< HEAD
 module.exports = { buildLogtoUsername, getAdministrativeContactUniquenessErrors, normalizeCanonicalProvisioningInput, normalizePhoneE164, resumeOrganizationBootstrap, runCanonicalOrganizationBootstrap };
-=======
-module.exports = { getAdministrativeContactUniquenessErrors, normalizeCanonicalProvisioningInput, resumeOrganizationBootstrap, runCanonicalOrganizationBootstrap };
->>>>>>> 3bdc9c1 (Validate administrative contact uniqueness before CRM sync)
-=======
-module.exports = { buildLogtoUsername, getAdministrativeContactUniquenessErrors, normalizeCanonicalProvisioningInput, normalizePhoneE164, resumeOrganizationBootstrap, runCanonicalOrganizationBootstrap };
->>>>>>> ae8003d (Align organization creation payload previews)
