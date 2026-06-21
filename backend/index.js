@@ -64,6 +64,7 @@ const { crmRoleMappings, organizationProfiles, wordpressRoleMappings } = require
 const { getCommercialStatusForOrganization, getLatestCommercialEventsForOrganization, processCommercialEvent, verifyCommercialWebhookSignature } = require("./services/commercialEvents");
 const { getWorkerHealthSnapshot, loadOperationsSummary } = require("./services/operationalObservability");
 const { createSyncOperation, listOrganizationEvents, listOrganizationPendingSync, retrySyncOperation, safeFunctionalMessage } = require("./services/syncOperations");
+const { buildLogtoOrganizationBrandingCss } = require("./services/brandingCss");
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -1076,18 +1077,23 @@ async function resolveOrganizationProfileForRequest(organizationId) {
   return profiles.find((item) => item.id === organizationId || item.logtoOrganizationId === organizationId) || null;
 }
 
-const buildCivitasCustomData = (customData = {}, patch = {}) => ({
-  ...customData,
-  civitasProfile: {
-    version: 1,
-    ...(customData.civitasProfile && typeof customData.civitasProfile === "object" ? customData.civitasProfile : {}),
-    business: { ...(customData.civitasProfile?.business || {}), ...(patch.business || {}) },
-    contact: { ...(customData.civitasProfile?.contact || {}), ...(patch.contact || {}) },
-    branding: { ...(customData.civitasProfile?.branding || {}), ...(patch.branding || {}) },
-    downstream: { ...(customData.civitasProfile?.downstream || {}), ...(patch.downstream || {}) },
-    updatedAt: new Date().toISOString(),
-  },
-});
+const buildCivitasCustomData = (customData = {}, patch = {}) => {
+  const existingBranding = customData.civitasProfile?.branding || {};
+  const incomingBranding = { ...existingBranding, ...(patch.branding || {}) };
+  const generatedBranding = buildLogtoOrganizationBrandingCss(incomingBranding);
+  return {
+    ...customData,
+    civitasProfile: {
+      version: 1,
+      ...(customData.civitasProfile && typeof customData.civitasProfile === "object" ? customData.civitasProfile : {}),
+      business: { ...(customData.civitasProfile?.business || {}), ...(patch.business || {}) },
+      contact: { ...(customData.civitasProfile?.contact || {}), ...(patch.contact || {}) },
+      branding: { ...incomingBranding, ...generatedBranding.normalized, logtoCustomCss: generatedBranding.css, customCssGeneratedAt: new Date().toISOString() },
+      downstream: { ...(customData.civitasProfile?.downstream || {}), ...(patch.downstream || {}) },
+      updatedAt: new Date().toISOString(),
+    },
+  };
+};
 
 app.get("/owner/organizations/:organizationId/profile", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
   try {
