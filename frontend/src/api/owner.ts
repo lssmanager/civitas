@@ -47,7 +47,6 @@ export type OwnerOrganization = {
   } | null;
 };
 
-
 export type OwnerOperationsSummary = {
   counts: { queued: number; running: number; partialFailed: number; failed: number; retryable: number; organizationsWithPendingDownstreamSync: number };
   functionalHealth: { status: string; severity: "success" | "warning" | "critical" | string; message: string; code: string };
@@ -225,7 +224,7 @@ export type CreateOwnerOrganizationInput = {
   adminDomain?: string;
   logoUrl?: string;
   faviconUrl?: string;
-  baseAdmin?: { name?: string; email?: string; logtoUserId?: string; initialOrganizationRole?: string };
+  baseAdmin?: { firstName?: string; lastName?: string; name?: string; email?: string; phone?: string; username?: string; logtoUserId?: string; initialOrganizationRole?: string };
   jitProvisioning?: { domain?: string; defaultRoleNames?: string[] };
   settings?: Record<string, unknown>;
   crm?: FluentCrmCompanyInput;
