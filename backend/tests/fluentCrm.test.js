@@ -612,6 +612,9 @@ test("FluentCRM 422 duplicate contact diagnostic preserves safe body and cause",
 
   assert.equal(diagnostic.code, "FLUENTCRM_DUPLICATE_CONTACT");
   assert.deepEqual(diagnostic.likelyCauses, ["duplicate_email", "invalid_payload"]);
+  assert.match(diagnostic.message, /email: subscriber already exists/);
+  assert.equal(diagnostic.validationTarget, "contacto/subscriber");
+  assert.equal(diagnostic.fieldErrors.email[0], "subscriber already exists");
   assert.equal(diagnostic.fluentCrmError.errors.email[0], "subscriber already exists");
 });
 
@@ -624,4 +627,6 @@ test("FluentCRM 422 invalid company/tag/list diagnostic is classified", () => {
 
   assert.equal(diagnostic.code, "FLUENTCRM_VALIDATION_FAILED");
   assert.deepEqual(diagnostic.likelyCauses.sort(), ["invalid_company_id", "invalid_list", "invalid_payload", "invalid_tag"].sort());
+  assert.match(diagnostic.message, /company_id is invalid and tags\/lists contain unknown values/);
+  assert.equal(diagnostic.validationDetail, "company_id is invalid and tags/lists contain unknown values");
 });

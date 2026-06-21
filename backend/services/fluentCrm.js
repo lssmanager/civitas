@@ -207,6 +207,24 @@ function flattenDiagnosticText(value) {
   return String(value);
 }
 
+
+function summarizeValidationErrors(parsed) {
+  const errors = parsed && typeof parsed === "object" && parsed.errors && typeof parsed.errors === "object" ? parsed.errors : null;
+  if (!errors) return null;
+  const entries = Object.entries(errors)
+    .map(([field, messages]) => {
+      const text = flattenDiagnosticText(messages).trim();
+      return text ? `${field}: ${text}` : field;
+    })
+    .filter(Boolean);
+  return entries.length ? entries.join("; ") : null;
+}
+
+function describeValidationTarget(path) {
+  if (path === "/subscribers") return "contacto/subscriber";
+  if (path === "/companies") return "compañía";
+  return `recurso ${path}`;
+}
 function classifyFluentCrmValidationError(parsed, path) {
   const text = flattenDiagnosticText(parsed).toLowerCase();
   const likelyCauses = [];
@@ -215,10 +233,17 @@ function classifyFluentCrmValidationError(parsed, path) {
   if (/tag|tags/.test(text)) likelyCauses.push("invalid_tag");
   if (/list|lists/.test(text)) likelyCauses.push("invalid_list");
   if (/email|first_name|last_name|full_name|phone|required|invalid|required field|validation/.test(text)) likelyCauses.push("invalid_payload");
+  const fieldSummary = summarizeValidationErrors(parsed);
+  const responseMessage = typeof parsed?.message === "string" && parsed.message.trim() ? parsed.message.trim() : null;
+  const target = describeValidationTarget(path);
+  const detail = fieldSummary || responseMessage || "FluentCRM no devolvió detalle por campo; revisa email, nombre, teléfono, company_id, tags y lists enviados.";
   return {
     code: likelyCauses.includes("duplicate_email") ? "FLUENTCRM_DUPLICATE_CONTACT" : "FLUENTCRM_VALIDATION_FAILED",
-    message: `FluentCRM rejected the ${path} payload with validation error (422).`,
+    message: `FluentCRM rechazó el payload de ${target} en ${path} con error de validación (422). Detalle: ${detail}`,
     likelyCauses: [...new Set(likelyCauses.length ? likelyCauses : ["invalid_payload"])],
+    validationTarget: target,
+    validationDetail: detail,
+    fieldErrors: parsed?.errors && typeof parsed.errors === "object" ? sanitizeForDiagnostics(parsed.errors) : null,
     fluentCrmError: sanitizeForDiagnostics(parsed),
   };
 }

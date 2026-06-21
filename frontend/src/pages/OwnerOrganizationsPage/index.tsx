@@ -13,6 +13,16 @@ import { ErrorState, LoadingState, PageCard, PageShell } from "../../shared/ui";
 const FLUENTCRM_LIKELY_CAUSE_LABELS: Record<string, string> = {
   invalid_username:
     "El usuario no coincide con el username/API username entregado por FluentCRM.",
+  duplicate_email:
+    "FluentCRM reportó que ya existe un contacto con ese correo; revisa duplicados antes de sincronizar.",
+  invalid_payload:
+    "FluentCRM rechazó algún dato del contacto: revisa correo, nombres, apellidos, teléfono, cargo y rol/listas/tags.",
+  invalid_company_id:
+    "FluentCRM rechazó el company_id asociado; verifica que la compañía exista y esté vinculada correctamente.",
+  invalid_tag:
+    "FluentCRM rechazó uno o más tags; verifica que existan y que el nombre no tenga valores inválidos.",
+  invalid_list:
+    "FluentCRM rechazó una o más listas; verifica que existan y que el nombre no tenga valores inválidos.",
   invalid_application_password:
     "La Application Password es inválida, fue truncada o ya no corresponde al usuario elegido.",
   basic_auth_blocked:
@@ -766,9 +776,14 @@ export function OwnerOrganizationsPage() {
         | Record<string, unknown>
         | undefined;
       const diagnostic = getDiagnosticFromUnknown(fluentCrmStep?.diagnostic);
-      const likelyCauseHints = getFriendlyFluentCrmHints(
-        diagnostic?.likelyCauses,
-      );
+      const likelyCauseHints = [
+        ...(diagnostic?.code === "FLUENTCRM_VALIDATION_FAILED" || diagnostic?.code === "FLUENTCRM_DUPLICATE_CONTACT"
+          ? diagnostic?.message
+            ? [diagnostic.message]
+            : []
+          : []),
+        ...getFriendlyFluentCrmHints(diagnostic?.likelyCauses),
+      ];
 
       setFormData(initialFormData);
       setDirty(initialDirty);
