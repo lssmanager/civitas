@@ -70,6 +70,7 @@ type AdministrativeContact = {
   email: string;
   phoneCountryCode: string;
   phoneNationalNumber: string;
+  phoneExtension: string;
   position: string;
   organizationRoleName: string;
 };
@@ -85,6 +86,8 @@ type OwnerOrganizationFormData = {
   baseAdminEmail: string;
   baseAdminPhoneCountryCode: string;
   baseAdminPhoneNationalNumber: string;
+  baseAdminPhoneExtension: string;
+  baseAdminPosition: string;
   adminRoleName: string;
   jitDefaultRoleName: string;
   crm: {
@@ -134,6 +137,8 @@ const initialFormData: OwnerOrganizationFormData = {
   baseAdminEmail: "",
   baseAdminPhoneCountryCode: "",
   baseAdminPhoneNationalNumber: "",
+  baseAdminPhoneExtension: "",
+  baseAdminPosition: "Admin base",
   adminRoleName: ORGANIZATION_BOOTSTRAP_ADMIN_ROLE,
   jitDefaultRoleName: ORGANIZATION_JIT_DEFAULT_ROLE,
   crm: {
@@ -214,6 +219,17 @@ const slugify = (value: string) =>
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
+const buildLogtoUsernamePreview = (email: string) =>
+  email
+    .trim()
+    .split("@")[0]
+    ?.normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9_]/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^([^a-z_])/, "_$1")
+    .replace(/^_+$/, "") || "—";
 const normalizePhoneForSubmission = (phone: string, callingCode?: string) => {
   const raw = phone.trim();
   if (!raw) return "";
@@ -514,6 +530,7 @@ export function OwnerOrganizationsPage() {
             email: "",
             phoneCountryCode: defaultCallingCode,
             phoneNationalNumber: "",
+            phoneExtension: "",
             position: "",
             organizationRoleName: ORGANIZATION_BOOTSTRAP_ADMIN_ROLE,
           },
@@ -524,7 +541,7 @@ export function OwnerOrganizationsPage() {
 
   const updateAdministrativeContact = (
     key: AdministrativeContactKey,
-    field: "firstName" | "lastName" | "email" | "phoneCountryCode" | "phoneNationalNumber" | "position" | "organizationRoleName",
+    field: "firstName" | "lastName" | "email" | "phoneCountryCode" | "phoneNationalNumber" | "phoneExtension" | "position" | "organizationRoleName",
     value: string,
   ) => {
     setStepError(null);
@@ -709,7 +726,7 @@ export function OwnerOrganizationsPage() {
           name: baseAdminFullName || undefined,
           email: formData.baseAdminEmail || undefined,
           phone: normalizePhoneForSubmission(formData.baseAdminPhoneNationalNumber, getPhoneCountryCode(formData.baseAdminPhoneCountryCode)) || undefined,
-          initialOrganizationRole: ORGANIZATION_BOOTSTRAP_ADMIN_ROLE,
+          initialOrganizationRole: selectedAdminRole,
         },
         jitProvisioning: {
           domain: formData.adminDomain || undefined,
@@ -1036,7 +1053,7 @@ export function OwnerOrganizationsPage() {
             className="col-12 col-xl-3"
             controlId="ownerOrganizationBaseAdminFirstName"
           >
-            <Form.Label>Admin base nombres</Form.Label>
+            <Form.Label>Nombres</Form.Label>
             <Form.Control
               value={formData.baseAdminFirstName}
               onChange={(event) => updateField("baseAdminFirstName", event.target.value)}
@@ -1048,7 +1065,7 @@ export function OwnerOrganizationsPage() {
             className="col-12 col-xl-3"
             controlId="ownerOrganizationBaseAdminLastName"
           >
-            <Form.Label>Admin base apellidos</Form.Label>
+            <Form.Label>Apellidos</Form.Label>
             <Form.Control
               value={formData.baseAdminLastName}
               onChange={(event) => updateField("baseAdminLastName", event.target.value)}
@@ -1060,7 +1077,7 @@ export function OwnerOrganizationsPage() {
             className="col-12 col-xl-3"
             controlId="ownerOrganizationBaseAdminEmail"
           >
-            <Form.Label>Admin base correo</Form.Label>
+            <Form.Label>Correo</Form.Label>
             <Form.Control
               type="email"
               value={formData.baseAdminEmail}
@@ -1072,7 +1089,7 @@ export function OwnerOrganizationsPage() {
             />
           </Form.Group>
           <Form.Group className="col-12 col-xl-2" controlId="ownerOrganizationBaseAdminPhoneCode">
-            <Form.Label>Admin base indicativo</Form.Label>
+            <Form.Label>Indicativo</Form.Label>
             <Form.Control
               type="tel"
               inputMode="numeric"
@@ -1083,7 +1100,7 @@ export function OwnerOrganizationsPage() {
             />
           </Form.Group>
           <Form.Group className="col-12 col-xl-2" controlId="ownerOrganizationBaseAdminPhoneNumber">
-            <Form.Label>Admin base teléfono</Form.Label>
+            <Form.Label>Teléfono</Form.Label>
             <Form.Control
               type="tel"
               value={formData.baseAdminPhoneNationalNumber}
@@ -1091,11 +1108,43 @@ export function OwnerOrganizationsPage() {
               placeholder="3001112233"
             />
           </Form.Group>
+          <Form.Group className="col-12 col-xl-1" controlId="ownerOrganizationBaseAdminPhoneExtension">
+            <Form.Label>Ext.</Form.Label>
+            <Form.Control
+              value={formData.baseAdminPhoneExtension}
+              onChange={(event) => updateField("baseAdminPhoneExtension", event.target.value)}
+              placeholder="101"
+            />
+          </Form.Group>
+          <Form.Group className="col-12 col-xl-4" controlId="ownerOrganizationBaseAdminPosition">
+            <Form.Label>Cargo</Form.Label>
+            <Form.Control
+              value={formData.baseAdminPosition}
+              onChange={(event) => updateField("baseAdminPosition", event.target.value)}
+              placeholder="Admin base"
+            />
+          </Form.Group>
+          <Form.Group className="col-12 col-xl-4" controlId="ownerOrganizationBaseAdminRole">
+            <Form.Label>Rol Logto</Form.Label>
+            <Form.Select
+              value={selectedAdminRole}
+              onChange={(event) => updateField("adminRoleName", event.target.value)}
+              disabled={roles.length === 0}
+            >
+              {!roles.some((role) => role.name === selectedAdminRole) ? (
+                <option value={selectedAdminRole}>{selectedAdminRole}</option>
+              ) : null}
+              {roles.map((role) => (
+                <option value={role.name} key={`base-admin-${role.id}`}>
+                  {role.name}
+                </option>
+              ))}
+            </Form.Select>
+          </Form.Group>
         </div>
-        <div className="d-flex justify-content-end">
-          <Button type="button" variant="outline-primary" size="sm" onClick={addAdministrativeContact}>
-            + Añadir rol
-          </Button>
+        <div className="d-flex flex-wrap gap-3 small text-secondary">
+          <span>Username Logto: <Badge bg="light" text="primary" className="border ms-1">{buildLogtoUsernamePreview(formData.baseAdminEmail)}</Badge></span>
+          <span>Tag por contacto: <Badge bg="light" text="dark" className="border ms-1">{deriveContactTag(selectedAdminRole) || "—"}</Badge></span>
         </div>
       </div>
       <div className="border rounded-3 p-3 d-flex flex-column gap-3 bg-light bg-opacity-50">
@@ -1105,7 +1154,7 @@ export function OwnerOrganizationsPage() {
         <div className="d-flex flex-column gap-3">
           {formData.administrativeContacts.length === 0 ? (
             <div className="text-secondary small border rounded-3 p-3 bg-white">
-              El admin base será el primer usuario con rol Admin-org. Usa “+ Añadir rol” solo si necesitas más usuarios administrativos.
+              Usa “+” solo si necesitas más roles o usuarios administrativos.
             </div>
           ) : null}
           {formData.administrativeContacts.map((contact) => {
@@ -1117,23 +1166,23 @@ export function OwnerOrganizationsPage() {
               >
                 <div className="d-flex flex-column flex-lg-row justify-content-between gap-2">
                   <h5 className="h6 mb-0">{contact.label}</h5>
-                  <span className="small text-secondary">
-                    Tag por contacto:{" "}
-                    {previewTag ? (
+                  <div className="d-flex flex-wrap gap-3 small text-secondary">
+                    <span>Username Logto: <Badge bg="light" text="primary" className="border ms-1">{buildLogtoUsernamePreview(contact.email)}</Badge></span>
+                    <span>Tag por contacto: {previewTag ? (
                       <Badge bg="light" text="dark" className="border ms-1">
                         {previewTag}
                       </Badge>
                     ) : (
                       "—"
-                    )}
-                  </span>
+                    )}</span>
+                  </div>
                 </div>
                 <div className="row g-3">
                   <Form.Group
                     className="col-12 col-xl-3"
                     controlId={`ownerOrganizationAdminContactFirstName-${contact.key}`}
                   >
-                    <Form.Label>{contact.label} nombres</Form.Label>
+                    <Form.Label>Nombres</Form.Label>
                     <Form.Control
                       value={contact.firstName}
                       onChange={(event) =>
@@ -1150,7 +1199,7 @@ export function OwnerOrganizationsPage() {
                     className="col-12 col-xl-3"
                     controlId={`ownerOrganizationAdminContactLastName-${contact.key}`}
                   >
-                    <Form.Label>{contact.label} apellidos</Form.Label>
+                    <Form.Label>Apellidos</Form.Label>
                     <Form.Control
                       value={contact.lastName}
                       onChange={(event) =>
@@ -1167,7 +1216,7 @@ export function OwnerOrganizationsPage() {
                     className="col-12 col-xl-6"
                     controlId={`ownerOrganizationAdminContactEmail-${contact.key}`}
                   >
-                    <Form.Label>{contact.label} correo</Form.Label>
+                    <Form.Label>Correo</Form.Label>
                     <Form.Control
                       type="email"
                       value={contact.email}
@@ -1187,7 +1236,7 @@ export function OwnerOrganizationsPage() {
                     className="col-12 col-xl-2"
                     controlId={`ownerOrganizationAdminContactPhoneCode-${contact.key}`}
                   >
-                    <Form.Label>{contact.label} indicativo</Form.Label>
+                    <Form.Label>Indicativo</Form.Label>
                     <Form.Control
                       type="tel"
                       inputMode="numeric"
@@ -1207,7 +1256,7 @@ export function OwnerOrganizationsPage() {
                     className="col-12 col-xl-2"
                     controlId={`ownerOrganizationAdminContactPhoneNumber-${contact.key}`}
                   >
-                    <Form.Label>{contact.label} número</Form.Label>
+                    <Form.Label>Teléfono</Form.Label>
                     <Form.Control
                       type="tel"
                       value={contact.phoneNationalNumber}
@@ -1222,10 +1271,27 @@ export function OwnerOrganizationsPage() {
                     />
                   </Form.Group>
                   <Form.Group
-                    className="col-12 col-xl-4"
+                    className="col-12 col-xl-1"
+                    controlId={`ownerOrganizationAdminContactPhoneExtension-${contact.key}`}
+                  >
+                    <Form.Label>Ext.</Form.Label>
+                    <Form.Control
+                      value={contact.phoneExtension}
+                      onChange={(event) =>
+                        updateAdministrativeContact(
+                          contact.key,
+                          "phoneExtension",
+                          event.target.value,
+                        )
+                      }
+                      placeholder="101"
+                    />
+                  </Form.Group>
+                  <Form.Group
+                    className="col-12 col-xl-3"
                     controlId={`ownerOrganizationAdminContactPosition-${contact.key}`}
                   >
-                    <Form.Label>{contact.label} cargo</Form.Label>
+                    <Form.Label>Cargo</Form.Label>
                     <Form.Control
                       value={contact.position}
                       onChange={(event) =>
@@ -1242,7 +1308,7 @@ export function OwnerOrganizationsPage() {
                     className="col-12 col-xl-4"
                     controlId={`ownerOrganizationAdminContactRole-${contact.key}`}
                   >
-                    <Form.Label>{contact.label} rol Logto</Form.Label>
+                    <Form.Label>Rol Logto</Form.Label>
                     <Form.Select
                       value={contact.organizationRoleName}
                       onChange={(event) =>
@@ -1272,14 +1338,14 @@ export function OwnerOrganizationsPage() {
                     </Form.Select>
                   </Form.Group>
                 </div>
-                <div className="d-flex justify-content-end">
-                  <Button type="button" variant="outline-primary" size="sm" onClick={addAdministrativeContact}>
-                    + Añadir rol
-                  </Button>
-                </div>
               </div>
             );
           })}
+          <div className="d-flex justify-content-end">
+            <Button type="button" variant="outline-primary" size="sm" onClick={addAdministrativeContact} aria-label="Añadir rol">
+              +
+            </Button>
+          </div>
         </div>
       </div>
       <div className="border rounded-3 p-3 d-flex flex-column gap-3 bg-light bg-opacity-50">
@@ -1394,10 +1460,12 @@ export function OwnerOrganizationsPage() {
         <div className="col-12 col-xl-6">
           <div className="border rounded-3 p-3 h-100 d-flex flex-column gap-2">
             <h4 className="h6 mb-0">Perfil de usuario / Logto</h4>
-            {summaryRow("Admin base nombres", formData.baseAdminFirstName)}
-            {summaryRow("Admin base apellidos", formData.baseAdminLastName)}
+            {summaryRow("Nombres", formData.baseAdminFirstName)}
+            {summaryRow("Apellidos", formData.baseAdminLastName)}
             {summaryRow("Email admin base", formData.baseAdminEmail)}
             {summaryRow("Teléfono admin base normalizado", normalizePhoneForSubmission(formData.baseAdminPhoneNationalNumber, getPhoneCountryCode(formData.baseAdminPhoneCountryCode)) || formData.baseAdminPhoneNationalNumber)}
+            {summaryRow("Cargo", formData.baseAdminPosition)}
+            {summaryRow("Rol Logto", selectedAdminRole)}
             <div className="small text-secondary">Payload custom del perfil: {JSON.stringify({ phone: normalizePhoneForSubmission(formData.baseAdminPhoneNationalNumber, getPhoneCountryCode(formData.baseAdminPhoneCountryCode)) || undefined, companyOwner: effectiveCompanyOwner })}</div>
             <h4 className="h6 mb-0 mt-2">Creación de usuarios</h4>
             {formData.administrativeContacts.map((contact) => (

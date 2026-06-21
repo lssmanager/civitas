@@ -79,6 +79,17 @@ test("organization provisioning builds administrative contact name from first an
   assert.equal(result.value.administrativeContacts[0].username, "ana");
 });
 
+
+test("organization provisioning allows selecting a non-default base admin organization role", () => {
+  const result = normalizeCanonicalProvisioningInput({
+    ...basePayload,
+    baseAdmin: { firstName: "Admin", lastName: "Demo", email: "admin@school.edu", initialOrganizationRole: "Headmaster-org" },
+  });
+
+  assert.equal(result.errors.length, 0);
+  assert.equal(result.value.baseAdmin.initialOrganizationRole, "Headmaster-org");
+});
+
 test("organization provisioning rejects invalid base admin phone", () => {
   const result = normalizeCanonicalProvisioningInput({
     ...basePayload,

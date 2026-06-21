@@ -136,7 +136,7 @@ function normalizeCanonicalProvisioningInput(body = {}) {
   if (baseAdminPhoneRaw && !baseAdminPhone) errors.push({ field: "baseAdmin.phone", message: "Base admin phone must include country calling code and a valid national number" });
   if (!baseAdminUsername) errors.push({ field: "baseAdmin.username", message: "Base admin username could not be built from the base admin email local part" });
   if (baseAdminLogtoUserId && looksLikeRoleName(baseAdminLogtoUserId)) errors.push({ field: "baseAdmin.logtoUserId", message: "Base admin Logto user id cannot be an organization role name" });
-  if (baseAdminInitialOrganizationRole !== ORGANIZATION_ADMIN_ROLE_NAME) errors.push({ field: "baseAdmin.initialOrganizationRole", message: `Base admin initial organization role must be ${ORGANIZATION_ADMIN_ROLE_NAME}` });
+  if (!baseAdminInitialOrganizationRole) errors.push({ field: "baseAdmin.initialOrganizationRole", message: "Base admin initial organization role is required" });
   if (!jitProvisioningDomain) errors.push({ field: "jitProvisioning.domain", message: "JIT provisioning domain is required" });
   if (!jitDefaultRoleNames.includes(JIT_DEFAULT_ORGANIZATION_ROLE_NAME)) errors.push({ field: "jitProvisioning.defaultRoleNames", message: `JIT default organization roles must include ${JIT_DEFAULT_ORGANIZATION_ROLE_NAME}` });
   administrativeContacts.forEach((contact, index) => {
