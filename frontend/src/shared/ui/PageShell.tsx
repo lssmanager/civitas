@@ -6,18 +6,32 @@ type PageShellProps = {
   description?: string;
   actions?: ReactNode;
   children: ReactNode;
+  className?: string;
 };
 
-export function PageShell({ title, eyebrow, description, actions, children }: PageShellProps) {
+export function PageShell({
+  title,
+  eyebrow,
+  description,
+  actions,
+  children,
+  className,
+}: PageShellProps) {
   return (
-    <div className="d-flex flex-column gap-4">
-      <header className="d-flex flex-column flex-lg-row gap-3 justify-content-between align-items-lg-start">
-        <div>
-          {eyebrow && <p className="text-uppercase fw-semibold text-primary small mb-2">{eyebrow}</p>}
-          <h1 className="display-6 fw-semibold mb-2">{title}</h1>
-          {description && <p className="lead text-secondary mb-0">{description}</p>}
+    <div className={`civitas-page-shell d-flex flex-column gap-4 ${className ?? ""}`.trim()}>
+      <header className="civitas-page-shell__header d-flex flex-column flex-xl-row gap-4 justify-content-between align-items-xl-start">
+        <div className="civitas-page-shell__copy">
+          {eyebrow && (
+            <p className="civitas-page-shell__eyebrow text-uppercase fw-semibold small mb-2">
+              {eyebrow}
+            </p>
+          )}
+          <h1 className="civitas-page-shell__title display-6 fw-semibold mb-2">{title}</h1>
+          {description && (
+            <p className="civitas-page-shell__description lead mb-0">{description}</p>
+          )}
         </div>
-        {actions && <div className="d-flex gap-2 flex-wrap">{actions}</div>}
+        {actions && <div className="civitas-page-shell__actions d-flex gap-2 flex-wrap">{actions}</div>}
       </header>
       {children}
     </div>
