@@ -19,6 +19,11 @@ export const appRoutes = {
     label: "Crear organización",
     description: "Alta canónica en Logto con bootstrap por etapas.",
   },
+  ownerSystem: {
+    path: "/owner/system",
+    label: "Sistema",
+    description: "Vista técnica interna de worker, Redis y colas.",
+  },
   ownerLogs: {
     path: "/owner/logs",
     label: "Logs",
@@ -60,7 +65,7 @@ export const ownerNavigationTree: NavigationNode[] = [
     path: "/owner/observability-section",
     label: "Observabilidad",
     description: "Trazabilidad operativa del portal owner.",
-    children: [appRoutes.ownerLogs],
+    children: [appRoutes.ownerLogs, appRoutes.ownerSystem],
   },
   {
     path: "/owner/settings-section",
@@ -75,6 +80,7 @@ export const ownerNavigation: AppRoute[] = [
   appRoutes.ownerOrganizations,
   appRoutes.selectOrganization,
   appRoutes.ownerLogs,
+  appRoutes.ownerSystem,
   appRoutes.ownerRoleMapping,
 ];
 
@@ -84,6 +90,7 @@ export const routeMetadata: Record<string, RouteMetadata> = {
   "/owner": { label: "Owner" },
   "/owner/organizations": { label: "Crear organización", parentPath: appRoutes.owner.path },
   "/owner/logs": { label: appRoutes.ownerLogs.label, parentPath: appRoutes.owner.path },
+  "/owner/system": { label: appRoutes.ownerSystem.label, parentPath: appRoutes.owner.path },
   "/owner/audit": { label: appRoutes.ownerLogs.label, parentPath: appRoutes.owner.path },
   "/owner/settings": { label: appRoutes.ownerSettings.label, parentPath: appRoutes.owner.path },
   "/owner/settings/role-mapping": { label: appRoutes.ownerRoleMapping.label, parentPath: appRoutes.ownerSettings.path },

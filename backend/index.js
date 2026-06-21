@@ -59,6 +59,7 @@ const {
 const { db } = require("./db/client");
 const { crmRoleMappings, wordpressRoleMappings } = require("./db/schema");
 const { getCommercialStatusForOrganization, getLatestCommercialEventsForOrganization, processCommercialEvent, verifyCommercialWebhookSignature } = require("./services/commercialEvents");
+const { getWorkerHealthSnapshot, loadOperationsSummary } = require("./services/operationalObservability");
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -577,6 +578,24 @@ app.get("/organizations", requireAuth(API_RESOURCE), requireScope("organizations
   } catch (error) {
     console.error("Failed to list canonical Logto organizations", error);
     return res.status(502).json({ error: "Bad Gateway", message: "Failed to list organizations from Logto" });
+  }
+});
+
+app.get("/owner/operations/summary", requireAuth(API_RESOURCE), requireOwner, async (_req, res) => {
+  try {
+    return res.json(await loadOperationsSummary());
+  } catch (error) {
+    console.error("Failed to build owner operations summary", error);
+    return res.status(500).json({ error: "Operations summary unavailable", message: "No se pudo cargar el resumen funcional de sincronización." });
+  }
+});
+
+app.get("/owner/system/worker-health", requireAuth(API_RESOURCE), requireOwner, async (_req, res) => {
+  try {
+    return res.json(getWorkerHealthSnapshot());
+  } catch (error) {
+    console.error("Failed to load worker health snapshot", error);
+    return res.status(500).json({ error: "Worker health unavailable", message: "No se pudo cargar la salud técnica del worker." });
   }
 });
 

@@ -1,0 +1,120 @@
+const { desc } = require("drizzle-orm");
+const { db } = require("../db/client");
+const { organizationProfiles, syncOperations, syncOperationSteps } = require("../db/schema");
+
+const TERMINAL_OK = new Set(["completed", "succeeded", "success"]);
+const RUNNING = new Set(["running", "processing", "active"]);
+const QUEUED = new Set(["queued", "pending", "waiting", "delayed"]);
+const PARTIAL_FAILED = new Set(["partial_failed"]);
+const FAILED = new Set(["failed", "error"]);
+const DOWNSTREAM_PENDING = new Set(["not_linked", "pending", "conflict", "error"]);
+const CANONICAL_OK = new Set(["bootstrapped", "synced", "reconciled"]);
+
+const safeMessage = (value, fallback = null) => {
+  if (!value) return fallback;
+  const message = typeof value === "string" ? value : value.message || value.error || JSON.stringify(value);
+  return message.length > 280 ? `${message.slice(0, 277)}...` : message;
+};
+
+function classifyTechnicalHealth(technical = {}) {
+  const queues = Array.isArray(technical.queues) ? technical.queues : [];
+  const waiting = queues.reduce((sum, queue) => sum + Number(queue.waiting || queue.depth || 0), 0);
+  const failedJobs = queues.reduce((sum, queue) => sum + Number(queue.failed || 0), 0);
+  const oldestJobAgeSeconds = Math.max(0, ...queues.map((queue) => Number(queue.oldestJobAgeSeconds || 0)));
+  const heartbeatStale = Boolean(technical.worker?.heartbeatStale);
+  const redisOk = technical.redis?.status !== "error";
+
+  if (!redisOk) {
+    return { status: "degraded", severity: "critical", message: "La sincronización está degradada; no se puede confirmar conectividad con la cola operacional.", code: "redis_unavailable" };
+  }
+  if (heartbeatStale && waiting > 0) {
+    return { status: "stalled", severity: "critical", message: "La sincronización está detenida; las solicitudes nuevas pueden quedar pendientes.", code: "worker_stale_with_backlog" };
+  }
+  if (heartbeatStale) {
+    return { status: "degraded", severity: "warning", message: "El servicio de sincronización no reporta actividad reciente; revisa la vista técnica si aparecen pendientes.", code: "worker_stale" };
+  }
+  if (waiting >= 10 || oldestJobAgeSeconds >= 900) {
+    return { status: "degraded", severity: "warning", message: "Hay pendientes de propagación acumulándose; el equipo puede revisarlos sin leer métricas de cola.", code: "backlog_growing" };
+  }
+  if (failedJobs > 0) {
+    return { status: "attention", severity: "warning", message: "Hay trabajos técnicos fallidos; revisa incidentes funcionales y reintentos disponibles.", code: "failed_jobs_present" };
+  }
+  return { status: "healthy", severity: "success", message: "Sincronización operativa al día.", code: "healthy" };
+}
+
+function getWorkerHealthSnapshot() {
+  const heartbeatAt = process.env.SYNC_WORKER_HEARTBEAT_AT || null;
+  const heartbeatStale = heartbeatAt ? Date.now() - new Date(heartbeatAt).getTime() > Number(process.env.SYNC_WORKER_HEARTBEAT_STALE_MS || 120000) : process.env.SYNC_WORKER_ENABLED === "true";
+  const queue = {
+    name: process.env.SYNC_QUEUE_NAME || "sync",
+    waiting: Number(process.env.SYNC_QUEUE_WAITING || 0),
+    active: Number(process.env.SYNC_QUEUE_ACTIVE || 0),
+    delayed: Number(process.env.SYNC_QUEUE_DELAYED || 0),
+    failed: Number(process.env.SYNC_QUEUE_FAILED || 0),
+    oldestJobAgeSeconds: Number(process.env.SYNC_QUEUE_OLDEST_JOB_AGE_SECONDS || 0),
+  };
+  return {
+    readiness: heartbeatStale || process.env.REDIS_STATUS === "error" ? "degraded" : "ready",
+    worker: { heartbeatAt, heartbeatStale, source: "environment_or_future_worker_monitor" },
+    redis: { status: process.env.REDIS_STATUS || "unknown" },
+    queues: [queue],
+  };
+}
+
+function summarizeOrganization(profile) {
+  const canonicalStatus = profile.logtoSyncStatus || "pending";
+  const downstreamStatus = profile.fluentcrmSyncStatus || "not_linked";
+  const canonicalComplete = CANONICAL_OK.has(canonicalStatus);
+  const downstreamComplete = ["linked", "synced"].includes(downstreamStatus);
+  const hasConflict = downstreamStatus === "conflict";
+  const error = safeMessage(profile.fluentcrmSyncError || profile.logtoSyncError);
+  const bootstrapStatus = !canonicalComplete ? canonicalStatus : downstreamComplete ? "completed" : hasConflict ? "partial_failed" : "running";
+  return {
+    organizationId: profile.logtoOrganizationId,
+    profileId: profile.id,
+    name: profile.nameCache,
+    bootstrapStatus,
+    canonicalStatus,
+    downstreamStatus,
+    currentStep: !canonicalComplete ? "canonical" : downstreamComplete ? "completed" : "downstream",
+    lastFunctionalError: error,
+    retryable: Boolean(error) || DOWNSTREAM_PENDING.has(downstreamStatus),
+    conflictType: hasConflict ? "downstream_propagation_conflict" : null,
+  };
+}
+
+function buildOperationsSummary({ operations = [], steps = [], profiles = [], technicalHealth = getWorkerHealthSnapshot(), incidentsLimit = 5 } = {}) {
+  const counts = { queued: 0, running: 0, partialFailed: 0, failed: 0, retryable: 0, organizationsWithPendingDownstreamSync: 0 };
+  for (const operation of operations) {
+    const status = operation.status;
+    if (QUEUED.has(status)) counts.queued += 1;
+    if (RUNNING.has(status)) counts.running += 1;
+    if (PARTIAL_FAILED.has(status)) counts.partialFailed += 1;
+    if (FAILED.has(status)) counts.failed += 1;
+    if (operation.retryable || operation.nextRetryAt) counts.retryable += 1;
+  }
+  const organizations = profiles.map(summarizeOrganization);
+  counts.organizationsWithPendingDownstreamSync = organizations.filter((org) => org.currentStep === "downstream" && org.downstreamStatus !== "linked" && org.downstreamStatus !== "synced").length;
+  const incidents = [
+    ...organizations.filter((org) => org.lastFunctionalError || org.conflictType).map((org) => ({ type: org.conflictType || "sync_error", organizationId: org.organizationId, organizationName: org.name, message: org.lastFunctionalError || "Hay un conflicto de sincronización por resolver.", retryable: org.retryable })),
+    ...steps.filter((step) => step.errorMessage || step.status === "failed").map((step) => ({ type: "operation_step_failed", organizationId: step.organizationId || null, organizationName: null, message: safeMessage(step.errorMessage, `Falló el paso ${step.stepName || step.name || "de sincronización"}.`), retryable: Boolean(step.retryable) })),
+  ].slice(0, incidentsLimit);
+  const functionalHealth = classifyTechnicalHealth(technicalHealth);
+  if (counts.partialFailed > 0 || counts.failed > 0 || counts.organizationsWithPendingDownstreamSync > 0) {
+    functionalHealth.status = functionalHealth.status === "healthy" ? "attention" : functionalHealth.status;
+    functionalHealth.severity = functionalHealth.severity === "success" ? "warning" : functionalHealth.severity;
+    functionalHealth.message = counts.organizationsWithPendingDownstreamSync > 0 ? "Hay organizaciones creadas canónicamente con sincronización externa incompleta." : "Hay fallos funcionales de sincronización que requieren revisión.";
+  }
+  return { counts, functionalHealth, incidents, organizations: organizations.filter((org) => org.retryable || org.currentStep !== "completed") };
+}
+
+async function loadOperationsSummary() {
+  const [profiles, operations, steps] = await Promise.all([
+    db.select().from(organizationProfiles),
+    syncOperations ? db.select().from(syncOperations).orderBy(desc(syncOperations.updatedAt)).limit(100).catch(() => []) : [],
+    syncOperationSteps ? db.select().from(syncOperationSteps).orderBy(desc(syncOperationSteps.updatedAt)).limit(100).catch(() => []) : [],
+  ]);
+  return buildOperationsSummary({ profiles, operations, steps, technicalHealth: getWorkerHealthSnapshot() });
+}
+
+module.exports = { buildOperationsSummary, classifyTechnicalHealth, getWorkerHealthSnapshot, loadOperationsSummary, summarizeOrganization };

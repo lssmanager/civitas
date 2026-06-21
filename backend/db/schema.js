@@ -145,6 +145,52 @@ const commercialEvents = pgTable(
   })
 );
 
+
+const syncOperations = pgTable(
+  "sync_operations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: varchar("organization_id", { length: 255 }),
+    operationType: varchar("operation_type", { length: 64 }).notNull().default("organization_sync"),
+    status: varchar("status", { length: 32 }).notNull().default("queued"),
+    retryable: boolean("retryable").notNull().default(false),
+    attempts: integer("attempts").notNull().default(0),
+    lastError: text("last_error"),
+    metadata: jsonb("metadata"),
+    nextRetryAt: timestamp("next_retry_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    organizationIdx: index("sync_operations_organization_idx").on(table.organizationId),
+    statusIdx: index("sync_operations_status_idx").on(table.status),
+    updatedAtIdx: index("sync_operations_updated_at_idx").on(table.updatedAt),
+  })
+);
+
+const syncOperationSteps = pgTable(
+  "sync_operation_steps",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    operationId: uuid("operation_id").references(() => syncOperations.id, { onDelete: "cascade" }),
+    organizationId: varchar("organization_id", { length: 255 }),
+    stepName: varchar("step_name", { length: 128 }).notNull(),
+    status: varchar("status", { length: 32 }).notNull().default("queued"),
+    retryable: boolean("retryable").notNull().default(false),
+    errorMessage: text("error_message"),
+    metadata: jsonb("metadata"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    operationIdx: index("sync_operation_steps_operation_idx").on(table.operationId),
+    organizationIdx: index("sync_operation_steps_organization_idx").on(table.organizationId),
+    statusIdx: index("sync_operation_steps_status_idx").on(table.status),
+  })
+);
+
 const auditLogs = pgTable(
   "audit_logs",
   {
@@ -170,6 +216,8 @@ module.exports = {
   crmRoleMappings,
   healthChecks,
   organizationProfiles,
+  syncOperations,
+  syncOperationSteps,
   users,
   wordpressRoleMappings,
 };
