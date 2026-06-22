@@ -1,15 +1,12 @@
-import { useEffect, useRef, useState } from "react";
-import { Accordion, Dropdown, Nav } from "react-bootstrap";
+import { Accordion, Nav } from "react-bootstrap";
 import { NavLink, useLocation } from "react-router-dom";
+import { useSiteLogo } from "../shared/hooks/useSiteLogo";
 import {
   ownerNavigationTree,
   primaryNavigation,
   type AppRoute,
   type NavigationNode,
 } from "./routes";
-
-const DEFAULT_SIDEBAR_LOGO_URL = "/favicon.svg";
-const SIDEBAR_LOGO_STORAGE_KEY = "civitas.sidebar.logoDataUrl";
 
 export function Sidebar() {
   return (
@@ -21,40 +18,7 @@ export function Sidebar() {
 }
 
 export function SidebarBrand() {
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [logoUrl, setLogoUrl] = useState(DEFAULT_SIDEBAR_LOGO_URL);
-
-  useEffect(() => {
-    const storedLogo = window.localStorage.getItem(SIDEBAR_LOGO_STORAGE_KEY);
-    if (storedLogo) {
-      setLogoUrl(storedLogo);
-    }
-  }, []);
-
-  const handleLogoUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-
-    if (!file || !file.type.startsWith("image/")) {
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.addEventListener("load", () => {
-      if (typeof reader.result !== "string") {
-        return;
-      }
-
-      window.localStorage.setItem(SIDEBAR_LOGO_STORAGE_KEY, reader.result);
-      setLogoUrl(reader.result);
-    });
-    reader.readAsDataURL(file);
-  };
-
-  const resetLogo = () => {
-    window.localStorage.removeItem(SIDEBAR_LOGO_STORAGE_KEY);
-    setLogoUrl(DEFAULT_SIDEBAR_LOGO_URL);
-  };
+  const logoUrl = useSiteLogo();
 
   return (
     <div className="civitas-sidebar__brand px-4 py-4 border-bottom">
@@ -66,34 +30,7 @@ export function SidebarBrand() {
         />
         <div className="civitas-sidebar__logo civitas-sidebar__logo--full">
           <span className="fw-bold">Civitas</span>
-          <p className="small mb-0 civitas-sidebar__brand-meta">Fase 07 · Logto-first</p>
         </div>
-        <Dropdown align="end" className="ms-auto civitas-sidebar__logo-menu">
-          <Dropdown.Toggle
-            size="sm"
-            variant="outline-primary"
-            id="sidebar-logo-menu"
-            className="civitas-sidebar__logo-menu-toggle"
-            aria-label="Configurar logo del sidebar"
-          >
-            Logo
-          </Dropdown.Toggle>
-          <Dropdown.Menu>
-            <Dropdown.Item as="button" onClick={() => fileInputRef.current?.click()}>
-              Subir imagen
-            </Dropdown.Item>
-            <Dropdown.Item as="button" onClick={resetLogo}>
-              Restaurar logo
-            </Dropdown.Item>
-          </Dropdown.Menu>
-        </Dropdown>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          className="visually-hidden"
-          onChange={handleLogoUpload}
-        />
       </div>
     </div>
   );
@@ -117,9 +54,6 @@ function SidebarLink({
       }
     >
       <span className="fw-semibold">{item.label}</span>
-      {item.description && (
-        <span className="d-block small civitas-sidebar-link__meta">{item.description}</span>
-      )}
     </NavLink>
   );
 }
@@ -142,9 +76,6 @@ function NavigationBranch({
       <Accordion.Header>
         <span>
           <span className="fw-semibold">{item.label}</span>
-          {item.description && (
-            <span className="d-block small civitas-sidebar-link__meta">{item.description}</span>
-          )}
         </span>
       </Accordion.Header>
       <Accordion.Body className="p-0 pt-1">
@@ -175,7 +106,6 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
       <Nav className="flex-column gap-2 civitas-sidebar__panel" as="nav">
         <div className="civitas-sidebar__panel-header px-3 py-3">
           <p className="mb-1 fw-semibold civitas-sidebar__panel-title">Owner</p>
-          <p className="mb-0 small civitas-sidebar-link__meta">Espacio global del producto y sus operaciones.</p>
         </div>
         {rootRoute ? <SidebarLink item={rootRoute} onNavigate={onNavigate} /> : null}
         <Accordion defaultActiveKey={activeOwnerSections} alwaysOpen>

@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Badge, Button, Form, InputGroup, Table } from "react-bootstrap";
 import { type OwnerCrmRoleMapping, type OwnerWordPressRoleMapping, useOwnerApi } from "../api/owner";
 import { ErrorState, LoadingState, PageCard, PageShell } from "../shared/ui";
 import { useStableResource } from "../shared/hooks/useStableResource";
+import { resetStoredSiteLogo, setStoredSiteLogo, useSiteLogo } from "../shared/hooks/useSiteLogo";
 
 function ChipEditor({ values, onChange, placeholder }: { values: string[]; onChange: (values: string[]) => void; placeholder: string }) {
   const [draft, setDraft] = useState("");
@@ -31,6 +32,62 @@ function WordPressRoleSelect({ value, disabled, roles, onChange }: { value: stri
   );
 }
 
+function SiteLogoSettingsCard() {
+  const logoUrl = useSiteLogo();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleLogoUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!file || !file.type.startsWith("image/")) {
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.addEventListener("load", () => {
+      if (typeof reader.result !== "string") {
+        return;
+      }
+
+      setStoredSiteLogo(reader.result);
+    });
+    reader.readAsDataURL(file);
+  };
+
+  return (
+    <PageCard
+      title="Marca del sitio"
+      subtitle="Actualiza el logo visible del sidebar y del favicon local de Civitas."
+      actions={
+        <div className="d-flex flex-wrap gap-2">
+          <Button type="button" variant="outline-primary" onClick={() => fileInputRef.current?.click()}>
+            Subir logo
+          </Button>
+          <Button type="button" variant="outline-secondary" onClick={resetStoredSiteLogo}>
+            Restaurar
+          </Button>
+        </div>
+      }
+    >
+      <div className="civitas-site-logo-settings d-flex align-items-center gap-3">
+        <img className="civitas-site-logo-settings__preview" src={logoUrl} alt="Logo actual de Civitas" />
+        <div>
+          <p className="fw-semibold mb-1">Logo activo</p>
+          <p className="text-secondary small mb-0">Usa una imagen cuadrada SVG, PNG o JPG. Se guarda localmente para no cambiar contratos API.</p>
+        </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          className="visually-hidden"
+          onChange={handleLogoUpload}
+        />
+      </div>
+    </PageCard>
+  );
+}
+
 export function OwnerSettingsPage() {
   const ownerApi = useOwnerApi();
   const crmResource = useStableResource({ load: ownerApi.getFluentCrmRoleMappings, getKey: () => "owner-fluentcrm-role-mappings", initialParams: undefined });
@@ -43,7 +100,7 @@ export function OwnerSettingsPage() {
   useEffect(() => { if (crmResource.data?.mappings) setMappings(crmResource.data.mappings); }, [crmResource.data]);
   useEffect(() => { if (wordpressResource.data?.mappings) setWordPressMappings(wordpressResource.data.mappings); }, [wordpressResource.data]);
 
-  const wordpressRoles = wordpressResource.data?.wordpressRoles ?? [];
+  const wordpressRoles = useMemo(() => wordpressResource.data?.wordpressRoles ?? [], [wordpressResource.data?.wordpressRoles]);
   const wordpressByLogtoId = useMemo(() => new Map(wordpressMappings.map((mapping) => [mapping.logtoRoleId, mapping])), [wordpressMappings]);
   const wordpressCatalogBySlug = useMemo(() => new Map(wordpressRoles.map((role) => [role.slug, role])), [wordpressRoles]);
   const wordpressLoading = wordpressResource.isLoading;
@@ -95,6 +152,7 @@ export function OwnerSettingsPage() {
 
   return (
     <PageShell eyebrow="Owner settings" title="Role Mapping" description="Mapea roles organizacionales canónicos de Logto hacia segmentación CRM y, opcionalmente, hacia roles WordPress operativos. Logto sigue siendo la fuente de verdad de autorización." actions={<div className="d-flex flex-wrap gap-2"><Badge bg="info">CRM: {crmResource.data?.effectiveSource ?? "cargando"}</Badge><Badge bg="secondary">WP: {wordpressResource.data?.effectiveSource ?? "cargando"}</Badge></div>}>
+      <SiteLogoSettingsCard />
       {crmResource.isLoading ? <LoadingState title="Cargando roles" description="Leyendo roles desde Logto y configuración operativa desde Civitas." /> : crmResource.error ? <ErrorState title="No se pudo cargar el mapping" message={crmResource.error} action={<Button onClick={crmResource.retry}>Reintentar</Button>} /> : (
         <PageCard title="Logto → CRM / WordPress role mapping" subtitle="Civitas guarda mappings operativos subordinados a logtoRoleId; WordPress no define permisos ni roles canónicos del producto.">
           {crmResource.data?.envWarning && <Alert variant="warning">{crmResource.data.envWarning}</Alert>}
