@@ -39,7 +39,7 @@ function OrganizationSnapshotCard({
   const identityLine = [business.nit, business.verificationDigit].filter(Boolean).join(" · ") || entryHost || "Identificación pendiente";
 
   return (
-    <Card className="border shadow-sm overflow-hidden mx-auto civitas-organization-card civitas-organization-card--snapshot">
+    <Card className="border shadow-sm overflow-hidden w-100 civitas-organization-card civitas-organization-card--snapshot">
       <div className="p-4 civitas-organization-card__hero">
         <div className="civitas-organization-card__identity">
           <div className="civitas-select-card__logo civitas-organization-card__logo border rounded-3 d-flex flex-column align-items-center justify-content-center text-secondary">

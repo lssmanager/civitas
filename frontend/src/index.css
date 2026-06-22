@@ -163,7 +163,9 @@ a { color: var(--civitas-primary); }
 [data-bs-theme="dark"] .civitas-select-card__logo { background:#fff; }
 
 @media (max-width: 991.98px) { .civitas-page-shell__header { padding:1rem; } }
-.civitas-organization-card--snapshot { max-width: 920px; }
+.civitas-organization-card--snapshot { max-width: none; }
+.civitas-organization-card--snapshot .civitas-organization-card__hero { padding: 1.5rem; }
+.civitas-organization-card--snapshot .civitas-select-card__body { background: var(--civitas-surface-contrast); }
 .civitas-organization-card__identity { display:flex; align-items:center; gap:1rem; min-width:0; }
 .civitas-organization-card__copy { min-width:0; }
 .civitas-organization-card__copy h2 { color:var(--civitas-text); }
