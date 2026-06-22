@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Alert, Badge, Button, Form } from "react-bootstrap";
+import { Alert, Badge, Button, Form, Nav } from "react-bootstrap";
 import { useOwnerApi } from "../api/owner";
 import { useStableResource } from "../shared/hooks/useStableResource";
 import { ErrorState, LoadingState, PageCard, PageShell } from "../shared/ui";
@@ -14,6 +14,13 @@ const getFluentCrmBadgeVariant = (status?: string | null) => {
 
 const formatTimestamp = (value?: string | null) => value ? new Date(value).toLocaleString() : "Nunca";
 
+type BrandingTabKey = "logos" | "light" | "dark";
+
+const getBrandingValue = (branding: Record<string, string | null | undefined> | null | undefined, key: string, fallbackKey?: string) => {
+  const value = branding?.[key] || (fallbackKey ? branding?.[fallbackKey] : null);
+  return value || "Sin configurar";
+};
+
 export function OwnerOrganizationSettingsPage() {
   const { organizationId = "" } = useParams();
   const ownerApi = useOwnerApi();
@@ -23,6 +30,7 @@ export function OwnerOrganizationSettingsPage() {
   const [contactSyncStatus, setContactSyncStatus] = useState<string | null>(null);
   const [contactSyncError, setContactSyncError] = useState<string | null>(null);
   const [deprovisionUserId, setDeprovisionUserId] = useState("");
+  const [brandingTab, setBrandingTab] = useState<BrandingTabKey>("logos");
   const [deprovisionStatus, setDeprovisionStatus] = useState<string | null>(null);
   const [deprovisionError, setDeprovisionError] = useState<string | null>(null);
   const organizationsResource = useStableResource({
@@ -40,6 +48,7 @@ export function OwnerOrganizationSettingsPage() {
 
   const organization = organizationsResource.data?.organizations.find((item) => item.profile?.id === organizationId || item.logtoOrganizationId === organizationId);
   const profile = organization?.profile;
+  const branding = profile?.branding as Record<string, string | null | undefined> | null | undefined;
   const provisioningState = profile?.settings?.provisioningState && typeof profile.settings.provisioningState === "object" ? profile.settings.provisioningState as Record<string, unknown> : null;
   const requiresResume = Boolean(provisioningState?.requiresResume);
   const updateCrmForm = (field: keyof typeof crmForm, value: string) => setCrmForm((current) => ({ ...current, [field]: value }));
@@ -129,13 +138,34 @@ export function OwnerOrganizationSettingsPage() {
             </PageCard>
           </div>
           <div className="col-12 col-lg-6">
-            <PageCard title="Branding" subtitle="No se aplica automáticamente a Logto en este PR; queda listo para settings futuros.">
-              <dl className="mb-0 small">
-                <dt>Logo URL</dt><dd className="text-break">{profile?.branding?.logoUrl ?? "Sin logo"}</dd>
-                <dt>Favicon URL</dt><dd className="text-break">{profile?.branding?.faviconUrl ?? "Sin favicon"}</dd>
-                <dt>Color primario</dt><dd>{profile?.branding?.primaryColor ?? "Sin color"}</dd>
-                <dt>Color oscuro</dt><dd>{profile?.branding?.primaryColorDark ?? "Sin color"}</dd>
-              </dl>
+            <PageCard title="Branding" subtitle="Alineado con la consola de organización: logos largos, marcas cortas y favicons separados por tema. Los logos cortos usan las claves lightMarkUrl y darkMarkUrl; no se reutiliza faviconUrl.">
+              <Nav variant="tabs" activeKey={brandingTab} onSelect={(key) => setBrandingTab((key as BrandingTabKey) || "logos")} className="mb-3 small">
+                <Nav.Item><Nav.Link eventKey="logos">Logos</Nav.Link></Nav.Item>
+                <Nav.Item><Nav.Link eventKey="light">Tema claro</Nav.Link></Nav.Item>
+                <Nav.Item><Nav.Link eventKey="dark">Tema oscuro</Nav.Link></Nav.Item>
+              </Nav>
+              {brandingTab === "logos" ? (
+                <dl className="mb-0 small">
+                  <dt>Logo largo light <code>lightLogoUrl</code></dt><dd className="text-break">{getBrandingValue(branding, "lightLogoUrl", "logoUrl")}</dd>
+                  <dt>Logo largo dark <code>darkLogoUrl</code></dt><dd className="text-break">{getBrandingValue(branding, "darkLogoUrl")}</dd>
+                  <dt>Logo corto/fingerprint light <code>lightMarkUrl</code></dt><dd className="text-break">{getBrandingValue(branding, "lightMarkUrl")}</dd>
+                  <dt>Logo corto/fingerprint dark <code>darkMarkUrl</code></dt><dd className="text-break">{getBrandingValue(branding, "darkMarkUrl")}</dd>
+                </dl>
+              ) : brandingTab === "light" ? (
+                <dl className="mb-0 small">
+                  <dt>Logo largo light <code>lightLogoUrl</code></dt><dd className="text-break">{getBrandingValue(branding, "lightLogoUrl", "logoUrl")}</dd>
+                  <dt>Logo corto/fingerprint light <code>lightMarkUrl</code></dt><dd className="text-break">{getBrandingValue(branding, "lightMarkUrl")}</dd>
+                  <dt>Favicon light <code>lightFaviconUrl</code></dt><dd className="text-break">{getBrandingValue(branding, "lightFaviconUrl", "faviconUrl")}</dd>
+                  <dt>Color primario light</dt><dd>{getBrandingValue(branding, "lightPrimaryColor", "primaryColor")}</dd>
+                </dl>
+              ) : (
+                <dl className="mb-0 small">
+                  <dt>Logo largo dark <code>darkLogoUrl</code></dt><dd className="text-break">{getBrandingValue(branding, "darkLogoUrl")}</dd>
+                  <dt>Logo corto/fingerprint dark <code>darkMarkUrl</code></dt><dd className="text-break">{getBrandingValue(branding, "darkMarkUrl")}</dd>
+                  <dt>Favicon dark <code>darkFaviconUrl</code></dt><dd className="text-break">{getBrandingValue(branding, "darkFaviconUrl")}</dd>
+                  <dt>Color primario dark</dt><dd>{getBrandingValue(branding, "darkPrimaryColor", "primaryColorDark")}</dd>
+                </dl>
+              )}
             </PageCard>
           </div>
 
