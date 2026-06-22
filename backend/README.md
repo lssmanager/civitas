@@ -53,8 +53,9 @@ npm test
 
 ## Production migrations
 
-The production `npm start` command runs `node scripts/migrate.js` before `node index.js`.
-This applies pending Drizzle SQL migrations from `backend/drizzle` using the same `DATABASE_URL` that the API uses, so deploys create tables such as `users` before protected endpoints like `GET /me` query them.
+Production deploys must run migrations before starting the API. The backend Docker image does this with `npm run migrate && npm run start:api`, and platforms that deploy from the repository should use the same release/start sequence.
+
+`npm run migrate` applies pending Drizzle SQL migrations from `backend/drizzle` using the same `DATABASE_URL` that the API uses, so deploys create tables such as `users`, `sync_operations`, and `sync_operation_steps` before protected endpoints like `GET /me` query them. `RUN_MIGRATIONS_ON_STARTUP` remains `false` by default; set it to `true` only on platforms that cannot run a separate release command.
 
 To run migrations manually from the backend container or a local shell with `DATABASE_URL` set:
 
