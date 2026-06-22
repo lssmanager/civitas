@@ -1220,17 +1220,54 @@ export function OwnerOrganizationsPage() {
                   <div className="d-flex align-items-center gap-2">
                     <h5 className="h6 mb-0">{contact.label}</h5>
                     {canRemoveContact ? (
-                      <Button
+                      <button
                         type="button"
-                        variant="outline-danger"
-                        size="sm"
-                        className="px-2 py-0"
+                        className="btn p-0 border-0 bg-transparent text-secondary d-inline-flex align-items-center justify-content-center"
+                        style={{ width: 18, height: 18 }}
                         onClick={() => removeAdministrativeContact(contact.key)}
                         aria-label={`Eliminar ${contact.label}`}
                         title={`Eliminar ${contact.label}`}
                       >
-                        🗑
-                      </Button>
+                        <svg
+                          aria-hidden="true"
+                          viewBox="0 0 16 16"
+                          width="16"
+                          height="16"
+                          fill="none"
+                        >
+                          <path
+                            d="M2.5 4H13.5"
+                            stroke="currentColor"
+                            strokeWidth="1.25"
+                            strokeLinecap="round"
+                          />
+                          <path
+                            d="M6.5 2.5H9.5"
+                            stroke="currentColor"
+                            strokeWidth="1.25"
+                            strokeLinecap="round"
+                          />
+                          <path
+                            d="M4.5 4L5 12.5C5.03 13.05 5.49 13.5 6.04 13.5H9.96C10.51 13.5 10.97 13.05 11 12.5L11.5 4"
+                            stroke="currentColor"
+                            strokeWidth="1.25"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                          <path
+                            d="M6.5 6.5V11"
+                            stroke="currentColor"
+                            strokeWidth="1.25"
+                            strokeLinecap="round"
+                          />
+                          <path
+                            d="M9.5 6.5V11"
+                            stroke="currentColor"
+                            strokeWidth="1.25"
+                            strokeLinecap="round"
+                          />
+                        </svg>
+                      </button>
                     ) : null}
                   </div>
                   <div className="d-flex flex-wrap gap-3 small text-secondary">
