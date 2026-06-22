@@ -66,7 +66,17 @@ function buildLogtoUserProfile(person = {}) {
 }
 
 function buildLogtoUserCustomData(person = {}) {
-  return { civitasProfile: cleanObject({ position: trim(person.position), phoneExtension: trim(person.phoneExtension), source: "owner_organization_provisioning" }) };
+  return {
+    civitasProfile: cleanObject({
+      primerNombre: trim(person.primerNombre),
+      segundoNombre: trim(person.segundoNombre),
+      primerApellido: trim(person.primerApellido),
+      segundoApellido: trim(person.segundoApellido),
+      position: trim(person.position),
+      phoneExtension: trim(person.phoneExtension),
+      source: "owner_organization_provisioning",
+    }),
+  };
 }
 
 function buildLogtoUserCreatePayload(person = {}) {

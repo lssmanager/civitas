@@ -1273,12 +1273,25 @@ app.patch("/owner/organizations/:organizationId/members/:logtoUserId", requireAu
   let internalUser = null;
   try {
     internalUser = await getOrCreateInternalUser(req.user);
-    const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : null;
-    const name = typeof req.body?.name === "string" ? req.body.name.trim() : null;
-    const phone = typeof req.body?.phone === "string" ? req.body.phone.trim() : null;
-    const previousEmail = typeof req.body?.previousEmail === "string" ? req.body.previousEmail.trim().toLowerCase() : email;
-    const logtoUser = await updateLogtoUser({ userId: req.params.logtoUserId, email, name, phone });
-    const operation = await createSyncOperation({ organizationId: req.params.organizationId, operationType: "member_identity_downstream_sync", stepName: "fluentcrm_contact_identity_sync", metadata: { logtoUserId: req.params.logtoUserId, previousEmail, email, name, phone, sourceOfTruth: "logto" } });
+    const trim = (value) => (typeof value === "string" && value.trim() ? value.trim() : null);
+    const email = trim(req.body?.email)?.toLowerCase() || null;
+    const phone = trim(req.body?.phone);
+    const previousEmail = trim(req.body?.previousEmail)?.toLowerCase() || email;
+    const primerNombre = trim(req.body?.primerNombre);
+    const segundoNombre = trim(req.body?.segundoNombre);
+    const primerApellido = trim(req.body?.primerApellido);
+    const segundoApellido = trim(req.body?.segundoApellido);
+    const givenName = [primerNombre, segundoNombre].filter(Boolean).join(" ") || null;
+    const familyName = [primerApellido, segundoApellido].filter(Boolean).join(" ") || null;
+    const name = trim(req.body?.name) || [primerNombre, segundoNombre, primerApellido, segundoApellido].filter(Boolean).join(" ") || null;
+    if (!primerNombre || !primerApellido || !email) return res.status(400).json({ error: "Bad Request", message: "Nombre 1, Apellido 1 y email son requeridos" });
+    const previousUser = await getLogtoUserById(req.params.logtoUserId).catch(() => null);
+    const previousCustomData = previousUser?.customData && typeof previousUser.customData === "object" ? previousUser.customData : {};
+    const previousProfile = previousUser?.profile && typeof previousUser.profile === "object" ? previousUser.profile : {};
+    const customData = { ...previousCustomData, civitasProfile: { ...(previousCustomData.civitasProfile || {}), primerNombre, segundoNombre, primerApellido, segundoApellido } };
+    const profile = { ...previousProfile, givenName, familyName };
+    const logtoUser = await updateLogtoUser({ userId: req.params.logtoUserId, email, name, phone, profile, customData });
+    const operation = await createSyncOperation({ organizationId: req.params.organizationId, operationType: "member_identity_downstream_sync", stepName: "fluentcrm_contact_identity_sync", metadata: { logtoUserId: req.params.logtoUserId, previousEmail, email, name, phone, primerNombre, segundoNombre, primerApellido, segundoApellido, sourceOfTruth: "logto" } });
     await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: req.params.organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "member_identity_updated", syncOperationId: operation.id } });
     return res.json({ status: "logto_updated_sync_queued", logtoUser, syncOperation: operation });
   } catch (error) {

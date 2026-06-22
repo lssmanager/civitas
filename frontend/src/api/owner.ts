@@ -263,7 +263,7 @@ export type CreateOwnerOrganizationInput = {
   jitProvisioning?: { domain?: string; defaultRoleNames?: string[] };
   settings?: Record<string, unknown>;
   crm?: FluentCrmCompanyInput;
-  administrativeContacts?: Array<{ kind?: string; firstName?: string; lastName?: string; name: string; email: string; phone?: string; phoneExtension?: string; position?: string; organizationRoleName: string }>;
+  administrativeContacts?: Array<{ kind?: string; primerNombre?: string; segundoNombre?: string; primerApellido?: string; segundoApellido?: string; firstName?: string; lastName?: string; name: string; email: string; phone?: string; phoneExtension?: string; position?: string; organizationRoleName: string }>;
 };
 
 export const useOwnerApi = () => {
@@ -290,7 +290,7 @@ export const useOwnerApi = () => {
         fetchWithToken(`/owner/organizations/${encodeURIComponent(organizationId)}/directory`),
       createOrganizationMember: async (organizationId: string, data: { primerNombre: string; segundoNombre?: string | null; primerApellido: string; segundoApellido?: string | null; email: string; phone?: string | null; phoneExtension?: string | null; position?: string | null; organizationRoleName: string }): Promise<{ status: string; syncOperation: Record<string, unknown> }> =>
         fetchWithToken(`/owner/organizations/${encodeURIComponent(organizationId)}/members`, { method: "POST", body: JSON.stringify(data) }),
-      updateOrganizationMember: async (organizationId: string, logtoUserId: string, data: Record<string, unknown>): Promise<{ status: string; logtoUser: Record<string, unknown>; syncOperation: Record<string, unknown> }> =>
+      updateOrganizationMember: async (organizationId: string, logtoUserId: string, data: { primerNombre?: string | null; segundoNombre?: string | null; primerApellido?: string | null; segundoApellido?: string | null; name?: string | null; email?: string | null; phone?: string | null; previousEmail?: string | null }): Promise<{ status: string; logtoUser: Record<string, unknown>; syncOperation: Record<string, unknown> }> =>
         fetchWithToken(`/owner/organizations/${encodeURIComponent(organizationId)}/members/${encodeURIComponent(logtoUserId)}`, { method: "PATCH", body: JSON.stringify(data) }),
       resetOrganizationMemberPassword: async (organizationId: string, logtoUserId: string): Promise<{ status: string; message: string }> =>
         fetchWithToken(`/owner/organizations/${encodeURIComponent(organizationId)}/members/${encodeURIComponent(logtoUserId)}/reset-password`, { method: "POST" }),

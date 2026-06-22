@@ -18,8 +18,10 @@ type AdministrativeContactKey = `responsible${number}`;
 type AdministrativeContact = {
   key: AdministrativeContactKey;
   label: string;
-  firstName: string;
-  lastName: string;
+  primerNombre: string;
+  segundoNombre: string;
+  primerApellido: string;
+  segundoApellido: string;
   email: string;
   phoneCountryCode: string;
   phoneNationalNumber: string;
@@ -116,6 +118,39 @@ const FLUENTCRM_LIKELY_CAUSE_LABELS: Record<string, string> = {
     "La ruta /wp-json/fluent-crm/v2 no está respondiendo como debería.",
 };
 
+const createAdministrativeContact = (index: number, phoneCountryCode = ""): AdministrativeContact => ({
+  key: `responsible${index}` as AdministrativeContactKey,
+  label: `Usuario ${index}`,
+  primerNombre: "",
+  segundoNombre: "",
+  primerApellido: "",
+  segundoApellido: "",
+  email: "",
+  phoneCountryCode,
+  phoneNationalNumber: "",
+  phoneExtension: "",
+  position: "",
+  organizationRoleName: ORGANIZATION_BOOTSTRAP_ADMIN_ROLE,
+});
+
+const ensureMinimumAdministrativeContact = (
+  contacts: AdministrativeContact[],
+  phoneCountryCode = "",
+) => {
+  const source = contacts.length ? contacts : [createAdministrativeContact(1, phoneCountryCode)];
+  return source.map((contact, index) => {
+    const legacy = contact as unknown as { firstName?: string; lastName?: string };
+    return {
+      ...createAdministrativeContact(index + 1, phoneCountryCode),
+      ...contact,
+      primerNombre: contact.primerNombre ?? legacy.firstName ?? "",
+      segundoNombre: contact.segundoNombre ?? "",
+      primerApellido: contact.primerApellido ?? legacy.lastName ?? "",
+      segundoApellido: contact.segundoApellido ?? "",
+    };
+  });
+};
+
 const initialFormData: OwnerOrganizationFormData = {
   name: "",
   slug: "",
@@ -153,7 +188,7 @@ const initialFormData: OwnerOrganizationFormData = {
     tags: [],
     lists: [],
   },
-  administrativeContacts: [],
+  administrativeContacts: [createAdministrativeContact(1)],
 };
 
 const initialDirty: DirtyState = {
@@ -328,8 +363,10 @@ export function OwnerOrganizationsPage() {
   const effectiveCompanyOwner =
     formData.crm.companyOwner.trim() ||
     [
-      formData.administrativeContacts[0]?.firstName,
-      formData.administrativeContacts[0]?.lastName,
+      formData.administrativeContacts[0]?.primerNombre,
+      formData.administrativeContacts[0]?.segundoNombre,
+      formData.administrativeContacts[0]?.primerApellido,
+      formData.administrativeContacts[0]?.segundoApellido,
     ]
       .map((value) => value?.trim() || "")
       .filter(Boolean)
@@ -407,7 +444,13 @@ export function OwnerOrganizationsPage() {
 
   const restoreDraft = () => {
     if (!draftSnapshot) return;
-    setFormData(draftSnapshot.formData);
+    setFormData({
+      ...draftSnapshot.formData,
+      administrativeContacts: ensureMinimumAdministrativeContact(
+        draftSnapshot.formData.administrativeContacts,
+        defaultCallingCode,
+      ),
+    });
     setDirty(draftSnapshot.dirty);
     setCurrentStep(draftSnapshot.currentStep);
     setDraftSnapshot(null);
@@ -499,8 +542,10 @@ export function OwnerOrganizationsPage() {
   const updateAdministrativeContact = (
     key: AdministrativeContactKey,
     field:
-      | "firstName"
-      | "lastName"
+      | "primerNombre"
+      | "segundoNombre"
+      | "primerApellido"
+      | "segundoApellido"
       | "email"
       | "phoneCountryCode"
       | "phoneNationalNumber"
@@ -526,18 +571,7 @@ export function OwnerOrganizationsPage() {
         ...current,
         administrativeContacts: [
           ...current.administrativeContacts,
-          {
-            key: `responsible${nextIndex}`,
-            label: `Usuario ${nextIndex}`,
-            firstName: "",
-            lastName: "",
-            email: "",
-            phoneCountryCode: defaultCallingCode,
-            phoneNationalNumber: "",
-            phoneExtension: "",
-            position: "",
-            organizationRoleName: ORGANIZATION_BOOTSTRAP_ADMIN_ROLE,
-          },
+          createAdministrativeContact(nextIndex, defaultCallingCode),
         ],
       };
     });
@@ -607,23 +641,27 @@ export function OwnerOrganizationsPage() {
 
   const getAdministrativeContactValidationError = () => {
     const seen = new Map<string, { name: string; role: string; position: string }>();
+    let completeContacts = 0;
     for (const contact of formData.administrativeContacts) {
-      const fullName = [contact.firstName, contact.lastName]
+      const fullName = [contact.primerNombre, contact.segundoNombre, contact.primerApellido, contact.segundoApellido]
         .map((value) => value.trim())
         .filter(Boolean)
         .join(" ");
       const email = contact.email.trim().toLowerCase();
       const hasAnyInput = Boolean(
-        contact.firstName.trim() ||
-          contact.lastName.trim() ||
+        contact.primerNombre.trim() ||
+          contact.segundoNombre.trim() ||
+          contact.primerApellido.trim() ||
+          contact.segundoApellido.trim() ||
           contact.email.trim() ||
           contact.phoneNationalNumber.trim() ||
           contact.position.trim(),
       );
       if (!hasAnyInput) continue;
-      if (!fullName || !email || !contact.organizationRoleName.trim()) {
-        return `${contact.label}: completa nombres, apellidos, correo y rol Logto, o deja el bloque vacío.`;
+      if (!contact.primerNombre.trim() || !contact.primerApellido.trim() || !email || !contact.organizationRoleName.trim()) {
+        return `${contact.label}: completa Nombre 1, Apellido 1, correo y rol Logto.`;
       }
+      completeContacts += 1;
       if (
         contact.phoneNationalNumber.trim() &&
         !normalizePhoneForSubmission(
@@ -647,6 +685,9 @@ export function OwnerOrganizationsPage() {
           : `El correo ${contact.email} está repetido en contactos administrativos.`;
       }
       seen.set(email, current);
+    }
+    if (completeContacts === 0) {
+      return "Crea al menos 1 usuario con Nombre 1, Apellido 1, correo y rol Logto antes de continuar.";
     }
     return null;
   };
@@ -689,7 +730,7 @@ export function OwnerOrganizationsPage() {
   const getAdministrativeContactsPayload = () =>
     formData.administrativeContacts
       .map((contact) => {
-        const fullName = [contact.firstName, contact.lastName]
+        const fullName = [contact.primerNombre, contact.segundoNombre, contact.primerApellido, contact.segundoApellido]
           .map((value) => value.trim())
           .filter(Boolean)
           .join(" ");
@@ -700,8 +741,12 @@ export function OwnerOrganizationsPage() {
         if (!hasAnyInput) return null;
         return {
           kind: contact.key,
-          firstName: contact.firstName.trim() || undefined,
-          lastName: contact.lastName.trim() || undefined,
+          primerNombre: contact.primerNombre.trim() || undefined,
+          segundoNombre: contact.segundoNombre.trim() || undefined,
+          primerApellido: contact.primerApellido.trim() || undefined,
+          segundoApellido: contact.segundoApellido.trim() || undefined,
+          firstName: [contact.primerNombre, contact.segundoNombre].map((value) => value.trim()).filter(Boolean).join(" ") || undefined,
+          lastName: [contact.primerApellido, contact.segundoApellido].map((value) => value.trim()).filter(Boolean).join(" ") || undefined,
           name: fullName,
           email,
           phone:
@@ -1141,7 +1186,10 @@ export function OwnerOrganizationsPage() {
       </div>
       <div className="border rounded-3 p-3 d-flex flex-column gap-3 bg-light bg-opacity-50">
         <div className="d-flex justify-content-between align-items-center gap-3">
-          <h4 className="h6 mb-0">Roles y usuarios adicionales</h4>
+          <div>
+            <h4 className="h6 mb-0">Creación de usuarios</h4>
+            <div className="small text-secondary">Mínimo 1 usuario requerido; puedes añadir más y seleccionar el rol de cada uno.</div>
+          </div>
           <Button type="button" variant="outline-primary" size="sm" onClick={addAdministrativeContact}>
             Añadir usuario
           </Button>
@@ -1149,7 +1197,7 @@ export function OwnerOrganizationsPage() {
         <div className="d-flex flex-column gap-3">
           {formData.administrativeContacts.length === 0 ? (
             <div className="small text-secondary">
-              Sin contactos adicionales. Crea administradores o miembros desde Añadir usuario.
+              Debes crear al menos 1 usuario. Usa Añadir usuario si necesitas más usuarios.
             </div>
           ) : null}
           {formData.administrativeContacts.map((contact) => {
@@ -1179,20 +1227,38 @@ export function OwnerOrganizationsPage() {
                 </div>
                 <div className="row g-3">
                   <Form.Group className="col-12 col-xl-3">
-                    <Form.Label>Nombres</Form.Label>
+                    <Form.Label>Nombre 1</Form.Label>
                     <Form.Control
-                      value={contact.firstName}
+                      value={contact.primerNombre}
                       onChange={(event) =>
-                        updateAdministrativeContact(contact.key, "firstName", event.target.value)
+                        updateAdministrativeContact(contact.key, "primerNombre", event.target.value)
                       }
                     />
                   </Form.Group>
                   <Form.Group className="col-12 col-xl-3">
-                    <Form.Label>Apellidos</Form.Label>
+                    <Form.Label>Nombre 2</Form.Label>
                     <Form.Control
-                      value={contact.lastName}
+                      value={contact.segundoNombre}
                       onChange={(event) =>
-                        updateAdministrativeContact(contact.key, "lastName", event.target.value)
+                        updateAdministrativeContact(contact.key, "segundoNombre", event.target.value)
+                      }
+                    />
+                  </Form.Group>
+                  <Form.Group className="col-12 col-xl-3">
+                    <Form.Label>Apellido 1</Form.Label>
+                    <Form.Control
+                      value={contact.primerApellido}
+                      onChange={(event) =>
+                        updateAdministrativeContact(contact.key, "primerApellido", event.target.value)
+                      }
+                    />
+                  </Form.Group>
+                  <Form.Group className="col-12 col-xl-3">
+                    <Form.Label>Apellido 2</Form.Label>
+                    <Form.Control
+                      value={contact.segundoApellido}
+                      onChange={(event) =>
+                        updateAdministrativeContact(contact.key, "segundoApellido", event.target.value)
                       }
                     />
                   </Form.Group>
@@ -1384,7 +1450,7 @@ export function OwnerOrganizationsPage() {
                     <div className="fw-semibold">{contact.label}</div>
                     <div className="text-secondary">
                       {displayValue(
-                        [contact.firstName, contact.lastName]
+                        [contact.primerNombre, contact.segundoNombre, contact.primerApellido, contact.segundoApellido]
                           .map((value) => value.trim())
                           .filter(Boolean)
                           .join(" "),
