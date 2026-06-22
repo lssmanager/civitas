@@ -35,7 +35,14 @@ const LOGTO_SYNC_STATUSES = Object.freeze({
 
 const toIso = (value) => value?.toISOString?.() ?? value;
 
-const serializeOrganizationProfile = (profile) => ({
+const getSettingsBranding = (profile) => {
+  const branding = profile?.settings?.branding || profile?.settings?.civitasProfile?.branding || null;
+  return branding && typeof branding === "object" && !Array.isArray(branding) ? branding : {};
+};
+
+const serializeOrganizationProfile = (profile) => {
+  const settingsBranding = getSettingsBranding(profile);
+  return {
   id: profile.id,
   logtoOrganizationId: profile.logtoOrganizationId,
   nameCache: profile.nameCache,
@@ -45,10 +52,18 @@ const serializeOrganizationProfile = (profile) => ({
   slug: profile.slug,
   adminDomain: profile.adminDomain,
   branding: {
-    logoUrl: profile.logoUrl,
-    faviconUrl: profile.faviconUrl,
-    primaryColor: profile.primaryColor,
-    primaryColorDark: profile.primaryColorDark,
+    logoUrl: settingsBranding.logoUrl ?? profile.logoUrl,
+    faviconUrl: settingsBranding.faviconUrl ?? profile.faviconUrl,
+    primaryColor: settingsBranding.primaryColor ?? profile.primaryColor,
+    primaryColorDark: settingsBranding.primaryColorDark ?? profile.primaryColorDark,
+    lightLogoUrl: settingsBranding.lightLogoUrl ?? settingsBranding.logoUrl ?? profile.logoUrl,
+    darkLogoUrl: settingsBranding.darkLogoUrl ?? settingsBranding.logoUrl ?? profile.logoUrl,
+    lightMarkUrl: settingsBranding.lightMarkUrl ?? null,
+    darkMarkUrl: settingsBranding.darkMarkUrl ?? null,
+    lightFaviconUrl: settingsBranding.lightFaviconUrl ?? settingsBranding.faviconUrl ?? profile.faviconUrl,
+    darkFaviconUrl: settingsBranding.darkFaviconUrl ?? settingsBranding.faviconUrl ?? profile.faviconUrl,
+    lightPrimaryColor: settingsBranding.lightPrimaryColor ?? settingsBranding.primaryColor ?? profile.primaryColor,
+    darkPrimaryColor: settingsBranding.darkPrimaryColor ?? settingsBranding.primaryColorDark ?? profile.primaryColorDark,
   },
   organizationLoginExperienceEnabled: profile.organizationLoginExperienceEnabled,
   defaultRoleNames: profile.defaultRoleNames || [],
@@ -67,7 +82,8 @@ const serializeOrganizationProfile = (profile) => ({
   fluentcrmSyncedAt: toIso(profile.fluentcrmSyncedAt),
   createdAt: toIso(profile.createdAt),
   updatedAt: toIso(profile.updatedAt),
-});
+};
+};
 
 const normalizeSeatTotal = (seatTotal) => {
   const value = Number(seatTotal);

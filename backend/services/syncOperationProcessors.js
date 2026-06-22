@@ -6,6 +6,7 @@ const { FluentCrmError, getOrCreateCompanyForOrganization, updateContactEmailAft
 const { getLogtoOrganizationById, createLogtoUserPasswordResetRequest } = require("./logtoManagement");
 const { listOrganizationProfiles } = require("./organizationProfiles");
 const { safeFunctionalMessage } = require("./syncOperations");
+const { RECONCILIATION_OPERATION_TYPE, processReconciliationTask } = require("./organizationReconciliation");
 
 const OPERATION_TYPES = Object.freeze({
   ORGANIZATION_PROFILE_DOWNSTREAM_SYNC: "organization_profile_downstream_sync",
@@ -33,7 +34,17 @@ async function loadOperation(operationId) {
 }
 
 async function updateOperation(operationId, patch) {
-  const [row] = await db.update(syncOperations).set({ ...patch, updatedAt: new Date() }).where(eq(syncOperations.id, operationId)).returning();
+  const allowed = new Set(["status", "canonicalStatus", "downstreamStatus", "payloadSnapshotJson", "resultSnapshotJson", "lastErrorJson", "retryCount", "startedAt", "finishedAt"]);
+  const update = { updatedAt: new Date() };
+  for (const [key, value] of Object.entries(patch)) {
+    if (allowed.has(key)) update[key] = value;
+  }
+  if ("metadata" in patch || "retryable" in patch || "lastError" in patch) {
+    update.resultSnapshotJson = { ...(patch.resultSnapshotJson || {}), metadata: patch.metadata || null, retryable: patch.retryable ?? null };
+    update.lastErrorJson = patch.lastError ? { message: patch.lastError, retryable: Boolean(patch.retryable) } : patch.lastErrorJson || null;
+  }
+  if ("attempts" in patch) update.retryCount = Number(patch.attempts) || 0;
+  const [row] = await db.update(syncOperations).set(update).where(eq(syncOperations.id, operationId)).returning();
   return row;
 }
 
@@ -98,6 +109,7 @@ async function processSyncOperation(operationOrId) {
     else if (operation.operationType === OPERATION_TYPES.MEMBER_IDENTITY_DOWNSTREAM_SYNC) outcome = await processMemberIdentityDownstreamSync(operation);
     else if (operation.operationType === OPERATION_TYPES.MEMBER_RESET_PASSWORD) outcome = await processMemberResetPassword(operation);
     else if (operation.operationType === OPERATION_TYPES.MANUAL_RETRY) outcome = { status: "completed", result: { message: "Manual retry marker consumed; original operation should be retried separately when available." } };
+    else if (operation.operationType === RECONCILIATION_OPERATION_TYPE) outcome = await processReconciliationTask(operation);
     else throw Object.assign(new Error(`Unsupported sync operation type: ${operation.operationType}`), { code: "UNSUPPORTED_OPERATION_TYPE" });
     await updateOperation(operation.id, { status: outcome.status === "completed" ? "completed" : outcome.status === "partial_failed" ? "partial_failed" : outcome.status, retryable: Boolean(outcome.retryable), lastError: outcome.status === "completed" ? null : outcome.message || null, metadata: { ...(operation.metadata || {}), workerOutcome: outcome } });
     return outcome;
