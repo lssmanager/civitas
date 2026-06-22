@@ -209,5 +209,3 @@ test("Logto Management API request timeout is controlled", async () => {
 
   delete process.env.LOGTO_MANAGEMENT_TIMEOUT_MS;
 });
-
-});

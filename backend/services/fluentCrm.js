@@ -588,12 +588,13 @@ async function upsertContactFromLogtoIdentity({ identity, companyId, roleNames =
     full_name: normalizeString(identity.name),
     phone: normalizeString(identity.phone),
     job_title: normalizeString(identity.position),
-    custom_values: normalizeString(identity.position) ? { cargo: normalizeString(identity.position) } : undefined,
+    custom_values: { ...(normalizeString(identity.position) ? { cargo: normalizeString(identity.position) } : {}), ...(normalizeString(identity.phoneExtension) ? { phone_extension: normalizeString(identity.phoneExtension) } : {}) },
     external_id: identity.logtoUserId || undefined,
     company_id: companyId,
     tags: [...new Set([...taxonomy.tags, ...normalizeStringList(extraTags)])],
     lists: [...new Set([...taxonomy.lists, ...normalizeStringList(extraLists)])],
   };
+  if (Object.keys(payload.custom_values || {}).length === 0) delete payload.custom_values;
   const contact = contacts[0] ? await updateContact(contacts[0], payload) : await createContact(payload);
   return { status: contacts[0] ? "updated" : "created", contact, email, logtoUserId: identity.logtoUserId || null, taxonomy };
 }

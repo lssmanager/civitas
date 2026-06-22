@@ -759,11 +759,13 @@ export function OwnerOrganizationsPage() {
           .join(" ");
         const email = contact.email.trim();
         const hasAnyInput = Boolean(
-          fullName || email || contact.phoneNationalNumber.trim() || contact.position.trim(),
+          fullName || email || contact.phoneNationalNumber.trim() || contact.phoneExtension.trim() || contact.position.trim(),
         );
         if (!hasAnyInput) return null;
         return {
           kind: contact.key,
+          firstName: contact.firstName.trim() || undefined,
+          lastName: contact.lastName.trim() || undefined,
           name: fullName,
           email,
           phone:
@@ -771,6 +773,7 @@ export function OwnerOrganizationsPage() {
               contact.phoneNationalNumber,
               getPhoneCountryCode(contact.phoneCountryCode),
             ) || undefined,
+          phoneExtension: contact.phoneExtension.trim() || undefined,
           position: contact.position.trim() || undefined,
           organizationRoleName: contact.organizationRoleName.trim(),
         };
@@ -826,6 +829,8 @@ export function OwnerOrganizationsPage() {
               getPhoneCountryCode(formData.baseAdminPhoneCountryCode),
             ) || undefined,
           initialOrganizationRole: selectedAdminRole,
+          position: formData.baseAdminPosition || undefined,
+          phoneExtension: formData.baseAdminPhoneExtension || undefined,
         },
         jitProvisioning: {
           domain: formData.adminDomain || undefined,
@@ -877,6 +882,14 @@ export function OwnerOrganizationsPage() {
           : []),
         ...getFriendlyFluentCrmHints(diagnostic?.likelyCauses),
       ];
+
+      if (result.status === "queued" || result.operationId) {
+        setSubmitWarning(result.message || "Solicitud enviada: el bootstrap canónico sigue en curso en segundo plano.");
+        setSubmitHints([`Operación: ${result.operationId || "pendiente"}`, "No se limpia el borrador hasta que la operación termine; puedes rehidratarlo con el payloadSnapshot del estado operativo."]);
+        setCreatedCrmStatus(result.downstreamStatus || null);
+        setDraftMessage("Solicitud encolada. Borrador preservado para reanudar si hay fallo parcial.");
+        return;
+      }
 
       resetForm();
       if (result.warning) {

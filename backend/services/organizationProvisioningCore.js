@@ -15,6 +15,7 @@ const {
   enforceNoProhibitedGlobalRolesForOrganizationUser,
 } = require("./logtoManagement");
 const { AUDIT_ACTIONS, AUDIT_RESULTS, recordAuditLogBestEffort } = require("./auditLogs");
+const { buildLogtoUserCreatePayload } = require("./organizationProvisioningPayloads");
 
 const DEFAULT_JIT_ROLE_NAMES = [JIT_DEFAULT_ORGANIZATION_ROLE_NAME];
 
@@ -43,6 +44,7 @@ const normalizeAdministrativeContacts = (value, institutionalDomain = null) => {
       rawEmail: emptyToNull(contact?.email)?.toLowerCase() || null,
       phone: emptyToNull(contact?.phone),
       rawPhone: emptyToNull(contact?.phone),
+      phoneExtension: emptyToNull(contact?.phoneExtension ?? contact?.extension),
       position: emptyToNull(contact?.position ?? contact?.cargo),
       organizationRoleName: emptyToNull(contact?.organizationRoleName),
       username: emptyToNull(contact?.username) || buildLogtoUsername({ email: normalizeContactEmail(contact?.email) }),
@@ -119,6 +121,8 @@ function normalizeCanonicalProvisioningInput(body = {}) {
   const baseAdminPhoneRaw = emptyToNull(baseAdmin.phone ?? body.baseAdminPhone);
   const baseAdminPhone = normalizePhoneE164(baseAdminPhoneRaw);
   const baseAdminLogtoUserId = emptyToNull(baseAdmin.logtoUserId ?? body.baseAdminLogtoUserId);
+  const baseAdminPosition = emptyToNull(baseAdmin.position ?? body.baseAdminPosition);
+  const baseAdminPhoneExtension = emptyToNull(baseAdmin.phoneExtension ?? body.baseAdminPhoneExtension);
   const baseAdminInitialOrganizationRole = emptyToNull(baseAdmin.initialOrganizationRole) || ORGANIZATION_ADMIN_ROLE_NAME;
   const jitProvisioning = body.jitProvisioning && typeof body.jitProvisioning === "object" ? body.jitProvisioning : {};
   const jitProvisioningDomain = emptyToNull(jitProvisioning.domain ?? body.adminDomain ?? body.institutionalProvisioningDomain)?.toLowerCase() || null;
@@ -154,7 +158,7 @@ function normalizeCanonicalProvisioningInput(body = {}) {
     value: {
       name,
       description: typeof body.description === "string" ? body.description.trim() : undefined,
-      baseAdmin: { firstName: baseAdminFirstName, lastName: baseAdminLastName, name: baseAdminName, email: baseAdminEmail, phone: baseAdminPhone, username: baseAdminUsername, logtoUserId: baseAdminLogtoUserId, initialOrganizationRole: baseAdminInitialOrganizationRole },
+      baseAdmin: { firstName: baseAdminFirstName, lastName: baseAdminLastName, name: baseAdminName, email: baseAdminEmail, phone: baseAdminPhone, username: baseAdminUsername, position: baseAdminPosition, phoneExtension: baseAdminPhoneExtension, logtoUserId: baseAdminLogtoUserId, initialOrganizationRole: baseAdminInitialOrganizationRole },
       jitProvisioning: { domain: jitProvisioningDomain, defaultRoleNames: jitDefaultRoleNames },
       administrativeContacts,
     },
@@ -184,7 +188,7 @@ async function resolveLogtoOrganizationForSync({ name, description, customData }
 }
 
 async function resolveAdministrativeContactUser({ contact, logtoOrganizationId, internalUser }) {
-  const resolved = await createOrResolveLogtoUserByEmail({ email: contact.email, name: contact.name, phone: contact.phone });
+  const resolved = await createOrResolveLogtoUserByEmail(buildLogtoUserCreatePayload(contact));
   await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: resolved.created ? "administrative_contact_user_created" : "administrative_contact_user_resolved", administrativeContactEmail: contact.email, administrativeContactKey: contact.key, phone: contact.phone, position: contact.position, roleName: contact.organizationRoleName, source: resolved.source } });
   return resolved;
 }
@@ -195,7 +199,7 @@ async function resolveBaseAdminUser({ canonical, logtoOrganizationId, internalUs
     return { user, created: false, source: "provided_logto_user_id" };
   }
 
-  const resolved = await createOrResolveLogtoUserByEmail({ email: canonical.baseAdmin.email, name: canonical.baseAdmin.name, phone: canonical.baseAdmin.phone, username: canonical.baseAdmin.username });
+  const resolved = await createOrResolveLogtoUserByEmail(buildLogtoUserCreatePayload(canonical.baseAdmin));
   await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: resolved.created ? "base_admin_user_created" : "base_admin_user_resolved", baseAdminEmail: canonical.baseAdmin.email, source: resolved.source } });
   return resolved;
 }
