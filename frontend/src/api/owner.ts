@@ -13,6 +13,19 @@ export type OwnerMeResponse = {
   owner: OwnerAuthorization;
 };
 
+export type OwnerOrganizationBranding = {
+  logoUrl: string | null;
+  faviconUrl: string | null;
+  primaryColor: string | null;
+  primaryColorDark: string | null;
+  lightLogoUrl?: string | null;
+  darkLogoUrl?: string | null;
+  lightMarkUrl?: string | null;
+  darkMarkUrl?: string | null;
+  lightFaviconUrl?: string | null;
+  darkFaviconUrl?: string | null;
+};
+
 export type OwnerOrganization = {
   logtoOrganizationId: string | null;
   name: string | null;
@@ -26,18 +39,7 @@ export type OwnerOrganization = {
     subdomain: string | null;
     slug?: string | null;
     adminDomain?: string | null;
-    branding?: {
-      logoUrl: string | null;
-      faviconUrl: string | null;
-      primaryColor: string | null;
-      primaryColorDark: string | null;
-      lightLogoUrl?: string | null;
-      darkLogoUrl?: string | null;
-      lightMarkUrl?: string | null;
-      darkMarkUrl?: string | null;
-      lightFaviconUrl?: string | null;
-      darkFaviconUrl?: string | null;
-    };
+    branding?: OwnerOrganizationBranding;
     organizationLoginExperienceEnabled?: boolean;
     defaultRoleNames?: string[];
     oidcApplicationId?: string | null;

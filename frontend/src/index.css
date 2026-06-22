@@ -61,7 +61,13 @@ body {
   display: inline-flex;
   align-items: center;
   max-width: 100%;
+  border-radius: 0.75rem;
   text-decoration: none;
+}
+
+.civitas-sidebar__brand-link:focus-visible {
+  outline: 0.2rem solid rgba(75, 158, 241, 0.45);
+  outline-offset: 0.35rem;
 }
 
 .civitas-sidebar__logo {
@@ -77,6 +83,21 @@ body {
 .civitas-sidebar__logo--dark,
 .civitas-sidebar__logo--mark {
   display: none;
+}
+
+.civitas-settings-branding .accordion-button {
+  font-weight: 700;
+  color: var(--civitas-text);
+  background: #ffffff;
+}
+
+.civitas-settings-branding .accordion-button:not(.collapsed) {
+  color: var(--civitas-primary);
+  background: var(--civitas-primary-soft);
+}
+
+.civitas-settings-branding .accordion-body {
+  background: #ffffff;
 }
 
 .civitas-sidebar-link {
@@ -1169,6 +1190,23 @@ body.theme-dark .civitas-sidebar__logo--light {
 .theme-dark .civitas-sidebar__logo--dark,
 body.theme-dark .civitas-sidebar__logo--dark {
   display: block;
+}
+
+[data-bs-theme="dark"] .civitas-settings-branding .accordion-button,
+[data-bs-theme="dark"] .civitas-settings-branding .accordion-body,
+.theme-dark .civitas-settings-branding .accordion-button,
+.theme-dark .civitas-settings-branding .accordion-body,
+body.theme-dark .civitas-settings-branding .accordion-button,
+body.theme-dark .civitas-settings-branding .accordion-body {
+  color: #e8effa;
+  background: #0f2748;
+}
+
+[data-bs-theme="dark"] .civitas-settings-branding .accordion-button:not(.collapsed),
+.theme-dark .civitas-settings-branding .accordion-button:not(.collapsed),
+body.theme-dark .civitas-settings-branding .accordion-button:not(.collapsed) {
+  color: #ffffff;
+  background: rgba(75, 158, 241, 0.22);
 }
 
 [data-bs-theme="dark"] .civitas-organization-card__logo,
