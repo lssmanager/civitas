@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Country, State } from "country-state-city";
 import { Alert, Badge, Button, Form } from "react-bootstrap";
-import { ApiRequestError } from "../../api/base";
 import { useOwnerApi } from "../../api/owner";
 import {
   ORGANIZATION_BOOTSTRAP_ADMIN_ROLE,
@@ -128,7 +127,7 @@ const initialFormData: OwnerOrganizationFormData = {
   baseAdminPhoneCountryCode: "",
   baseAdminPhoneNationalNumber: "",
   baseAdminPhoneExtension: "",
-  baseAdminPosition: "Admin base",
+  baseAdminPosition: "",
   adminRoleName: ORGANIZATION_BOOTSTRAP_ADMIN_ROLE,
   jitDefaultRoleName: ORGANIZATION_JIT_DEFAULT_ROLE,
   crm: {
@@ -179,8 +178,8 @@ const wizardSteps: Array<{
   },
   {
     step: 2,
-    title: "Paso 2. Creación de usuarios",
-    description: "Admin base, roles y settings globales",
+    title: "Paso 2. Roles y settings",
+    description: "Roles, contactos y settings globales",
   },
   {
     step: 3,
@@ -275,12 +274,6 @@ export function OwnerOrganizationsPage() {
   const [submitWarning, setSubmitWarning] = useState<string | null>(null);
   const [submitHints, setSubmitHints] = useState<string[]>([]);
   const [createdCrmStatus, setCreatedCrmStatus] = useState<string | null>(null);
-  const [crmHealthMessage, setCrmHealthMessage] = useState<string | null>(null);
-  const [crmHealthHints, setCrmHealthHints] = useState<string[]>([]);
-  const [crmHealthVariant, setCrmHealthVariant] = useState<
-    "success" | "warning" | "danger" | null
-  >(null);
-  const [crmHealthChecking, setCrmHealthChecking] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [tagInput, setTagInput] = useState("");
   const [listInput, setListInput] = useState("");
@@ -658,25 +651,7 @@ export function OwnerOrganizationsPage() {
     return null;
   };
 
-  const validateStepTwo = (): string | null => {
-    if (
-      !formData.baseAdminFirstName.trim() ||
-      !formData.baseAdminLastName.trim() ||
-      !formData.baseAdminEmail.trim()
-    ) {
-      return "Completa nombres, apellidos y correo del admin base antes de avanzar.";
-    }
-    if (
-      formData.baseAdminPhoneNationalNumber.trim() &&
-      !normalizePhoneForSubmission(
-        formData.baseAdminPhoneNationalNumber,
-        getPhoneCountryCode(formData.baseAdminPhoneCountryCode),
-      )
-    ) {
-      return "El teléfono del admin base no tiene un formato válido.";
-    }
-    return getAdministrativeContactValidationError();
-  };
+  const validateStepTwo = (): string | null => getAdministrativeContactValidationError();
 
   const goToStep = (step: WizardStep) => {
     if (step > 1) {
@@ -709,46 +684,7 @@ export function OwnerOrganizationsPage() {
     setCurrentStep((step) => Math.min(3, step + 1) as WizardStep);
   };
 
-  const handleCrmHealthCheck = async () => {
-    setCrmHealthChecking(true);
-    setCrmHealthMessage(null);
-    setCrmHealthHints([]);
-    setCrmHealthVariant(null);
-    try {
-      const result = await ownerApi.getFluentCrmHealth();
-      setCrmHealthVariant("success");
-      setCrmHealthMessage(
-        `Conexión FluentCRM OK. Endpoint verificado: ${result.endpoint || result.baseUrl || "configurado"}.`,
-      );
-      setCrmHealthHints(
-        result.timeoutMs ? [`Timeout activo: ${result.timeoutMs}ms.`] : [],
-      );
-    } catch (error) {
-      const payload = error instanceof ApiRequestError ? error.payload : null;
-      const diagnostic = getDiagnosticFromUnknown(payload?.diagnostic);
-      setCrmHealthVariant(
-        diagnostic?.code === "FLUENTCRM_AUTHENTICATION_FAILED"
-          ? "warning"
-          : "danger",
-      );
-      setCrmHealthMessage(
-        error instanceof Error
-          ? error.message
-          : "No se pudo verificar la conexión con FluentCRM.",
-      );
-      setCrmHealthHints([
-        ...getFriendlyFluentCrmHints(diagnostic?.likelyCauses),
-        ...(diagnostic?.code === "FLUENTCRM_AUTHENTICATION_FAILED"
-          ? [
-              "Verifica que el API key haya sido generado desde FluentCRM > Settings > Rest API.",
-              "Confirma que FLUENTCRM_BASE_URL apunte a la raíz correcta de WordPress.",
-            ]
-          : []),
-      ]);
-    } finally {
-      setCrmHealthChecking(false);
-    }
-  };
+
 
   const getAdministrativeContactsPayload = () =>
     formData.administrativeContacts
@@ -818,20 +754,6 @@ export function OwnerOrganizationsPage() {
         slug: formData.slug,
         subdomain: formData.appSubdomain,
         adminDomain: formData.adminDomain || undefined,
-        baseAdmin: {
-          firstName: formData.baseAdminFirstName || undefined,
-          lastName: formData.baseAdminLastName || undefined,
-          name: baseAdminFullName || undefined,
-          email: formData.baseAdminEmail || undefined,
-          phone:
-            normalizePhoneForSubmission(
-              formData.baseAdminPhoneNationalNumber,
-              getPhoneCountryCode(formData.baseAdminPhoneCountryCode),
-            ) || undefined,
-          initialOrganizationRole: selectedAdminRole,
-          position: formData.baseAdminPosition || undefined,
-          phoneExtension: formData.baseAdminPhoneExtension || undefined,
-        },
         jitProvisioning: {
           domain: formData.adminDomain || undefined,
           defaultRoleNames: [selectedJitRole],
@@ -839,7 +761,7 @@ export function OwnerOrganizationsPage() {
         crm: {
           companyName: formData.crm.companyName || formData.name,
           companyEmail:
-            formData.crm.companyEmail || formData.baseAdminEmail || undefined,
+            formData.crm.companyEmail || undefined,
           companyPhone:
             normalizePhoneForSubmission(
               formData.crm.companyPhoneNationalNumber,
@@ -1208,135 +1130,13 @@ export function OwnerOrganizationsPage() {
     <section className="border rounded-3 p-3 p-lg-4 d-flex flex-column gap-3">
       <div className="d-flex flex-column flex-xl-row justify-content-between align-items-xl-start gap-3">
         <div className="d-flex flex-column gap-1">
-          <h3 className="h5 mb-0">Creación de usuarios</h3>
+          <h3 className="h5 mb-0">Roles y contactos</h3>
           <p className="text-secondary mb-0">
-            Admin base, contactos adicionales y settings globales.
+            Contactos adicionales y settings globales. Los administradores se crean desde Añadir usuario.
           </p>
         </div>
-        <div className="d-flex flex-column align-items-xl-end gap-2">
-          <Button
-            type="button"
-            variant="outline-primary"
-            onClick={handleCrmHealthCheck}
-            disabled={crmHealthChecking}
-          >
-            {crmHealthChecking ? "Verificando conexión..." : "Verificar conexión CRM"}
-          </Button>
-          <small className="text-secondary text-xl-end">
-            Comprueba credenciales y permisos antes de crear la compañía.
-          </small>
-        </div>
-      </div>
-      {crmHealthMessage ? (
-        <Alert variant={crmHealthVariant || "info"} className="mb-0">
-          <div className="fw-semibold mb-1">Diagnóstico FluentCRM</div>
-          <div>{crmHealthMessage}</div>
-          {crmHealthHints.length > 0 ? (
-            <ul className="mt-2 mb-0 ps-3 d-flex flex-column gap-1">
-              {crmHealthHints.map((hint) => (
-                <li key={hint}>{hint}</li>
-              ))}
-            </ul>
-          ) : null}
-        </Alert>
-      ) : null}
-      <div className="border rounded-3 p-3 d-flex flex-column gap-3 bg-light bg-opacity-50">
-        <h4 className="h6 mb-0">Admin base</h4>
-        <div className="row g-3">
-          <Form.Group className="col-12 col-xl-3" controlId="ownerOrganizationBaseAdminFirstName">
-            <Form.Label>Nombres</Form.Label>
-            <Form.Control
-              value={formData.baseAdminFirstName}
-              onChange={(event) => updateField("baseAdminFirstName", event.target.value)}
-              placeholder="Mario"
-            />
-          </Form.Group>
-          <Form.Group className="col-12 col-xl-3" controlId="ownerOrganizationBaseAdminLastName">
-            <Form.Label>Apellidos</Form.Label>
-            <Form.Control
-              value={formData.baseAdminLastName}
-              onChange={(event) => updateField("baseAdminLastName", event.target.value)}
-              placeholder="Baracus"
-            />
-          </Form.Group>
-          <Form.Group className="col-12 col-xl-3" controlId="ownerOrganizationBaseAdminEmail">
-            <Form.Label>Correo</Form.Label>
-            <Form.Control
-              type="email"
-              value={formData.baseAdminEmail}
-              onChange={(event) => updateField("baseAdminEmail", event.target.value)}
-              placeholder={`admin@${formData.adminDomain.trim() || "ejemplo.com.co"}`}
-            />
-          </Form.Group>
-          <Form.Group className="col-12 col-xl-3" controlId="ownerOrganizationBaseAdminRole">
-            <Form.Label>Rol Logto</Form.Label>
-            <Form.Select
-              value={selectedAdminRole}
-              onChange={(event) => updateField("adminRoleName", event.target.value)}
-              disabled={roles.length === 0}
-            >
-              {!roles.some((role) => role.name === selectedAdminRole) ? (
-                <option value={selectedAdminRole}>{selectedAdminRole}</option>
-              ) : null}
-              {roles.map((role) => (
-                <option value={role.name} key={`base-admin-${role.id}`}>
-                  {role.name}
-                </option>
-              ))}
-            </Form.Select>
-          </Form.Group>
-          <Form.Group className="col-12 col-xl-2" controlId="ownerOrganizationBaseAdminPhoneCode">
-            <Form.Label>Indicativo</Form.Label>
-            <Form.Control
-              inputMode="numeric"
-              maxLength={4}
-              value={formData.baseAdminPhoneCountryCode}
-              onChange={(event) =>
-                updateField(
-                  "baseAdminPhoneCountryCode",
-                  event.target.value.replace(/\D/g, "").slice(0, 4),
-                )
-              }
-              placeholder={defaultCallingCode || "57"}
-            />
-          </Form.Group>
-          <Form.Group className="col-12 col-xl-2" controlId="ownerOrganizationBaseAdminPhoneNumber">
-            <Form.Label>Teléfono</Form.Label>
-            <Form.Control
-              value={formData.baseAdminPhoneNationalNumber}
-              onChange={(event) => updateField("baseAdminPhoneNationalNumber", event.target.value)}
-              placeholder="3001112233"
-            />
-          </Form.Group>
-          <Form.Group className="col-12 col-xl-1" controlId="ownerOrganizationBaseAdminPhoneExtension">
-            <Form.Label>Ext.</Form.Label>
-            <Form.Control
-              value={formData.baseAdminPhoneExtension}
-              onChange={(event) => updateField("baseAdminPhoneExtension", event.target.value)}
-              placeholder="101"
-            />
-          </Form.Group>
-          <Form.Group className="col-12 col-xl-3" controlId="ownerOrganizationBaseAdminPosition">
-            <Form.Label>Cargo</Form.Label>
-            <Form.Control
-              value={formData.baseAdminPosition}
-              onChange={(event) => updateField("baseAdminPosition", event.target.value)}
-            />
-          </Form.Group>
-        </div>
-        <div className="d-flex flex-wrap gap-3 small text-secondary">
-          <span>
-            Username Logto:
-            <Badge bg="light" text="primary" className="border ms-1">
-              {buildLogtoUsernamePreview(formData.baseAdminEmail)}
-            </Badge>
-          </span>
-          <span>
-            Tag por contacto:
-            <Badge bg="light" text="dark" className="border ms-1">
-              {deriveContactTag(selectedAdminRole) || "—"}
-            </Badge>
-          </span>
+        <div className="small text-secondary text-xl-end">
+          Los checks permanentes de CRM, WordPress, Redis, Logto y Moodle están en Owner / Sistema.
         </div>
       </div>
       <div className="border rounded-3 p-3 d-flex flex-column gap-3 bg-light bg-opacity-50">
@@ -1349,7 +1149,7 @@ export function OwnerOrganizationsPage() {
         <div className="d-flex flex-column gap-3">
           {formData.administrativeContacts.length === 0 ? (
             <div className="small text-secondary">
-              Sin usuarios adicionales. Puedes dejar solo el admin base o añadir más roles.
+              Sin contactos adicionales. Crea administradores o miembros desde Añadir usuario.
             </div>
           ) : null}
           {formData.administrativeContacts.map((contact) => {
@@ -1570,24 +1370,8 @@ export function OwnerOrganizationsPage() {
         </div>
         <div className="col-12 col-xl-6">
           <div className="border rounded-3 p-3 h-100 d-flex flex-column gap-2">
-            <div className="d-flex justify-content-between gap-2">
-              <h4 className="h6 mb-0">Perfil de usuario / Logto</h4>
-              <Button type="button" size="sm" variant="outline-secondary" onClick={() => goToStep(2)}>
-                Editar
-              </Button>
-            </div>
-            {summaryRow("Nombres", formData.baseAdminFirstName)}
-            {summaryRow("Apellidos", formData.baseAdminLastName)}
-            {summaryRow("Email admin base", formData.baseAdminEmail)}
-            {summaryRow(
-              "Teléfono admin base",
-              normalizePhoneForSubmission(
-                formData.baseAdminPhoneNationalNumber,
-                getPhoneCountryCode(formData.baseAdminPhoneCountryCode),
-              ) || formData.baseAdminPhoneNationalNumber,
-            )}
-            {summaryRow("Cargo", formData.baseAdminPosition)}
-            {summaryRow("Rol Logto", selectedAdminRole)}
+            <h4 className="h6 mb-0">Miembros</h4>
+            <p className="small text-secondary mb-0">La organización se crea sin usuarios automáticos. Usa “Añadir usuario” en la consola para crear o vincular miembros y seleccionar Admin-org u otro rol.</p>
           </div>
         </div>
         <div className="col-12 col-xl-6">
@@ -1659,7 +1443,7 @@ export function OwnerOrganizationsPage() {
         <div className="col-12">
           <PageCard
             title="Nueva organización"
-            subtitle="Rescate limpio del formulario con enfoque en Logto, admin base y datos de CRM."
+            subtitle="Rescate limpio del formulario con enfoque en Logto y datos de CRM."
           >
             {templateResource.isLoading ? (
               <LoadingState

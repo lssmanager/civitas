@@ -60,6 +60,8 @@ export type OwnerWorkerHealth = {
   redis: { status: string };
   queues: Array<{ name: string; waiting: number; active: number; delayed: number; failed: number; oldestJobAgeSeconds: number }>;
 };
+export type OwnerIntegrationHealthCheck = { key: string; label: string; system: string; required?: boolean; status: string; severity: string; message: string; checkedAt: string; details?: Record<string, unknown> | null; nextAction?: string | null };
+export type OwnerIntegrationsHealth = { checkedAt: string; status: string; checks: OwnerIntegrationHealthCheck[] };
 
 export type OwnerPendingSync = { id: string; operationId: string; organizationId: string | null; organizationName: string | null; type: string; affectedSystem: string; status: string; retryable: boolean; lastError: string; suggestedAction: string; };
 export type OwnerOrganizationEvent = { id: string; at: string | null; type: string; result: string; stage: string; message: string; requiresAction: boolean; retryOperationId: string | null };
@@ -72,7 +74,7 @@ export type OwnerOrganizationProfileResponse = {
   sync: { pending: OwnerPendingSync[]; events: OwnerOrganizationEvent[] };
 };
 export type OwnerOrganizationDirectoryMember = {
-  identity: { logtoUserId: string | null; name: string | null; email: string | null; phone: string | null; roles?: string[]; lastLoginAt?: string | null; mfa?: { enabled: boolean | null; method?: string | null; availability?: string }; sessions?: { availability: string; note?: string }; spentTime?: { availability: string; value: number | null; note?: string } };
+  identity: { logtoUserId: string | null; primerNombre?: string | null; segundoNombre?: string | null; primerApellido?: string | null; segundoApellido?: string | null; name: string | null; email: string | null; phone: string | null; roles?: string[]; lastLoginAt?: string | null; mfa?: { enabled: boolean | null; method?: string | null; availability?: string }; sessions?: { availability: string; note?: string }; spentTime?: { availability: string; value: number | null; note?: string } };
   crm: Record<string, unknown>;
   civitas: Record<string, unknown>;
 };
@@ -258,7 +260,6 @@ export type CreateOwnerOrganizationInput = {
   adminDomain?: string;
   logoUrl?: string;
   faviconUrl?: string;
-  baseAdmin?: { firstName?: string; lastName?: string; name?: string; email?: string; phone?: string; username?: string; position?: string; phoneExtension?: string; logtoUserId?: string; initialOrganizationRole?: string };
   jitProvisioning?: { domain?: string; defaultRoleNames?: string[] };
   settings?: Record<string, unknown>;
   crm?: FluentCrmCompanyInput;
@@ -278,6 +279,7 @@ export const useOwnerApi = () => {
       getOrganizationTemplate: async (): Promise<OwnerOrganizationTemplate> => fetchWithToken("/owner/organization-template"),
       getOperationsSummary: async (): Promise<OwnerOperationsSummary> => fetchWithToken("/owner/operations/summary"),
       getWorkerHealth: async (): Promise<OwnerWorkerHealth> => fetchWithToken("/owner/system/worker-health"),
+      getIntegrationsHealth: async (): Promise<OwnerIntegrationsHealth> => fetchWithToken("/owner/system/integrations-health"),
       getOrganizationProfile: async (organizationId: string): Promise<OwnerOrganizationProfileResponse> =>
         fetchWithToken(`/owner/organizations/${encodeURIComponent(organizationId)}/profile`),
       updateOrganizationProfile: async (organizationId: string, data: Record<string, unknown>): Promise<{ status: string; organization: OwnerOrganization; syncOperation: Record<string, unknown> }> =>
@@ -286,6 +288,8 @@ export const useOwnerApi = () => {
         fetchWithToken(`/owner/organizations/${encodeURIComponent(organizationId)}/sync-operations/${encodeURIComponent(operationId)}/retry`, { method: "POST" }),
       getOrganizationMembers: async (organizationId: string): Promise<OwnerOrganizationDirectoryResponse> =>
         fetchWithToken(`/owner/organizations/${encodeURIComponent(organizationId)}/directory`),
+      createOrganizationMember: async (organizationId: string, data: { primerNombre: string; segundoNombre?: string | null; primerApellido: string; segundoApellido?: string | null; email: string; phone?: string | null; phoneExtension?: string | null; position?: string | null; organizationRoleName: string }): Promise<{ status: string; syncOperation: Record<string, unknown> }> =>
+        fetchWithToken(`/owner/organizations/${encodeURIComponent(organizationId)}/members`, { method: "POST", body: JSON.stringify(data) }),
       updateOrganizationMember: async (organizationId: string, logtoUserId: string, data: Record<string, unknown>): Promise<{ status: string; logtoUser: Record<string, unknown>; syncOperation: Record<string, unknown> }> =>
         fetchWithToken(`/owner/organizations/${encodeURIComponent(organizationId)}/members/${encodeURIComponent(logtoUserId)}`, { method: "PATCH", body: JSON.stringify(data) }),
       resetOrganizationMemberPassword: async (organizationId: string, logtoUserId: string): Promise<{ status: string; message: string }> =>

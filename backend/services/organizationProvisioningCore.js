@@ -113,34 +113,14 @@ const getLogtoUserId = (user = {}) => user.id || user.userId || user.logtoUserId
 
 function normalizeCanonicalProvisioningInput(body = {}) {
   const name = typeof body.name === "string" ? body.name.trim() : "";
-  const baseAdmin = body.baseAdmin && typeof body.baseAdmin === "object" ? body.baseAdmin : {};
-  const baseAdminFirstName = emptyToNull(baseAdmin.firstName ?? body.baseAdminFirstName);
-  const baseAdminLastName = emptyToNull(baseAdmin.lastName ?? body.baseAdminLastName);
-  const baseAdminName = emptyToNull(baseAdmin.name ?? body.baseAdminName) || [baseAdminFirstName, baseAdminLastName].filter(Boolean).join(" ") || null;
-  const baseAdminEmail = emptyToNull(baseAdmin.email ?? body.baseAdminEmail)?.toLowerCase() || null;
-  const baseAdminPhoneRaw = emptyToNull(baseAdmin.phone ?? body.baseAdminPhone);
-  const baseAdminPhone = normalizePhoneE164(baseAdminPhoneRaw);
-  const baseAdminLogtoUserId = emptyToNull(baseAdmin.logtoUserId ?? body.baseAdminLogtoUserId);
-  const baseAdminPosition = emptyToNull(baseAdmin.position ?? body.baseAdminPosition);
-  const baseAdminPhoneExtension = emptyToNull(baseAdmin.phoneExtension ?? body.baseAdminPhoneExtension);
-  const baseAdminInitialOrganizationRole = emptyToNull(baseAdmin.initialOrganizationRole) || ORGANIZATION_ADMIN_ROLE_NAME;
+  // Legacy member seed input is intentionally ignored. Organization creation only provisions the organization and metadata.
   const jitProvisioning = body.jitProvisioning && typeof body.jitProvisioning === "object" ? body.jitProvisioning : {};
   const jitProvisioningDomain = emptyToNull(jitProvisioning.domain ?? body.adminDomain ?? body.institutionalProvisioningDomain)?.toLowerCase() || null;
   const jitDefaultRoleNames = normalizeRoleNames(jitProvisioning.defaultRoleNames ?? body.defaultRoleNames, DEFAULT_JIT_ROLE_NAMES);
   const administrativeContacts = normalizeAdministrativeContacts(body.administrativeContacts, jitProvisioningDomain).map((contact) => ({ ...contact, phone: normalizePhoneE164(contact.phone) || contact.phone }));
-  const baseAdminUsername = emptyToNull(baseAdmin.username ?? body.baseAdminUsername) || buildLogtoUsername({ email: baseAdminEmail });
   const errors = [];
 
   if (!name) errors.push({ field: "name", message: "Organization name is required" });
-  if (!baseAdminFirstName) errors.push({ field: "baseAdmin.firstName", message: "Base admin first name is required" });
-  if (!baseAdminLastName) errors.push({ field: "baseAdmin.lastName", message: "Base admin last name is required" });
-  if (!baseAdminName) errors.push({ field: "baseAdmin.name", message: "Base admin name is required" });
-  if (!baseAdminEmail) errors.push({ field: "baseAdmin.email", message: "Base admin email is required" });
-  if (baseAdminEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(baseAdminEmail)) errors.push({ field: "baseAdmin.email", message: "Base admin email must be a valid email address" });
-  if (baseAdminPhoneRaw && !baseAdminPhone) errors.push({ field: "baseAdmin.phone", message: "Base admin phone must include country calling code and a valid national number" });
-  if (!baseAdminUsername) errors.push({ field: "baseAdmin.username", message: "Base admin username could not be built from the base admin email local part" });
-  if (baseAdminLogtoUserId && looksLikeRoleName(baseAdminLogtoUserId)) errors.push({ field: "baseAdmin.logtoUserId", message: "Base admin Logto user id cannot be an organization role name" });
-  if (baseAdminInitialOrganizationRole !== ORGANIZATION_ADMIN_ROLE_NAME) errors.push({ field: "baseAdmin.initialOrganizationRole", message: `Base admin initial organization role must be ${ORGANIZATION_ADMIN_ROLE_NAME}` });
   if (!jitProvisioningDomain) errors.push({ field: "jitProvisioning.domain", message: "JIT provisioning domain is required" });
   if (!jitDefaultRoleNames.includes(JIT_DEFAULT_ORGANIZATION_ROLE_NAME)) errors.push({ field: "jitProvisioning.defaultRoleNames", message: `JIT default organization roles must include ${JIT_DEFAULT_ORGANIZATION_ROLE_NAME}` });
   administrativeContacts.forEach((contact, index) => {
@@ -158,7 +138,7 @@ function normalizeCanonicalProvisioningInput(body = {}) {
     value: {
       name,
       description: typeof body.description === "string" ? body.description.trim() : undefined,
-      baseAdmin: { firstName: baseAdminFirstName, lastName: baseAdminLastName, name: baseAdminName, email: baseAdminEmail, phone: baseAdminPhone, username: baseAdminUsername, position: baseAdminPosition, phoneExtension: baseAdminPhoneExtension, logtoUserId: baseAdminLogtoUserId, initialOrganizationRole: baseAdminInitialOrganizationRole },
+      baseAdmin: null,
       jitProvisioning: { domain: jitProvisioningDomain, defaultRoleNames: jitDefaultRoleNames },
       administrativeContacts,
     },
@@ -373,10 +353,10 @@ async function runCanonicalOrganizationBootstrap({ canonical, logtoCustomData = 
       },
     });
 
-    const requiredRoleNames = Array.from(new Set([canonical.baseAdmin.initialOrganizationRole, ...canonical.jitProvisioning.defaultRoleNames, ...(canonical.administrativeContacts || []).map((contact) => contact.organizationRoleName)]));
+    const requiredRoleNames = Array.from(new Set([...canonical.jitProvisioning.defaultRoleNames, ...(canonical.administrativeContacts || []).map((contact) => contact.organizationRoleName)]));
     await validateRequiredOrganizationRoles(requiredRoleNames, logtoOrganizationId, internalUser);
     const jitProvisioning = await configureJitProvisioning({ canonical, logtoOrganizationId, internalUser });
-    const adminAssignment = await assignBaseAdminBestEffort({ canonical, logtoOrganization, logtoOrganizationId, internalUser, auditContextBuilder });
+    const adminAssignment = null;
     const administrativeContactAssignments = await assignAdministrativeContactsBestEffort({ canonical, logtoOrganization, logtoOrganizationId, internalUser, auditContextBuilder });
 
     return {
@@ -388,7 +368,7 @@ async function runCanonicalOrganizationBootstrap({ canonical, logtoCustomData = 
       adminAssignment,
       administrativeContactAssignments,
       jitProvisioning,
-      status: "created_with_admin_and_jit_configured",
+      status: "created_with_metadata_and_jit_configured",
     };
   } catch (error) {
     error.provisioningState = { logtoOrganization, logtoOrganizationId, canonicalCreated: Boolean(logtoOrganizationId) };
