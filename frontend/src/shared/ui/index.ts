@@ -11,3 +11,7 @@ export { PageShell } from "./PageShell";
 export { JsonLogBlock } from "./JsonLogBlock";
 export { StatusBadge } from "./StatusBadge";
 export { SectionCard } from "./SectionCard";
+
+export { ActionPanel } from "./ActionPanel";
+export { RenewalAlert } from "./RenewalAlert";
+export { CompactTabs } from "./CompactTabs";
