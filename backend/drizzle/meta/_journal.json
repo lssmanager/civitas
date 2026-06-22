@@ -127,6 +127,13 @@
       "when": 1781712300000,
       "tag": "0017_create_sync_operations",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1781712360000,
+      "tag": "0018_repair_identity_and_sync_operations_schema",
+      "breakpoints": true
     }
   ]
 }
