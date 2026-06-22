@@ -70,6 +70,7 @@ const { db } = require("./db/client");
 const { crmRoleMappings, organizationProfiles, syncOperations, wordpressRoleMappings } = require("./db/schema");
 const { getCommercialStatusForOrganization, getLatestCommercialEventsForOrganization, processCommercialEvent, verifyCommercialWebhookSignature } = require("./services/commercialEvents");
 const { getWorkerHealthSnapshot, loadOperationsSummary, loadOwnerSystemMetrics } = require("./services/operationalObservability");
+const { materializeReconciliationTasks, listReconciliationTasks, resolveReconciliationTask } = require("./services/organizationReconciliation");
 const {
   createSyncOperation,
   listOrganizationEvents,
@@ -253,17 +254,19 @@ function buildLogtoOrganizationDirectory({ logtoOrganizations, profiles }) {
         matchedLegacyProfileIds.add(profile.id);
       }
 
-      const associatedProfiles = sortProfilesByNewest([...linkedProfiles, ...nameMatchedLegacyProfiles]);
-      const profile = associatedProfiles[0] || null;
-      const duplicateProfileIds = associatedProfiles.slice(1).map((associatedProfile) => associatedProfile.id);
-      const hasConflict = associatedProfiles.length > 1;
+      const linkedProfilesSorted = sortProfilesByNewest(linkedProfiles);
+      const nameMatchedProfilesSorted = sortProfilesByNewest(nameMatchedLegacyProfiles);
+      const profile = linkedProfilesSorted[0] || null;
+      const duplicateProfileIds = linkedProfilesSorted.slice(1).map((associatedProfile) => associatedProfile.id);
+      const hasConflict = linkedProfilesSorted.length > 1;
+      const hasNameMatchPendingLink = !profile && nameMatchedProfilesSorted.length > 0;
       const reconciliationStatus = hasConflict
         ? "conflict"
         : profile
-          ? profile.logtoOrganizationId === logtoOrganizationId
-            ? "linked"
-            : "name_matched_pending_link"
-          : "metadata_missing";
+          ? "linked"
+          : hasNameMatchPendingLink
+            ? "name_matched_pending_link"
+            : "metadata_missing";
 
       return {
         logtoOrganizationId,
@@ -271,16 +274,16 @@ function buildLogtoOrganizationDirectory({ logtoOrganizations, profiles }) {
         canonical,
         logtoOrganization,
         profile: profile ? serializeOrganizationProfile(profile) : null,
-        syncStatus: hasConflict ? "conflict" : profile?.logtoSyncStatus || "metadata_missing",
+        syncStatus: hasConflict ? "conflict" : hasNameMatchPendingLink ? "pending" : profile?.logtoSyncStatus || "metadata_missing",
         syncError: hasConflict
           ? "Multiple internal profiles match this Logto organization; only the newest profile is used for operational state and the rest are reconciliation incidents."
           : profile?.logtoSyncError || null,
         reconciliation: {
           status: reconciliationStatus,
-          profileCount: associatedProfiles.length,
-          matchedBy: linkedProfiles.length > 0 ? "logto_organization_id" : nameMatchedLegacyProfiles.length > 0 ? "name" : null,
-          profileIds: associatedProfiles.map((associatedProfile) => associatedProfile.id),
-          canonicalProfileId: profile?.id || null,
+          profileCount: linkedProfilesSorted.length + nameMatchedProfilesSorted.length,
+          matchedBy: linkedProfiles.length > 0 ? "logto_organization_id" : nameMatchedProfilesSorted.length > 0 ? "name" : null,
+          profileIds: [...linkedProfilesSorted, ...nameMatchedProfilesSorted].map((associatedProfile) => associatedProfile.id),
+          canonicalProfileId: profile?.id || nameMatchedProfilesSorted[0]?.id || null,
           duplicateProfileIds,
         },
       };
@@ -683,7 +686,9 @@ app.get("/organizations", requireAuth(API_RESOURCE), requireScope("organizations
   try {
     const [logtoOrganizations, rawProfiles] = await Promise.all([listLogtoOrganizations(), listOrganizationProfiles()]);
     const profiles = await reconcileProfilesWithLogtoOrganizations({ logtoOrganizations, profiles: rawProfiles });
-    return res.json(buildLogtoOrganizationDirectory({ logtoOrganizations, profiles }));
+    const directory = buildLogtoOrganizationDirectory({ logtoOrganizations, profiles });
+    const reconciliationTasks = await materializeReconciliationTasks(directory);
+    return res.json({ ...directory, reconciliationTasksSummary: reconciliationTasks.reconciliationTasksSummary });
   } catch (error) {
     console.error("Failed to list canonical Logto organizations", error);
     return res.status(502).json({ error: "Bad Gateway", message: "Failed to list organizations from Logto" });
@@ -731,6 +736,30 @@ app.get("/owner/system/worker-health", requireAuth(API_RESOURCE), requireOwner, 
   } catch (error) {
     console.error("Failed to load worker health snapshot", error);
     return res.status(500).json({ error: "Worker health unavailable", message: "No se pudo cargar la salud técnica del worker." });
+  }
+});
+
+app.get("/owner/reconciliation/tasks", requireAuth(API_RESOURCE), requireOwner, async (_req, res) => {
+  try {
+    return res.json({ tasks: await listReconciliationTasks({ limit: 100 }) });
+  } catch (error) {
+    console.error("Failed to load reconciliation tasks", error);
+    return res.status(500).json({ error: "Reconciliation tasks unavailable", message: "No se pudieron cargar las tareas HITL de reconciliación." });
+  }
+});
+
+app.post("/owner/reconciliation/tasks/:taskId/actions", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  let internalUser = null;
+  try {
+    internalUser = await getOrCreateInternalUser(req.user);
+    const action = String(req.body?.action || "");
+    const allowedActions = new Set(["approve_link", "reject_link", "create_local_profile", "create_logto_organization", "archive_local_profile", "merge_profiles", "mark_legacy", "ignore", "retry"]);
+    if (!allowedActions.has(action)) return res.status(400).json({ error: "Bad Request", message: "Acción de reconciliación no soportada." });
+    const task = await resolveReconciliationTask({ taskId: req.params.taskId, action, actorUserId: internalUser.id, reason: req.body?.reason || null, before: req.body?.before || null, after: req.body?.after || null });
+    return res.json({ status: task.status, task });
+  } catch (error) {
+    console.error("Failed to resolve reconciliation task", error);
+    return res.status(error.status || 500).json({ error: "Reconciliation action failed", message: getSafeErrorMessage(error) });
   }
 });
 
@@ -882,7 +911,8 @@ app.get("/owner/organizations", requireAuth(API_RESOURCE), requireOwner, async (
     const rawProfiles = await listOrganizationProfiles();
     const profiles = await reconcileProfilesWithLogtoOrganizations({ logtoOrganizations, profiles: rawProfiles });
     const directory = buildLogtoOrganizationDirectory({ logtoOrganizations, profiles });
-    return res.json({ organizations: directory.organizations, reconciliationIncidents: directory.reconciliationIncidents, unreconciledProfiles: directory.unreconciledProfiles });
+    const reconciliationTasks = await materializeReconciliationTasks(directory);
+    return res.json({ organizations: directory.organizations, reconciliationIncidents: directory.reconciliationIncidents, unreconciledProfiles: directory.unreconciledProfiles, reconciliationTasksSummary: reconciliationTasks.reconciliationTasksSummary });
   } catch (error) {
     console.error("Failed to list owner organizations from Logto", error);
     return res.status(502).json({ error: "Bad Gateway", message: "Failed to list canonical organizations from Logto" });

@@ -34,7 +34,7 @@ export type OwnerOrganization = {
     entryUrlInconsistency?: string | null;
     slug?: string | null;
     adminDomain?: string | null;
-    branding?: { logoUrl: string | null; faviconUrl: string | null; primaryColor: string | null; primaryColorDark: string | null; lightLogoUrl?: string | null; darkLogoUrl?: string | null; lightMarkUrl?: string | null; darkMarkUrl?: string | null; lightFaviconUrl?: string | null; darkFaviconUrl?: string | null; lightPrimaryColor?: string | null; darkPrimaryColor?: string | null; };
+    branding?: { logoUrl: string | null; faviconUrl: string | null; primaryColor: string | null; primaryColorDark: string | null; lightLogoUrl: string | null; darkLogoUrl: string | null; lightMarkUrl: string | null; darkMarkUrl: string | null; lightFaviconUrl: string | null; darkFaviconUrl: string | null; lightPrimaryColor: string | null; darkPrimaryColor: string | null; };
     organizationLoginExperienceEnabled?: boolean;
     defaultRoleNames?: string[];
     oidcApplicationId?: string | null;
@@ -61,6 +61,28 @@ export type OwnerOperationsSummary = {
   incidents: Array<{ type: string; organizationId: string | null; organizationName: string | null; message: string; retryable: boolean }>;
   organizations: Array<{ organizationId: string | null; profileId: string; name: string | null; bootstrapStatus: string; canonicalStatus: string; downstreamStatus: string; currentStep: string; lastFunctionalError: string | null; retryable: boolean; conflictType: string | null }>;
 };
+
+
+export type OwnerReconciliationTask = {
+  id: string;
+  type: string;
+  status: string;
+  sourceSystem: string;
+  targetSystem: string;
+  logtoOrganizationId: string | null;
+  profileId: string | null;
+  dedupeKey: string;
+  severity: "info" | "warning" | "critical" | string;
+  requiresHuman: boolean;
+  suggestedAction: string | null;
+  evidence: Record<string, unknown>;
+  resolution: Record<string, unknown> | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  resolvedAt: string | null;
+};
+
+export type OwnerReconciliationAction = "approve_link" | "reject_link" | "create_local_profile" | "create_logto_organization" | "archive_local_profile" | "merge_profiles" | "mark_legacy" | "ignore" | "retry";
 
 export type OwnerWorkerHealth = {
   readiness: string;
@@ -305,8 +327,9 @@ export const useOwnerApi = () => {
       getOrganizationTemplate: async (): Promise<OwnerOrganizationTemplate> => fetchWithToken("/owner/organization-template"),
       getOperationsSummary: async (): Promise<OwnerOperationsSummary> => fetchWithToken("/owner/operations/summary"),
       getWorkerHealth: async (): Promise<OwnerWorkerHealth> => fetchWithToken("/owner/system/worker-health"),
-      getIntegrationsHealth: async (): Promise<OwnerIntegrationsHealth> => fetchWithToken("/owner/system/integrations-health"),
-      getSystemMetrics: async (): Promise<OwnerSystemMetricsResponse> => fetchWithToken("/owner/system/metrics"),
+      getReconciliationTasks: async (): Promise<{ tasks: OwnerReconciliationTask[] }> => fetchWithToken("/owner/reconciliation/tasks"),
+      resolveReconciliationTask: async (taskId: string, action: OwnerReconciliationAction, reason?: string): Promise<{ status: string; task: OwnerReconciliationTask }> =>
+        fetchWithToken(`/owner/reconciliation/tasks/${encodeURIComponent(taskId)}/actions`, { method: "POST", body: JSON.stringify({ action, reason }) }),
       getOrganizationProfile: async (organizationId: string): Promise<OwnerOrganizationProfileResponse> =>
         fetchWithToken(`/owner/organizations/${encodeURIComponent(organizationId)}/profile`),
       updateOrganizationProfile: async (organizationId: string, data: Record<string, unknown>): Promise<{ status: string; organization: OwnerOrganization; syncOperation: Record<string, unknown> }> =>

@@ -39,10 +39,13 @@ export type SelectableOrganization = OwnerOrganization & {
   };
 };
 
+export type ReconciliationTasksSummary = { pending: number; hitlRequired: number; failed: number };
+
 export type OrganizationSelectionResponse = {
   organizations: SelectableOrganization[];
   reconciliationIncidents?: OrganizationReconciliationIncident[];
   unreconciledProfiles: NonNullable<OwnerOrganization["profile"]>[];
+  reconciliationTasksSummary?: ReconciliationTasksSummary;
 };
 
 export const useOrganizationSelectionApi = () => {
