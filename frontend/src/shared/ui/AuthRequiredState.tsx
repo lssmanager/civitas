@@ -15,8 +15,8 @@ export function AuthRequiredState({
   isLoading = false,
 }: AuthRequiredStateProps) {
   return (
-    <div className="min-vh-100 d-flex align-items-center justify-content-center bg-light px-3">
-      <Card className="border-0 shadow-sm" style={{ maxWidth: 560 }}>
+    <div className="min-vh-100 d-flex align-items-center justify-content-center civitas-auth-state px-3">
+      <Card className="border-0 shadow-sm civitas-auth-card">
         <Card.Body className="p-4 p-md-5">
           <Alert variant="warning" className="mb-4">
             <Alert.Heading className="h5">{title}</Alert.Heading>

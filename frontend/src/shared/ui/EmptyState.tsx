@@ -11,7 +11,7 @@ type EmptyStateProps = {
 
 export function EmptyState({ title, description, actionLabel, onAction, icon }: EmptyStateProps) {
   return (
-    <div className="civitas-state text-center p-4 p-md-5 rounded-4 border bg-light">
+    <div className="civitas-state text-center p-4 p-md-5 rounded-4 border">
       <div className="civitas-state-icon mx-auto mb-3" aria-hidden="true">
         {icon ?? "∅"}
       </div>

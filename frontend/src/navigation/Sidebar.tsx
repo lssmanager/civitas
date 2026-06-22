@@ -1,5 +1,6 @@
 import { Accordion, Nav } from "react-bootstrap";
 import { NavLink, useLocation } from "react-router-dom";
+import { useSiteLogo } from "../shared/hooks/useSiteLogo";
 import {
   ownerNavigationTree,
   primaryNavigation,
@@ -17,25 +18,18 @@ export function Sidebar() {
 }
 
 export function SidebarBrand() {
+  const logoUrl = useSiteLogo();
+
   return (
     <div className="civitas-sidebar__brand px-4 py-4 border-bottom">
       <div className="d-flex align-items-center gap-2">
-        <span
-          className="civitas-sidebar__logo civitas-sidebar__logo--mark civitas-sidebar__logo-light"
-          aria-hidden="true"
-        >
-          C
-        </span>
-        <span
-          className="civitas-sidebar__logo civitas-sidebar__logo--mark civitas-sidebar__logo-dark"
-          aria-hidden="true"
-        >
-          C
-        </span>
+        <img
+          className="civitas-sidebar__logo-mark"
+          src={logoUrl}
+          alt="Learn Social Studies"
+        />
         <div className="civitas-sidebar__logo civitas-sidebar__logo--full">
-          <span className="civitas-sidebar__logo-light fw-bold">Civitas</span>
-          <span className="civitas-sidebar__logo-dark fw-bold">Civitas</span>
-          <p className="small mb-0 civitas-sidebar__brand-meta">Fase 07 · Logto-first</p>
+          <span className="fw-bold">Civitas</span>
         </div>
       </div>
     </div>
@@ -60,9 +54,6 @@ function SidebarLink({
       }
     >
       <span className="fw-semibold">{item.label}</span>
-      {item.description && (
-        <span className="d-block small civitas-sidebar-link__meta">{item.description}</span>
-      )}
     </NavLink>
   );
 }
@@ -85,9 +76,6 @@ function NavigationBranch({
       <Accordion.Header>
         <span>
           <span className="fw-semibold">{item.label}</span>
-          {item.description && (
-            <span className="d-block small civitas-sidebar-link__meta">{item.description}</span>
-          )}
         </span>
       </Accordion.Header>
       <Accordion.Body className="p-0 pt-1">
@@ -117,8 +105,7 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
     <div className="civitas-sidebar__nav flex-grow-1 d-flex flex-column p-3 gap-3">
       <Nav className="flex-column gap-2 civitas-sidebar__panel" as="nav">
         <div className="civitas-sidebar__panel-header px-3 py-3">
-          <p className="mb-1 fw-semibold text-white">Owner</p>
-          <p className="mb-0 small civitas-sidebar-link__meta">Espacio global del producto y sus operaciones.</p>
+          <p className="mb-1 fw-semibold civitas-sidebar__panel-title">Owner</p>
         </div>
         {rootRoute ? <SidebarLink item={rootRoute} onNavigate={onNavigate} /> : null}
         <Accordion defaultActiveKey={activeOwnerSections} alwaysOpen>

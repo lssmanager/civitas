@@ -5,6 +5,7 @@ import { APP_ENV } from "../env";
 const API_BASE_URL = APP_ENV.api.baseUrl;
 const CIVITAS_API_RESOURCE_INDICATOR = APP_ENV.api.resourceIndicator || undefined;
 const inflightGetRequests = new Map<string, Promise<unknown>>();
+const DEFAULT_REQUEST_TIMEOUT_MS = 15000;
 
 export type ApiError = {
   message?: string;
@@ -30,6 +31,20 @@ export class ApiRequestError extends Error {
 const normalizeMethod = (method?: string) => (method ?? "GET").toUpperCase();
 const getInflightRequestKey = (method: string, endpoint: string, organizationId?: string) =>
   `${method}:${organizationId ?? "global"}:${endpoint}`;
+
+const getApiErrorMessage = (response: Response, payload: ApiError | null) => {
+  const apiMessage = payload?.message || payload?.error;
+
+  if (apiMessage) {
+    return `API request failed: ${apiMessage}`;
+  }
+
+  if (response.status === 504) {
+    return "API request failed: el gateway no respondió a tiempo. Reintenta en unos segundos o valida la disponibilidad del backend.";
+  }
+
+  return `API request failed: ${response.statusText || response.status}`;
+};
 
 export const useApi = () => {
   const { getAccessToken, getOrganizationToken } = useLogto();
@@ -63,20 +78,23 @@ export const useApi = () => {
               );
             }
 
+            const abortController = new AbortController();
+            const timeoutId = window.setTimeout(() => abortController.abort(), DEFAULT_REQUEST_TIMEOUT_MS);
+
             const response = await fetch(`${API_BASE_URL}${endpoint}`, {
               ...options,
+              signal: options.signal ?? abortController.signal,
               headers: {
                 "Content-Type": "application/json",
                 Authorization: `Bearer ${token}`,
                 ...options.headers,
               },
-            });
+            }).finally(() => window.clearTimeout(timeoutId));
 
             if (!response.ok) {
               const errorPayload = await response.json().catch(() => null) as ApiError | null;
-              const apiMessage = errorPayload?.message || errorPayload?.error;
               throw new ApiRequestError(
-                apiMessage ? `API request failed: ${apiMessage}` : `API request failed: ${response.statusText || response.status}`,
+                getApiErrorMessage(response, errorPayload),
                 response.status,
                 errorPayload
               );
@@ -87,7 +105,9 @@ export const useApi = () => {
             if (error instanceof ApiRequestError) {
               throw error;
             }
-            throw new ApiRequestError(error instanceof Error ? error.message : String(error));
+            throw new ApiRequestError(error instanceof DOMException && error.name === "AbortError"
+              ? "API request failed: la solicitud tardó demasiado y fue cancelada por Civitas."
+              : error instanceof Error ? error.message : String(error));
           } finally {
             if (method === "GET") {
               inflightGetRequests.delete(requestKey);

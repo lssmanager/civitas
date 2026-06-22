@@ -43,7 +43,7 @@ export function OwnerSettingsPage() {
   useEffect(() => { if (crmResource.data?.mappings) setMappings(crmResource.data.mappings); }, [crmResource.data]);
   useEffect(() => { if (wordpressResource.data?.mappings) setWordPressMappings(wordpressResource.data.mappings); }, [wordpressResource.data]);
 
-  const wordpressRoles = wordpressResource.data?.wordpressRoles ?? [];
+  const wordpressRoles = useMemo(() => wordpressResource.data?.wordpressRoles ?? [], [wordpressResource.data?.wordpressRoles]);
   const wordpressByLogtoId = useMemo(() => new Map(wordpressMappings.map((mapping) => [mapping.logtoRoleId, mapping])), [wordpressMappings]);
   const wordpressCatalogBySlug = useMemo(() => new Map(wordpressRoles.map((role) => [role.slug, role])), [wordpressRoles]);
   const wordpressLoading = wordpressResource.isLoading;
@@ -111,9 +111,9 @@ export function OwnerSettingsPage() {
               <thead><tr><th>Role Logto</th><th>WordPress role</th><th>Tags CRM</th><th>Lists CRM</th><th>Tipo</th><th>Source</th><th>Active</th></tr></thead>
               <tbody>{mappings.map((mapping) => <tr key={mapping.logtoRoleId}>
                 <td><strong>{mapping.organizationRoleName}</strong><div className="small text-muted text-break">{mapping.logtoRoleId}</div>{mapping.isCustomized && <Badge bg="primary" className="ms-2">custom CRM</Badge>}{wordpressByLogtoId.get(mapping.logtoRoleId)?.isCustomized && <Badge bg="dark" className="ms-2">custom WP</Badge>}</td>
-                <td style={{ minWidth: 220 }}>{renderWordPressSelect(mapping)}<div className="small text-muted mt-1">Solo sincronización; no autorización.</div></td>
-                <td style={{ minWidth: 260 }}><ChipEditor values={mapping.tags} placeholder="Nuevo tag" onChange={(tags) => update(mapping.logtoRoleId, { tags })} /></td>
-                <td style={{ minWidth: 260 }}><ChipEditor values={mapping.lists} placeholder="Nueva list" onChange={(lists) => update(mapping.logtoRoleId, { lists })} /></td>
+                <td className="civitas-table-cell--md">{renderWordPressSelect(mapping)}<div className="small text-muted mt-1">Solo sincronización; no autorización.</div></td>
+                <td className="civitas-table-cell--lg"><ChipEditor values={mapping.tags} placeholder="Nuevo tag" onChange={(tags) => update(mapping.logtoRoleId, { tags })} /></td>
+                <td className="civitas-table-cell--lg"><ChipEditor values={mapping.lists} placeholder="Nueva list" onChange={(lists) => update(mapping.logtoRoleId, { lists })} /></td>
                 <td><Form.Control size="sm" value={mapping.roleType} onChange={(event) => update(mapping.logtoRoleId, { roleType: event.target.value })} /></td>
                 <td><Badge bg={mapping.source === "gui_override" ? "primary" : "secondary"}>{mapping.source}</Badge></td>
                 <td><Form.Check type="switch" checked={mapping.isActive} onChange={(event) => update(mapping.logtoRoleId, { isActive: event.target.checked })} /></td>

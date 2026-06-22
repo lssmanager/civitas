@@ -7,3 +7,7 @@ export { LoadingState } from "./LoadingState";
 export { MetricCard } from "./MetricCard";
 export { PageCard } from "./PageCard";
 export { PageShell } from "./PageShell";
+
+export { JsonLogBlock } from "./JsonLogBlock";
+export { StatusBadge } from "./StatusBadge";
+export { SectionCard } from "./SectionCard";
