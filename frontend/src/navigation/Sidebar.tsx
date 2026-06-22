@@ -20,9 +20,21 @@ export function SidebarBrand() {
   return (
     <div className="civitas-sidebar__brand px-4 py-4 border-bottom">
       <div className="d-flex align-items-center gap-2">
-        <span className="civitas-brand-mark">C</span>
-        <div>
-          <p className="fw-bold mb-0">Civitas</p>
+        <span
+          className="civitas-sidebar__logo civitas-sidebar__logo--mark civitas-sidebar__logo-light"
+          aria-hidden="true"
+        >
+          C
+        </span>
+        <span
+          className="civitas-sidebar__logo civitas-sidebar__logo--mark civitas-sidebar__logo-dark"
+          aria-hidden="true"
+        >
+          C
+        </span>
+        <div className="civitas-sidebar__logo civitas-sidebar__logo--full">
+          <span className="civitas-sidebar__logo-light fw-bold">Civitas</span>
+          <span className="civitas-sidebar__logo-dark fw-bold">Civitas</span>
           <p className="small mb-0 civitas-sidebar__brand-meta">Fase 07 · Logto-first</p>
         </div>
       </div>

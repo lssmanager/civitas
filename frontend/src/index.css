@@ -57,17 +57,85 @@ body {
   top: 0;
 }
 
-.civitas-brand-mark {
+.civitas-sidebar__brand {
+  min-width: 0;
+}
+
+.civitas-sidebar__brand > .d-flex {
+  min-width: 0;
+}
+
+.civitas-sidebar__logo {
+  flex-shrink: 0;
+}
+
+.civitas-sidebar__logo--full {
+  flex-shrink: 1;
+  max-width: 11.5rem;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.civitas-sidebar__logo--full img,
+.civitas-sidebar__logo--full svg {
+  display: block;
+  max-width: 100%;
+  max-height: 3.25rem;
+  width: auto;
+  height: auto;
+}
+
+.civitas-sidebar__brand .civitas-sidebar__logo--full {
+  max-height: 3.25rem;
+}
+
+.civitas-sidebar__logo--mark {
   width: 2.5rem;
   height: 2.5rem;
+  max-width: 2.5rem;
+  max-height: 2.5rem;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border-radius: 0.9rem;
   color: #fff;
   font-weight: 800;
+  line-height: 1;
+  aspect-ratio: 1 / 1;
   background: linear-gradient(135deg, var(--civitas-primary), var(--civitas-accent-strong));
   box-shadow: 0 0.75rem 1.5rem rgba(25, 132, 238, 0.22);
+}
+
+.civitas-sidebar__logo-light {
+  display: inline-flex;
+}
+
+.civitas-sidebar__logo-dark {
+  display: none;
+}
+
+[data-bs-theme="dark"] .civitas-sidebar__logo-light,
+.theme-dark .civitas-sidebar__logo-light,
+body.theme-dark .civitas-sidebar__logo-light {
+  display: none;
+}
+
+[data-bs-theme="dark"] .civitas-sidebar__logo-dark,
+.theme-dark .civitas-sidebar__logo-dark,
+body.theme-dark .civitas-sidebar__logo-dark {
+  display: inline-flex;
+}
+
+.civitas-sidebar--collapsed .civitas-sidebar__logo--full,
+.civitas-sidebar[data-sidebar-collapsed="true"] .civitas-sidebar__logo--full,
+[data-sidebar-collapsed="true"] .civitas-sidebar .civitas-sidebar__logo--full {
+  display: none;
+}
+
+.civitas-sidebar--collapsed .civitas-sidebar__brand > .d-flex,
+.civitas-sidebar[data-sidebar-collapsed="true"] .civitas-sidebar__brand > .d-flex,
+[data-sidebar-collapsed="true"] .civitas-sidebar .civitas-sidebar__brand > .d-flex {
+  justify-content: center;
 }
 
 .civitas-sidebar-link {
@@ -143,7 +211,7 @@ body {
   box-shadow: 0 1rem 2rem rgba(15, 23, 42, 0.08) !important;
 }
 
-.offcanvas .civitas-brand-mark + div p {
+.offcanvas .civitas-sidebar__logo--full p {
   margin-bottom: 0;
 }
 
@@ -368,9 +436,11 @@ body.theme-dark .btn-outline-primary {
   color: rgba(232, 239, 250, 0.7);
 }
 
-.civitas-brand-mark {
+.civitas-sidebar__logo--mark {
   width: 2.75rem;
   height: 2.75rem;
+  max-width: 2.75rem;
+  max-height: 2.75rem;
   border-radius: 0.95rem;
 }
 
