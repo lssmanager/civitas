@@ -580,8 +580,24 @@ app.get("/me", requireAuth(API_RESOURCE), async (req, res) => {
     if (error.status === 401) return res.status(401).json({ error: "Unauthorized", message: error.message });
     if (error.status === 403) return res.status(403).json({ error: "Forbidden", message: error.message });
     const status = error?.code === "LOGTO_MANAGEMENT_REQUEST_TIMEOUT" || error?.code === "LOGTO_MANAGEMENT_TOKEN_TIMEOUT" ? 504 : 500;
-    console.error("Failed to resolve internal user", { code: error?.code, status: error?.status, diagnostic: error?.diagnostic, message: error?.message });
-    return res.status(status).json({ error: status === 504 ? "Gateway Timeout" : "Internal Server Error", message: "Failed to resolve internal user", diagnostic: error?.diagnostic || undefined });
+    console.error("Failed to resolve internal user", {
+      message: error?.message,
+      code: error?.code,
+      status: error?.status,
+      diagnostic: error?.diagnostic,
+      cause: error?.cause
+        ? {
+            code: error.cause.code,
+            detail: error.cause.detail,
+            table: error.cause.table,
+            column: error.cause.column,
+            constraint: error.cause.constraint,
+            schema: error.cause.schema,
+          }
+        : undefined,
+      stack: process.env.NODE_ENV === "production" ? undefined : error?.stack,
+    });
+    return res.status(error?.status || status).json({ error: error?.code === "DATABASE_SCHEMA_DRIFT" ? "Service Unavailable" : status === 504 ? "Gateway Timeout" : "Internal Server Error", message: error?.code === "DATABASE_SCHEMA_DRIFT" ? "Database schema is not compatible with the running backend. Run migrations before retrying." : "Failed to resolve internal user", diagnostic: error?.diagnostic || undefined });
   }
 });
 

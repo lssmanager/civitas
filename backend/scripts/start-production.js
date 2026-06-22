@@ -1,5 +1,7 @@
 const { spawn } = require("node:child_process");
 const { checkDatabaseConnection, getDatabaseConnectionTarget } = require("../db/connection");
+const { pool } = require("../db/client");
+const { validateDatabaseSchema } = require("../db/schemaValidation");
 
 const DEFAULT_DATABASE_WAIT_TIMEOUT_MS = 60_000;
 const DEFAULT_DATABASE_WAIT_INTERVAL_MS = 2_000;
@@ -55,7 +57,7 @@ async function waitForDatabase() {
     const result = await checkDatabaseConnection(connectTimeoutMs);
 
     if (result.ok) {
-      console.log(`[startup] database reachable at ${result.host}:${result.port}/${result.database}`);
+      console.log(`[startup] database connectivity check passed at ${result.host}:${result.port}/${result.database}`);
       return;
     }
 
@@ -103,6 +105,32 @@ function shouldRunMigrationsOnStartup() {
   return String(process.env.RUN_MIGRATIONS_ON_STARTUP || "true").toLowerCase() !== "false";
 }
 
+function allowSchemaDrift() {
+  return String(process.env.ALLOW_SCHEMA_DRIFT || "false").toLowerCase() === "true";
+}
+
+async function validateStartupSchema() {
+  try {
+    const result = await validateDatabaseSchema(pool);
+    console.log("[startup] database schema validation passed");
+    if (result.missingRecommendedIndexes.length) {
+      console.warn("[startup] database schema validation warning: recommended indexes are missing", {
+        missingRecommendedIndexes: result.missingRecommendedIndexes,
+        migration: "Run npm run migrate to create non-critical indexes.",
+      });
+    }
+  } catch (error) {
+    if (allowSchemaDrift()) {
+      console.warn("[startup] ALLOW_SCHEMA_DRIFT=true; database schema validation failed but server will start", {
+        message: error.message,
+        diagnostic: error.diagnostic,
+      });
+      return;
+    }
+    throw error;
+  }
+}
+
 function startServer() {
   console.log("[startup] starting server...");
 
@@ -140,13 +168,16 @@ async function main() {
       console.log("[startup] running migrations...");
       await runNodeScript("scripts/migrate.js", "migrations");
       console.log("[startup] migrations completed");
+      await validateStartupSchema();
     } else {
-      console.log("[startup] RUN_MIGRATIONS_ON_STARTUP=false; database validation passed and server will start without applying migrations. Run npm run migrate as a separate release step.");
+      await validateStartupSchema();
+      console.log("[startup] RUN_MIGRATIONS_ON_STARTUP=false; database schema validation passed and server will start without applying migrations. Run npm run migrate as a separate release step.");
     }
 
     startServer();
   } catch (error) {
-    console.error(`[startup] ${error.message}`);
+    console.error(`[startup] ${error.message}`, error.diagnostic ? { diagnostic: error.diagnostic } : undefined);
+    await pool.end().catch(() => {});
     process.exit(1);
   }
 }

@@ -2,6 +2,7 @@ const { and, eq, ne } = require("drizzle-orm");
 const { db } = require("../db/client");
 const { users } = require("../db/schema");
 const { measureAsync } = require("./timeouts");
+const { buildSafePostgresErrorDiagnostic, classifyPostgresOperationalError } = require("./postgresErrors");
 
 const INACTIVE_STATUSES = new Set(["blocked", "inactive"]);
 
@@ -138,18 +139,28 @@ async function getOrCreateInternalUser(authUser) {
   }
 
   const email = getEmailFromClaims({ ...claims, sub: logtoUserId });
-  let user = await measureAsync("PostgreSQL users lookup for /api/me", () => findUserByLogtoUserId(logtoUserId), { warnAfterMs: 1000 });
+  let user;
+  try {
+    user = await measureAsync("PostgreSQL users lookup for /api/me", () => findUserByLogtoUserId(logtoUserId), { warnAfterMs: 1000 });
 
-  if (!user) {
-    user = await measureAsync("PostgreSQL users create for /api/me", () => createUserFromLogtoClaims({ ...claims, sub: logtoUserId }), { warnAfterMs: 1000 });
+    if (!user) {
+      user = await measureAsync("PostgreSQL users create for /api/me", () => createUserFromLogtoClaims({ ...claims, sub: logtoUserId }), { warnAfterMs: 1000 });
+    }
+
+    if (INACTIVE_STATUSES.has(user.status)) {
+      throw new InternalUserInactiveError(user.status);
+    }
+
+    const shouldUpdateEmail = email && email !== user.email && !(await measureAsync("PostgreSQL users email uniqueness check for /api/me", () => emailBelongsToAnotherUser(email, user.id), { warnAfterMs: 1000 }));
+    user = await measureAsync("PostgreSQL users last-login update for /api/me", () => updateLastLogin(user.id, shouldUpdateEmail ? email : undefined), { warnAfterMs: 1000 });
+  } catch (error) {
+    if (error instanceof InternalUserInactiveError) throw error;
+    const classified = classifyPostgresOperationalError(error, "/api/me internal user projection");
+    if (classified !== error) {
+      console.error("PostgreSQL schema drift while resolving /api/me", buildSafePostgresErrorDiagnostic(error));
+    }
+    throw classified;
   }
-
-  if (INACTIVE_STATUSES.has(user.status)) {
-    throw new InternalUserInactiveError(user.status);
-  }
-
-  const shouldUpdateEmail = email && email !== user.email && !(await measureAsync("PostgreSQL users email uniqueness check for /api/me", () => emailBelongsToAnotherUser(email, user.id), { warnAfterMs: 1000 }));
-  user = await measureAsync("PostgreSQL users last-login update for /api/me", () => updateLastLogin(user.id, shouldUpdateEmail ? email : undefined), { warnAfterMs: 1000 });
 
   return user;
 }
