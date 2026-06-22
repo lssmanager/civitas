@@ -22,11 +22,12 @@ test("organization payload separates Logto top-level, customData and downstream 
   assert.ok(FORM_FIELD_INVENTORY["baseAdmin.position"].includes("logto.user.customData.civitasProfile.position"));
 });
 
-test("user payload keeps OIDC profile standard and business data in customData", () => {
-  const payload = buildLogtoUserCreatePayload({ firstName: "Ada", lastName: "Lovelace", name: "Ada Lovelace", email: " ADA@EXAMPLE.COM ", phone: "+571234567890", username: "ada", position: "Rectora", phoneExtension: "123" });
-  assert.equal(payload.primaryEmail, "ada@example.com");
-  assert.equal(payload.name, "Ada Lovelace");
-  assert.deepEqual(payload.profile, { givenName: "Ada", familyName: "Lovelace", preferredUsername: "ada" });
+test("user payload maps Latin American names to Logto profile and customData", () => {
+  const payload = buildLogtoUserCreatePayload({ firstName: "Ana", middleName: "María", firstSurname: "Pérez", secondSurname: "Gómez", email: " ANA@EXAMPLE.COM ", phone: "+571234567890", username: "ana", position: "Rectora", phoneExtension: "123" });
+  assert.equal(payload.primaryEmail, "ana@example.com");
+  assert.equal(payload.name, "Ana María Pérez Gómez");
+  assert.deepEqual(payload.profile, { givenName: "Ana", middleName: "María", familyName: "Pérez", preferredUsername: "ana" });
+  assert.equal(payload.customData.secondFamilyName, "Gómez");
   assert.equal(payload.customData.civitasProfile.position, "Rectora");
   assert.equal(payload.customData.civitasProfile.phoneExtension, "123");
   assert.equal(payload.profile.position, undefined);

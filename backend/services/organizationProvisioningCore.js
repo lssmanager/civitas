@@ -36,10 +36,10 @@ const normalizeAdministrativeContacts = (value, institutionalDomain = null) => {
   };
   return value
     .map((contact, index) => {
-      const primerNombre = emptyToNull(contact?.primerNombre) || emptyToNull(contact?.firstName);
-      const segundoNombre = emptyToNull(contact?.segundoNombre);
-      const primerApellido = emptyToNull(contact?.primerApellido) || emptyToNull(contact?.lastName);
-      const segundoApellido = emptyToNull(contact?.segundoApellido);
+      const primerNombre = emptyToNull(contact?.firstName) || emptyToNull(contact?.primerNombre);
+      const segundoNombre = emptyToNull(contact?.middleName) || emptyToNull(contact?.segundoNombre);
+      const primerApellido = emptyToNull(contact?.firstSurname) || emptyToNull(contact?.primerApellido) || emptyToNull(contact?.lastName);
+      const segundoApellido = emptyToNull(contact?.secondSurname) || emptyToNull(contact?.segundoApellido);
       const firstName = [primerNombre, segundoNombre].filter(Boolean).join(" ") || null;
       const lastName = [primerApellido, segundoApellido].filter(Boolean).join(" ") || null;
       return {
@@ -48,7 +48,10 @@ const normalizeAdministrativeContacts = (value, institutionalDomain = null) => {
       segundoNombre,
       primerApellido,
       segundoApellido,
-      firstName,
+      firstName: primerNombre,
+      middleName: segundoNombre,
+      firstSurname: primerApellido,
+      secondSurname: segundoApellido,
       lastName,
       name: emptyToNull(contact?.name) || [primerNombre, segundoNombre, primerApellido, segundoApellido].filter(Boolean).join(" ") || [firstName, lastName].filter(Boolean).join(" ") || null,
       email: normalizeContactEmail(contact?.email),

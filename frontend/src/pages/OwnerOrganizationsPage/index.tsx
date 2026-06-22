@@ -741,12 +741,14 @@ export function OwnerOrganizationsPage() {
         if (!hasAnyInput) return null;
         return {
           kind: contact.key,
+          firstName: contact.primerNombre.trim() || undefined,
+          middleName: contact.segundoNombre.trim() || undefined,
+          firstSurname: contact.primerApellido.trim() || undefined,
+          secondSurname: contact.segundoApellido.trim() || undefined,
           primerNombre: contact.primerNombre.trim() || undefined,
           segundoNombre: contact.segundoNombre.trim() || undefined,
           primerApellido: contact.primerApellido.trim() || undefined,
           segundoApellido: contact.segundoApellido.trim() || undefined,
-          firstName: [contact.primerNombre, contact.segundoNombre].map((value) => value.trim()).filter(Boolean).join(" ") || undefined,
-          lastName: [contact.primerApellido, contact.segundoApellido].map((value) => value.trim()).filter(Boolean).join(" ") || undefined,
           name: fullName,
           email,
           phone:

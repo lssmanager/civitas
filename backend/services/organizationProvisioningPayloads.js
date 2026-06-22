@@ -11,7 +11,9 @@ const FORM_FIELD_INVENTORY = Object.freeze({
   "appSubdomain/subdomain": ["logto.organization.customData.provisioning.appSubdomain", "logto.organization.customData.civitasProfile.business.subdomain", "civitas.organization_profiles.subdomain"],
   "adminDomain/jitProvisioning.domain": ["logto.organization.customData.provisioning.institutionalDomain", "logto.jit.emailDomains", "civitas.organization_profiles.adminDomain"],
   "baseAdmin.firstName": ["logto.user.profile.givenName", "fluentcrm.contact.firstName"],
-  "baseAdmin.lastName": ["logto.user.profile.familyName", "fluentcrm.contact.lastName"],
+  "baseAdmin.middleName": ["logto.user.profile.middleName"],
+  "baseAdmin.firstSurname": ["logto.user.profile.familyName", "fluentcrm.contact.lastName"],
+  "baseAdmin.secondSurname": ["logto.user.customData.secondFamilyName"],
   "baseAdmin.name": ["logto.user.topLevel.name", "fluentcrm.contact.full_name"],
   "baseAdmin.email": ["logto.user.topLevel.primaryEmail", "fluentcrm.contact.email"],
   "baseAdmin.phone": ["logto.user.topLevel.primaryPhone", "fluentcrm.contact.phone"],
@@ -62,25 +64,28 @@ function buildLogtoOrganizationCreatePayload({ canonical = {}, extended = {}, cr
 }
 
 function buildLogtoUserProfile(person = {}) {
-  return cleanObject({ givenName: trim(person.firstName), familyName: trim(person.lastName), preferredUsername: trim(person.username) });
+  return cleanObject({
+    givenName: trim(person.firstName),
+    middleName: trim(person.middleName),
+    familyName: trim(person.firstSurname ?? person.lastName),
+    preferredUsername: trim(person.username),
+  });
 }
 
 function buildLogtoUserCustomData(person = {}) {
-  return {
+  return cleanObject({
+    secondFamilyName: trim(person.secondSurname),
     civitasProfile: cleanObject({
-      primerNombre: trim(person.primerNombre),
-      segundoNombre: trim(person.segundoNombre),
-      primerApellido: trim(person.primerApellido),
-      segundoApellido: trim(person.segundoApellido),
       position: trim(person.position),
       phoneExtension: trim(person.phoneExtension),
       source: "owner_organization_provisioning",
     }),
-  };
+  });
 }
 
 function buildLogtoUserCreatePayload(person = {}) {
-  return cleanObject({ primaryEmail: trim(person.email)?.toLowerCase(), primaryPhone: trim(person.phone), username: trim(person.username), name: trim(person.name) || [trim(person.firstName), trim(person.lastName)].filter(Boolean).join(" ") || null, profile: buildLogtoUserProfile(person), customData: buildLogtoUserCustomData(person) });
+  const fullName = [trim(person.firstName), trim(person.middleName), trim(person.firstSurname ?? person.lastName), trim(person.secondSurname)].filter(Boolean).join(" ");
+  return cleanObject({ primaryEmail: trim(person.email)?.toLowerCase(), primaryPhone: trim(person.phone), username: trim(person.username), name: trim(person.name) || fullName || null, profile: buildLogtoUserProfile(person), customData: buildLogtoUserCustomData(person) });
 }
 
 function buildFluentCrmCompanyPayloadFromForm({ form = {}, canonical = {}, extended = {} } = {}) {
