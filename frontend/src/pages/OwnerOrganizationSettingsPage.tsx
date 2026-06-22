@@ -128,7 +128,7 @@ export function OwnerOrganizationSettingsPage() {
               <dl className="mb-0 small">
                 <dt>Logto organization id</dt><dd className="text-break">{organization.logtoOrganizationId ?? "Pendiente"}</dd>
                 <dt>Nombre</dt><dd>{organization.name ?? profile?.nameCache ?? "Sin nombre"}</dd>
-                <dt>Estado sync</dt><dd><Badge bg={profile?.logtoSyncStatus === "bootstrapped" || profile?.logtoSyncStatus === "synced" ? "success" : requiresResume ? "danger" : "warning"}>{profile?.logtoSyncStatus ?? "metadata_missing"}</Badge></dd>
+                <dt>Estado sync</dt><dd><Badge bg={profile?.logtoSyncStatus === "bootstrapped" || profile?.logtoSyncStatus === "synced" ? "success" : requiresResume ? "danger" : "warning"}>{profile?.logtoSyncStatus ?? "local_profile_missing"}</Badge></dd>
                 <dt>Bootstrap</dt><dd>{requiresResume ? `Requiere reanudación${provisioningState?.failedStage ? ` desde ${String(provisioningState.failedStage)}` : ""}` : "Completo o sin acción pendiente"}</dd>
               </dl>            </PageCard>
           </div>

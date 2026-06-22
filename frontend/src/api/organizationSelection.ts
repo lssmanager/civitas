@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { useApi } from "./base";
 import type { OwnerOrganization } from "./owner";
 
-export type OrganizationReconciliationStatus = "linked" | "name_matched_pending_link" | "metadata_missing" | "conflict" | string;
+export type OrganizationReconciliationStatus = "linked" | "name_match_pending_link" | "local_profile_missing" | "ready_to_seed_profile" | "missing_required_profile_metadata" | "duplicate_local_profiles" | string;
 
 export type CanonicalOrganizationFields = {
   name: string | null;
@@ -27,7 +27,7 @@ export type OrganizationReconciliationIncident = {
 export type SelectableOrganization = OwnerOrganization & {
   logtoOrganizationId: string;
   canonical: CanonicalOrganizationFields;
-  syncStatus: "synced" | "pending" | "error" | "metadata_missing" | "conflict" | string;
+  syncStatus: "synced" | "pending" | "error" | "local_profile_missing" | "ready_to_seed_profile" | "missing_required_profile_metadata" | "duplicate_local_profiles" | string;
   syncError: string | null;
   reconciliation: {
     status: OrganizationReconciliationStatus;
