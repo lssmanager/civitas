@@ -74,7 +74,7 @@ export type OwnerReconciliationTask = {
   resolvedAt: string | null;
 };
 
-export type OwnerReconciliationAction = "approve_link" | "reject_link" | "create_local_profile" | "create_logto_organization" | "archive_local_profile" | "merge_profiles" | "mark_legacy" | "ignore" | "retry";
+export type OwnerReconciliationAction = "approve_link" | "reject_link" | "complete_metadata" | "create_local_profile" | "create_logto_organization" | "archive_local_profile" | "merge_profiles" | "mark_legacy" | "ignore" | "retry";
 
 export type OwnerWorkerHealth = {
   readiness: string;

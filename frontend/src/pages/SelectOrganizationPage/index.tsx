@@ -10,8 +10,10 @@ const getSyncBadge = (status?: string) => {
   if (status === "creator_membership_pending") return <Badge className="civitas-status-badge civitas-status-badge--warning">Membership pendiente</Badge>;
   if (status === "creator_role_pending") return <Badge className="civitas-status-badge civitas-status-badge--warning">Rol admin pendiente</Badge>;
   if (status === "error") return <Badge className="civitas-status-badge civitas-status-badge--danger">Sync con error</Badge>;
-  if (status === "metadata_missing") return <Badge className="civitas-status-badge civitas-status-badge--warning">Metadata faltante</Badge>;
-  if (status === "conflict") return <Badge className="civitas-status-badge civitas-status-badge--danger">Reconciliación pendiente</Badge>;
+  if (status === "local_profile_missing") return <Badge className="civitas-status-badge civitas-status-badge--warning">Profile local pendiente</Badge>;
+  if (status === "ready_to_seed_profile") return <Badge className="civitas-status-badge civitas-status-badge--warning">Listo para crear profile</Badge>;
+  if (status === "missing_required_profile_metadata") return <Badge className="civitas-status-badge civitas-status-badge--warning">Metadata obligatoria faltante</Badge>;
+  if (status === "duplicate_local_profiles") return <Badge className="civitas-status-badge civitas-status-badge--danger">Profiles duplicados</Badge>;
   return <Badge className="civitas-status-badge civitas-status-badge--warning">Sync pendiente</Badge>;
 };
 
@@ -32,6 +34,7 @@ function OrganizationCard({ organization }: { organization: SelectableOrganizati
   const civitasProfile = (customData.civitasProfile && typeof customData.civitasProfile === "object" ? customData.civitasProfile : {}) as { business?: Record<string, string>; contact?: Record<string, string>; branding?: Record<string, string> };
   const business = civitasProfile.business || {};
   const contact = civitasProfile.contact || {};
+  const legacyEmail = typeof customData.inviteDomain === "string" ? customData.inviteDomain : null;
   const logoUrl = civitasProfile.branding?.lightLogoUrl || civitasProfile.branding?.logoUrl || profile?.branding?.logoUrl || null;
   const addressLine = [business.addressLine1, business.addressLine2].filter(Boolean).join(", ");
   const locationLine = [business.city, business.department, business.country, business.postalCode].filter(Boolean).join(" · ");
@@ -91,13 +94,13 @@ function OrganizationCard({ organization }: { organization: SelectableOrganizati
                     <span className="civitas-select-card__icon align-self-start">✉</span>
                     <div>
                       <p className="text-uppercase text-secondary small fw-bold mb-1">Correo electrónico</p>
-                      <p className="fw-semibold text-primary mb-0 text-break">{contact.email || "Email pendiente"}</p>
+                      <p className="fw-semibold text-primary mb-0 text-break">{contact.email || legacyEmail || "Email pendiente"}</p>
                     </div>
                   </div>
                 </div>
               </div>
               {organization.syncError ? (
-                <Alert variant={organization.syncStatus === "conflict" ? "warning" : "danger"} className="small py-2 px-3 mb-0">
+                <Alert variant={organization.syncStatus === "duplicate_local_profiles" ? "warning" : "danger"} className="small py-2 px-3 mb-0">
                   {organization.syncError}
                 </Alert>
               ) : null}
