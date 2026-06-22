@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 702 225" role="img" aria-labelledby="title desc">
+  <title id="title">Civitas</title>
+  <desc id="desc">Civitas horizontal logo for light backgrounds.</desc>
+  <rect width="702" height="225" fill="none"/>
+  <image href="/civitas-mark.svg" x="45" y="26" width="156" height="156" preserveAspectRatio="xMidYMid meet"/>
+  <text x="236" y="121" font-family="Inter, Arial, sans-serif" font-size="86" font-weight="800" fill="#031c44">Civitas</text>
+  <path d="M236 143H589" stroke="#1984ee" stroke-width="6" stroke-linecap="round"/>
+  <text x="324" y="174" font-family="Inter, Arial, sans-serif" font-size="25" font-weight="400" fill="#21aef3">Simplifying with Tech</text>
+</svg>

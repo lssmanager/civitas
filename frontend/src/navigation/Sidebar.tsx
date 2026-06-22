@@ -19,13 +19,25 @@ export function Sidebar() {
 export function SidebarBrand() {
   return (
     <div className="civitas-sidebar__brand px-4 py-4 border-bottom">
-      <div className="d-flex align-items-center gap-2">
-        <span className="civitas-brand-mark">C</span>
-        <div>
-          <p className="fw-bold mb-0">Civitas</p>
-          <p className="small mb-0 civitas-sidebar__brand-meta">Fase 07 · Logto-first</p>
-        </div>
-      </div>
+      <a className="civitas-sidebar__brand-link" href="/owner" aria-label="Civitas">
+        <img
+          src="/civitas-logo-light.svg"
+          alt="Civitas"
+          className="civitas-sidebar__logo civitas-sidebar__logo--full civitas-sidebar__logo--light"
+        />
+        <img
+          src="/civitas-logo-dark.svg"
+          alt=""
+          aria-hidden="true"
+          className="civitas-sidebar__logo civitas-sidebar__logo--full civitas-sidebar__logo--dark"
+        />
+        <img
+          src="/civitas-mark.svg"
+          alt=""
+          aria-hidden="true"
+          className="civitas-sidebar__logo civitas-sidebar__logo--mark"
+        />
+      </a>
     </div>
   );
 }

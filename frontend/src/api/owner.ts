@@ -26,7 +26,18 @@ export type OwnerOrganization = {
     subdomain: string | null;
     slug?: string | null;
     adminDomain?: string | null;
-    branding?: { logoUrl: string | null; faviconUrl: string | null; primaryColor: string | null; primaryColorDark: string | null; };
+    branding?: {
+      logoUrl: string | null;
+      faviconUrl: string | null;
+      primaryColor: string | null;
+      primaryColorDark: string | null;
+      lightLogoUrl?: string | null;
+      darkLogoUrl?: string | null;
+      lightMarkUrl?: string | null;
+      darkMarkUrl?: string | null;
+      lightFaviconUrl?: string | null;
+      darkFaviconUrl?: string | null;
+    };
     organizationLoginExperienceEnabled?: boolean;
     defaultRoleNames?: string[];
     oidcApplicationId?: string | null;
