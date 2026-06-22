@@ -53,7 +53,7 @@ body {
 a { color: var(--civitas-primary); }
 :focus-visible { outline: 3px solid rgba(25,132,238,.35); outline-offset: 2px; }
 
-.civitas-app-shell { min-height: 100vh; display: flex; background: transparent; }
+.civitas-app-shell { min-height: 100vh; display: flex; align-items: stretch; background: transparent; }
 .civitas-content-shell { min-width: 0; flex: 1; display: flex; flex-direction: column; }
 .civitas-main { flex: 1; }
 .civitas-header { min-height: 4.75rem; z-index: 20; background: rgba(255,255,255,.92); backdrop-filter: blur(14px); }
@@ -63,24 +63,28 @@ a { color: var(--civitas-primary); }
 .civitas-auth-state { background: var(--civitas-bg); }
 .civitas-auth-card { max-width: 560px; }
 
-.civitas-sidebar { width: var(--civitas-sidebar-width); min-height: 100vh; position: sticky; top: 0; background: linear-gradient(180deg,#0b234d 0%,#10305f 100%) !important; color: #e8effa; border-right-color: rgba(255,255,255,.08) !important; }
+.civitas-sidebar { width: var(--civitas-sidebar-width); height: 100vh; min-height: 100vh; position: sticky; top: 0; flex-shrink: 0; overflow: hidden; background: linear-gradient(180deg,#ffffff 0%,#f7fbff 100%) !important; color: var(--civitas-text); border-right-color: var(--civitas-border) !important; box-shadow: 10px 0 30px rgba(3,28,68,.045); }
 .civitas-sidebar, .civitas-sidebar .accordion, .civitas-sidebar .accordion-item, .civitas-sidebar .accordion-body, .civitas-sidebar nav { background-color: transparent !important; }
-.civitas-sidebar__brand { min-width: 0; border-bottom-color: rgba(255,255,255,.1) !important; }
-.civitas-sidebar__logo--mark { width: 2.75rem; height: 2.75rem; display: inline-flex; align-items: center; justify-content: center; border-radius: .95rem; color: #fff; font-weight: 800; background: linear-gradient(135deg,var(--civitas-primary),var(--civitas-accent-strong)); box-shadow: 0 .75rem 1.5rem rgba(25,132,238,.22); }
-.civitas-sidebar__logo--full { max-width: 11.5rem; overflow: hidden; }
-.civitas-sidebar__logo-light { display: inline-flex; } .civitas-sidebar__logo-dark { display: none; }
-[data-bs-theme="dark"] .civitas-sidebar__logo-light, .theme-dark .civitas-sidebar__logo-light, body.theme-dark .civitas-sidebar__logo-light { display: none; }
-[data-bs-theme="dark"] .civitas-sidebar__logo-dark, .theme-dark .civitas-sidebar__logo-dark, body.theme-dark .civitas-sidebar__logo-dark { display: inline-flex; }
-.civitas-sidebar__brand-meta, .civitas-sidebar-link__meta, .civitas-sidebar .accordion-button .small { color: rgba(232,239,250,.72) !important; }
-.civitas-sidebar__panel { border-radius: 1.1rem; background: rgba(255,255,255,.035) !important; padding: .5rem; }
-.civitas-sidebar-link, .civitas-sidebar-link .fw-semibold { color: #edf4ff !important; border: 1px solid transparent; }
-.civitas-sidebar-link:hover, .civitas-sidebar-link:focus { color: #fff !important; background: rgba(255,255,255,.08); }
-.civitas-sidebar-link.active { color: #fff !important; background: rgba(25,132,238,.28); border-color: rgba(255,255,255,.16); }
+.civitas-sidebar__brand { min-width: 0; flex-shrink: 0; border-bottom-color: var(--civitas-border) !important; background: rgba(250,251,253,.82); }
+.civitas-sidebar__logo-mark { width: 3rem; height: 3rem; flex: 0 0 3rem; object-fit: contain; border-radius: 1rem; background: #fff; box-shadow: 0 .75rem 1.5rem rgba(25,132,238,.16); }
+.civitas-sidebar__logo--full { max-width: 11.5rem; overflow: hidden; color: var(--civitas-text); }
+.civitas-sidebar__brand-meta, .civitas-sidebar-link__meta, .civitas-sidebar .accordion-button .small { color: var(--civitas-muted) !important; }
+.civitas-sidebar__nav { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.civitas-sidebar__panel { border: 1px solid var(--civitas-border); border-radius: 1.1rem; background: rgba(250,251,253,.78) !important; padding: .5rem; }
+.civitas-sidebar__panel-title { color: var(--civitas-text); }
+.civitas-sidebar-link, .civitas-sidebar-link .fw-semibold { color: var(--civitas-text) !important; border: 1px solid transparent; }
+.civitas-sidebar-link:hover, .civitas-sidebar-link:focus { color: var(--civitas-text) !important; background: rgba(243,183,35,.16); border-color: rgba(237,158,27,.25); }
+.civitas-sidebar-link.active { color: var(--civitas-primary) !important; background: var(--civitas-primary-soft); border-color: rgba(25,132,238,.22); box-shadow: inset 3px 0 0 var(--civitas-primary); }
+.civitas-sidebar-link:hover .civitas-sidebar-link__meta, .civitas-sidebar-link.active .civitas-sidebar-link__meta { color: var(--civitas-text) !important; }
 .civitas-sidebar .accordion-item { border: 0 !important; }
-.civitas-sidebar .accordion-button { border-radius: .85rem !important; padding: .7rem .8rem; color: #f3f7ff !important; background: transparent !important; box-shadow: none; }
-.civitas-sidebar .accordion-button:not(.collapsed) { color: #fff !important; background: rgba(255,255,255,.08) !important; }
-.civitas-sidebar .accordion-button::after { filter: brightness(0) invert(1); }
-.civitas-sidebar .border-start { border-color: rgba(255,255,255,.14) !important; }
+.civitas-sidebar .accordion-button { border-radius: .85rem !important; padding: .7rem .8rem; color: var(--civitas-text) !important; background: transparent !important; box-shadow: none; }
+.civitas-sidebar .accordion-button:not(.collapsed) { color: var(--civitas-primary) !important; background: var(--civitas-primary-soft) !important; }
+.civitas-sidebar .accordion-button:focus { box-shadow: 0 0 0 .18rem rgba(25,132,238,.14); }
+.civitas-sidebar .border-start { border-color: var(--civitas-border) !important; }
+[data-bs-theme="dark"] .civitas-sidebar, .theme-dark .civitas-sidebar, body.theme-dark .civitas-sidebar { background: linear-gradient(180deg,#102748 0%,#0d2240 100%) !important; color: var(--civitas-text); border-right-color: rgba(255,255,255,.1) !important; }
+[data-bs-theme="dark"] .civitas-sidebar__brand, .theme-dark .civitas-sidebar__brand, body.theme-dark .civitas-sidebar__brand, [data-bs-theme="dark"] .civitas-sidebar__panel, .theme-dark .civitas-sidebar__panel, body.theme-dark .civitas-sidebar__panel { background: rgba(8,23,47,.5) !important; border-color: rgba(255,255,255,.1) !important; }
+[data-bs-theme="dark"] .civitas-sidebar-link:hover, .theme-dark .civitas-sidebar-link:hover, body.theme-dark .civitas-sidebar-link:hover { background: rgba(243,183,35,.14); }
+
 
 .btn-primary { --bs-btn-color:#fff; --bs-btn-bg:var(--civitas-primary); --bs-btn-border-color:var(--civitas-primary); --bs-btn-hover-color:#031c44; --bs-btn-hover-bg:var(--civitas-primary-hover); --bs-btn-hover-border-color:var(--civitas-primary-hover); --bs-btn-active-color:#031c44; --bs-btn-active-bg:var(--civitas-warning); --bs-btn-active-border-color:var(--civitas-warning); --bs-btn-focus-shadow-rgb:25,132,238; }
 .btn-outline-primary { --bs-btn-color:var(--civitas-primary); --bs-btn-border-color:rgba(25,132,238,.34); --bs-btn-hover-color:#031c44; --bs-btn-hover-bg:rgba(243,183,35,.18); --bs-btn-hover-border-color:rgba(237,158,27,.45); --bs-btn-active-color:#031c44; --bs-btn-active-bg:rgba(243,183,35,.28); --bs-btn-active-border-color:rgba(237,158,27,.55); }
@@ -165,6 +169,8 @@ a { color: var(--civitas-primary); }
 .civitas-page-card__body .bg-light, .civitas-page-card__body .bg-body { background:var(--civitas-surface) !important; }
 [data-bs-theme="dark"] .civitas-page-card__body .bg-light, [data-bs-theme="dark"] .civitas-page-card__body .bg-body { background:#0c1f3a !important; }
 @media (max-width: 575.98px) { .civitas-organization-card__identity { align-items:flex-start; } .civitas-select-card__logo { width:82px; height:82px; } }
-.civitas-sidebar-offcanvas { background: linear-gradient(180deg,#0b234d 0%,#10305f 100%); color:#e8effa; }
-.civitas-sidebar-offcanvas .offcanvas-header { border-bottom-color: rgba(255,255,255,.1) !important; }
+.civitas-sidebar-offcanvas { background: linear-gradient(180deg,#ffffff 0%,#f7fbff 100%); color:var(--civitas-text); }
+.civitas-sidebar-offcanvas .offcanvas-header { border-bottom-color: var(--civitas-border) !important; }
 .civitas-sidebar-offcanvas .civitas-sidebar { width:100%; min-height:100%; position:static; }
+
+[data-bs-theme="dark"] .civitas-sidebar-offcanvas, .theme-dark .civitas-sidebar-offcanvas, body.theme-dark .civitas-sidebar-offcanvas { background: linear-gradient(180deg,#102748 0%,#0d2240 100%); color: var(--civitas-text); }

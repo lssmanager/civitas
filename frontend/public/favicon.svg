@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Learn Social Studies fingerprint</title>
+  <desc id="desc">Blue fingerprint mark with yellow center dot.</desc>
+  <defs>
+    <linearGradient id="blue" x1="96" x2="416" y1="88" y2="424" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2259F2"/>
+      <stop offset="0.52" stop-color="#1984EE"/>
+      <stop offset="1" stop-color="#3CADF1"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="none"/>
+  <g fill="none" stroke="url(#blue)" stroke-linecap="round" stroke-width="34">
+    <path d="M117 158c32-57 86-85 145-85 58 0 112 29 144 83"/>
+    <path d="M110 215c0-34 13-66 38-91 29-30 68-45 113-45 81 0 146 64 146 143"/>
+    <path d="M109 273c26-8 40-29 40-59 0-30 12-57 33-78 21-20 49-31 80-31 61 0 110 48 110 108 0 108-56 177-147 220"/>
+    <path d="M146 337c53-18 82-61 82-122 0-18 15-33 34-33 18 0 33 15 33 33 0 87-43 149-123 185"/>
+    <path d="M335 216c0 118-52 193-155 244"/>
+    <path d="M405 209c6 31 3 64-7 96"/>
+  </g>
+  <circle cx="255" cy="214" r="24" fill="#F3B723"/>
+</svg>
