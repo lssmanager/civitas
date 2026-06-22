@@ -53,7 +53,7 @@ Antes, Coolify/Nixpacks infería la instalación, build y runtime desde los `pac
 
 - `backend/package.json`:
   - Instalación: `npm install`/equivalente.
-  - Runtime: `npm start`, que ejecuta `node index.js`.
+  - Runtime: `npm start`, que ejecuta `node scripts/start-production.js` (el Dockerfile ejecuta migraciones antes con `npm run migrate`).
   - Puerto esperado: `PORT` o `3000` por defecto.
   - Variables principales: `DATABASE_URL`, `PORT` y opcionalmente variables `LOGTO_*` heredadas.
 - `frontend/package.json`:
@@ -65,7 +65,7 @@ Antes, Coolify/Nixpacks infería la instalación, build y runtime desde los `pac
 
 Con Docker Compose esa lógica ya no se infiere. Ahora está declarada explícitamente en:
 
-- `backend/Dockerfile`: instala dependencias de producción con `npm ci --omit=dev`, copia el código, expone `3000` y ejecuta `npm start`.
+- `backend/Dockerfile`: instala dependencias de producción con `npm ci --omit=dev`, copia el código, expone `3000` y ejecuta `npm run migrate && MIGRATIONS_ALREADY_RAN=true npm run start:api`.
 - `frontend/Dockerfile`: instala dependencias, recibe las variables `VITE_*` como build args, ejecuta `npm run build`, expone `5173` y sirve `dist` con `vite preview`.
 - `docker-compose.yml`: define `backend` y `frontend`; la base de datos se conecta externamente mediante `DATABASE_URL`.
 
@@ -209,7 +209,7 @@ Si cambias `VITE_API_BASE_URL` u otra variable `VITE_*`, reconstruye/redeploya e
 
 ## Migraciones Drizzle
 
-El contenedor de backend de producción arranca con `npm start`, que primero ejecuta `node scripts/migrate.js` y después `node index.js`. Esto aplica migraciones Drizzle pendientes contra el mismo `DATABASE_URL` del API antes de servir endpoints como `/me`.
+El contenedor de backend de producción arranca ejecutando `npm run migrate && MIGRATIONS_ALREADY_RAN=true npm run start:api`. Esto aplica migraciones Drizzle pendientes contra el mismo `DATABASE_URL` del API antes de validar el esquema y servir endpoints como `/me`, sin intentar aplicar migraciones por segunda vez durante el arranque del API.
 
 Para ejecutar migraciones manualmente en desarrollo híbrido:
 

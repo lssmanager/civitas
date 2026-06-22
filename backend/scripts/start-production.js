@@ -109,6 +109,10 @@ function allowSchemaDrift() {
   return String(process.env.ALLOW_SCHEMA_DRIFT || "false").toLowerCase() === "true";
 }
 
+function migrationsAlreadyRanForThisRelease() {
+  return String(process.env.MIGRATIONS_ALREADY_RAN || "false").toLowerCase() === "true";
+}
+
 function getStartupEnvironmentSummary() {
   let database = null;
 
@@ -124,6 +128,7 @@ function getStartupEnvironmentSummary() {
   return {
     nodeEnv: process.env.NODE_ENV || null,
     runMigrationsOnStartup: shouldRunMigrationsOnStartup(),
+    migrationsAlreadyRan: migrationsAlreadyRanForThisRelease(),
     allowSchemaDrift: allowSchemaDrift(),
     database,
   };
@@ -200,7 +205,11 @@ async function main() {
       await validateStartupSchema();
     } else {
       await validateStartupSchema();
-      console.log("[startup] RUN_MIGRATIONS_ON_STARTUP=false; database schema validation passed and server will start without applying migrations. Run npm run migrate as a separate release step.");
+      if (migrationsAlreadyRanForThisRelease()) {
+        console.log("[startup] RUN_MIGRATIONS_ON_STARTUP=false; database schema validation passed after release migrations ran; server will start without applying migrations again.");
+      } else {
+        console.log("[startup] RUN_MIGRATIONS_ON_STARTUP=false; database schema validation passed and server will start without applying migrations. Run npm run migrate as a separate release step.");
+      }
     }
 
     startServer();

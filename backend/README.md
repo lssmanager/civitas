@@ -53,7 +53,7 @@ npm test
 
 ## Production migrations
 
-Production deploys must run migrations before starting the API. The backend Docker image does this with `npm run migrate && npm run start:api`, and platforms that deploy from the repository should use the same release/start sequence.
+Production deploys must run migrations before starting the API. The backend Docker image does this with `npm run migrate && MIGRATIONS_ALREADY_RAN=true npm run start:api`, and platforms that deploy from the repository should use the same release/start sequence. `MIGRATIONS_ALREADY_RAN=true` only adjusts startup diagnostics after a successful release migration; it does not apply migrations itself.
 
 `npm run migrate` applies pending Drizzle SQL migrations from `backend/drizzle` using the same `DATABASE_URL` that the API uses, so deploys create tables such as `users`, `sync_operations`, and `sync_operation_steps` before protected endpoints like `GET /me` query them. `RUN_MIGRATIONS_ON_STARTUP` remains `false` by default; set it to `true` only on platforms that cannot run a separate release command.
 
