@@ -10,4 +10,4 @@ RUN npm ci --omit=dev
 COPY . .
 
 EXPOSE 3000
-CMD ["sh", "-c", "npm run migrate && npm run start:api"]
+CMD ["sh", "-c", "npm run migrate && MIGRATIONS_ALREADY_RAN=true npm run start:api"]

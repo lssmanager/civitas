@@ -5,7 +5,7 @@ Civitas now uses BullMQ + Redis to move the long owner organization bootstrap ou
 ## Runtime processes
 
 - `npm run migrate`: release/one-off database migration step.
-- `npm run start:api`: API process. In compose it should not compete for migrations when `RUN_MIGRATIONS_ON_STARTUP=false`.
+- `npm run start:api`: API process. In compose it should not compete for migrations when `RUN_MIGRATIONS_ON_STARTUP=false`; set `MIGRATIONS_ALREADY_RAN=true` when a release step has just completed migrations so startup diagnostics reflect that sequence.
 - `npm run start:worker`: BullMQ worker process. It requires `REDIS_URL` and processes `organization.bootstrap` jobs.
 
 ## Owner bootstrap flow
