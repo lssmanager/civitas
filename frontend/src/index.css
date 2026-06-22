@@ -67,7 +67,8 @@ a { color: var(--civitas-primary); }
 .civitas-sidebar, .civitas-sidebar .accordion, .civitas-sidebar .accordion-item, .civitas-sidebar .accordion-body, .civitas-sidebar nav { background-color: transparent !important; }
 .civitas-sidebar__brand { min-width: 0; flex-shrink: 0; border-bottom-color: var(--civitas-border) !important; background: rgba(250,251,253,.82); }
 .civitas-sidebar__logo-mark { width: 3rem; height: 3rem; flex: 0 0 3rem; object-fit: contain; border-radius: 1rem; background: #fff; box-shadow: 0 .75rem 1.5rem rgba(25,132,238,.16); }
-.civitas-sidebar__logo--full { max-width: 11.5rem; overflow: hidden; color: var(--civitas-text); }
+.civitas-sidebar__logo--full { max-width: 9.25rem; overflow: hidden; color: var(--civitas-text); }
+.civitas-sidebar__logo-menu-toggle { min-width: 3.75rem; padding-inline: .55rem; }
 .civitas-sidebar__brand-meta, .civitas-sidebar-link__meta, .civitas-sidebar .accordion-button .small { color: var(--civitas-muted) !important; }
 .civitas-sidebar__nav { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .civitas-sidebar__panel { border: 1px solid var(--civitas-border); border-radius: 1.1rem; background: rgba(250,251,253,.78) !important; padding: .5rem; }
@@ -90,12 +91,15 @@ a { color: var(--civitas-primary); }
 .btn-outline-primary { --bs-btn-color:var(--civitas-primary); --bs-btn-border-color:rgba(25,132,238,.34); --bs-btn-hover-color:#031c44; --bs-btn-hover-bg:rgba(243,183,35,.18); --bs-btn-hover-border-color:rgba(237,158,27,.45); --bs-btn-active-color:#031c44; --bs-btn-active-bg:rgba(243,183,35,.28); --bs-btn-active-border-color:rgba(237,158,27,.55); }
 [data-bs-theme="dark"] .btn-primary, .theme-dark .btn-primary, body.theme-dark .btn-primary { --bs-btn-color:#031c44; --bs-btn-bg:#4b9ef1; --bs-btn-border-color:#4b9ef1; --bs-btn-hover-color:#031c44; --bs-btn-hover-bg:#f3b723; --bs-btn-hover-border-color:#f3b723; --bs-btn-active-color:#031c44; --bs-btn-active-bg:#ed9e1b; --bs-btn-active-border-color:#ed9e1b; }
 
-.civitas-breadcrumb { display:flex; flex-wrap:wrap; align-items:center; gap:.3rem; margin-bottom:0; font-size:.92rem; }
-.civitas-breadcrumb .breadcrumb { margin-bottom:0; }
-.civitas-breadcrumb .breadcrumb-item + .breadcrumb-item::before { color: rgba(93,115,150,.68); padding-right:.35rem; }
-.civitas-breadcrumb__item, .civitas-breadcrumb__item a { color: var(--civitas-muted); text-decoration:none; }
-.civitas-breadcrumb__item--brand a { display:inline-flex; align-items:center; min-height:2rem; padding:.28rem .7rem; border:1px solid rgba(25,132,238,.14); border-radius:999px; color:var(--civitas-primary); background:linear-gradient(180deg,#fff 0%,#eef6ff 100%); font-weight:700; }
-.civitas-breadcrumb__item--current.active { color: var(--civitas-text); font-weight:600; }
+.civitas-breadcrumb { min-width: 0; }
+.civitas-breadcrumb .breadcrumb { display:flex; flex-wrap:wrap; align-items:center; gap:0; margin-bottom:0; --bs-breadcrumb-divider-color: var(--civitas-muted); }
+.civitas-breadcrumb .breadcrumb-item { display:flex; align-items:center; min-height:2rem; color:var(--civitas-muted); }
+.civitas-breadcrumb .breadcrumb-item + .breadcrumb-item::before { color: var(--civitas-muted); opacity:.72; padding-right:.5rem; }
+.civitas-breadcrumb .breadcrumb-item a { color: var(--civitas-muted); text-decoration:none; }
+.civitas-breadcrumb .breadcrumb-item a:hover, .civitas-breadcrumb .breadcrumb-item a:focus { color: var(--civitas-primary); }
+.civitas-breadcrumb__item--brand a { display:inline-flex; align-items:center; min-height:2rem; padding:.28rem .7rem; border:1px solid rgba(25,132,238,.16); border-radius:999px; color:var(--civitas-primary) !important; background:linear-gradient(180deg,#fff 0%,#eef6ff 100%); font-weight:700; }
+.civitas-breadcrumb .breadcrumb-item.active, .civitas-breadcrumb__item--current.active { color: var(--civitas-text); font-weight:600; }
+
 
 .civitas-page-shell { display:flex; flex-direction:column; gap:1.25rem !important; }
 .civitas-page-shell__header { padding:1.35rem 1.45rem; border:1px solid var(--civitas-border); border-radius:1.4rem; background:linear-gradient(135deg,rgba(255,255,255,.96),rgba(234,243,255,.98)); box-shadow:var(--civitas-shadow); }
