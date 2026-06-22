@@ -810,7 +810,8 @@ body.theme-dark .civitas-page-card__body .badge.bg-light {
   box-shadow: 0 -1px 0 rgba(25, 132, 238, 0.04);
 }
 
-.civitas-main .card > .bg-primary.text-white {
+.civitas-main .card > .bg-primary.text-white,
+.civitas-main .card > .civitas-organization-card__hero {
   background: linear-gradient(135deg, #2f7fe9 0%, #4b9ef1 100%) !important;
 }
 
@@ -1182,4 +1183,59 @@ body.theme-dark .civitas-audit-pagination .page-item.active .page-link {
 body.theme-dark .civitas-audit-pagination .page-item.disabled .page-link {
   color: rgba(232, 239, 250, 0.58);
   background: #0d2240;
+}
+
+@media (min-width: 992px) {
+  .civitas-sidebar {
+    background: linear-gradient(180deg, #0b234d 0%, #10305f 100%) !important;
+    color: #edf4ff !important;
+  }
+
+  .civitas-sidebar__brand,
+  .civitas-sidebar__nav,
+  .civitas-sidebar__panel,
+  .civitas-sidebar__panel--secondary,
+  .civitas-sidebar .accordion,
+  .civitas-sidebar .accordion-item,
+  .civitas-sidebar .accordion-body,
+  .civitas-sidebar nav {
+    background-color: transparent !important;
+    color: inherit !important;
+  }
+
+  .civitas-sidebar__panel {
+    background: rgba(255, 255, 255, 0.05) !important;
+    border-color: rgba(255, 255, 255, 0.08) !important;
+  }
+
+  .civitas-sidebar__panel-header,
+  .civitas-sidebar__brand {
+    border-color: rgba(255, 255, 255, 0.08) !important;
+  }
+
+  .civitas-sidebar,
+  .civitas-sidebar p,
+  .civitas-sidebar span,
+  .civitas-sidebar .nav-link,
+  .civitas-sidebar .accordion-button,
+  .civitas-sidebar .accordion-button:not(.collapsed),
+  .civitas-sidebar .fw-semibold {
+    color: #edf4ff !important;
+  }
+
+  .civitas-sidebar .small,
+  .civitas-sidebar .civitas-sidebar-link__meta,
+  .civitas-sidebar .civitas-sidebar__brand-meta {
+    color: rgba(232, 239, 250, 0.74) !important;
+  }
+
+  .civitas-sidebar .nav-link:hover,
+  .civitas-sidebar .nav-link:focus,
+  .civitas-sidebar .nav-link.active,
+  .civitas-sidebar .accordion-button:hover,
+  .civitas-sidebar .accordion-button:focus,
+  .civitas-sidebar .accordion-button:not(.collapsed) {
+    background: rgba(255, 255, 255, 0.1) !important;
+    color: #ffffff !important;
+  }
 }
