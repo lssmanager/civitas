@@ -34,6 +34,11 @@ export const appRoutes = {
     label: "Settings",
     description: "Configuración owner agrupada por submódulos.",
   },
+  ownerBranding: {
+    path: "/owner/settings/branding",
+    label: "Branding",
+    description: "Logo y marca visual del shell Civitas.",
+  },
   ownerRoleMapping: {
     path: "/owner/settings/role-mapping",
     label: "Role Mapping",
@@ -71,7 +76,7 @@ export const ownerNavigationTree: NavigationNode[] = [
     path: "/owner/settings-section",
     label: appRoutes.ownerSettings.label,
     description: appRoutes.ownerSettings.description,
-    children: [appRoutes.ownerRoleMapping],
+    children: [appRoutes.ownerBranding, appRoutes.ownerRoleMapping],
   },
 ];
 
@@ -81,6 +86,7 @@ export const ownerNavigation: AppRoute[] = [
   appRoutes.selectOrganization,
   appRoutes.ownerLogs,
   appRoutes.ownerSystem,
+  appRoutes.ownerBranding,
   appRoutes.ownerRoleMapping,
 ];
 
@@ -93,6 +99,7 @@ export const routeMetadata: Record<string, RouteMetadata> = {
   "/owner/system": { label: appRoutes.ownerSystem.label, parentPath: appRoutes.owner.path },
   "/owner/audit": { label: appRoutes.ownerLogs.label, parentPath: appRoutes.owner.path },
   "/owner/settings": { label: appRoutes.ownerSettings.label, parentPath: appRoutes.owner.path },
+  "/owner/settings/branding": { label: appRoutes.ownerBranding.label, parentPath: appRoutes.ownerSettings.path },
   "/owner/settings/role-mapping": { label: appRoutes.ownerRoleMapping.label, parentPath: appRoutes.ownerSettings.path },
   "/select-organization": { label: appRoutes.selectOrganization.label, parentPath: appRoutes.ownerOrganizations.path },
   "/account": { label: appRoutes.account.label },

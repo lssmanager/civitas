@@ -63,23 +63,23 @@ a { color: var(--civitas-primary); }
 .civitas-auth-state { background: var(--civitas-bg); }
 .civitas-auth-card { max-width: 560px; }
 
-.civitas-sidebar { width: var(--civitas-sidebar-width); height: 100vh; min-height: 100vh; position: sticky; top: 0; flex-shrink: 0; overflow: hidden; background: linear-gradient(180deg,#ffffff 0%,#f7fbff 100%) !important; color: var(--civitas-text); border-right-color: var(--civitas-border) !important; box-shadow: 10px 0 30px rgba(3,28,68,.045); }
+.civitas-sidebar { width: var(--civitas-sidebar-width); height: 100vh; min-height: 100vh; position: sticky; top: 0; flex-shrink: 0; overflow: hidden; background: linear-gradient(180deg,#fbfdff 0%,#f7f9fc 100%) !important; color: var(--civitas-text); border-right-color: rgba(219,229,240,.72) !important; box-shadow: 6px 0 20px rgba(3,28,68,.026); }
 .civitas-sidebar, .civitas-sidebar .accordion, .civitas-sidebar .accordion-item, .civitas-sidebar .accordion-body, .civitas-sidebar nav { background-color: transparent !important; }
-.civitas-sidebar__brand { min-width: 0; flex-shrink: 0; border-bottom-color: var(--civitas-border) !important; background: rgba(250,251,253,.82); }
-.civitas-sidebar__logo-mark { width: 3rem; height: 3rem; flex: 0 0 3rem; object-fit: contain; border-radius: 1rem; background: #fff; box-shadow: 0 .75rem 1.5rem rgba(25,132,238,.16); }
+.civitas-sidebar__brand { min-width: 0; flex-shrink: 0; border-bottom-color: rgba(219,229,240,.72) !important; background: rgba(255,255,255,.58); }
+.civitas-sidebar__logo-mark { width: 2.75rem; height: 2.75rem; flex: 0 0 2.75rem; object-fit: contain; border-radius: .9rem; background: #fff; box-shadow: 0 .5rem 1rem rgba(25,132,238,.08); }
 .civitas-sidebar__logo--full { max-width: 9.25rem; overflow: hidden; color: var(--civitas-text); }
 .civitas-sidebar__logo-menu-toggle { min-width: 3.75rem; padding-inline: .55rem; }
 .civitas-sidebar__brand-meta, .civitas-sidebar-link__meta, .civitas-sidebar .accordion-button .small { color: var(--civitas-muted) !important; }
 .civitas-sidebar__nav { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
-.civitas-sidebar__panel { border: 1px solid var(--civitas-border); border-radius: 1rem; background: rgba(250,251,253,.78) !important; padding: .35rem; }
+.civitas-sidebar__panel { border: 1px solid rgba(219,229,240,.68); border-radius: 1rem; background: rgba(255,255,255,.48) !important; padding: .35rem; }
 .civitas-sidebar__panel-title { color: var(--civitas-text); }
 .civitas-sidebar-link, .civitas-sidebar-link .fw-semibold { color: var(--civitas-text) !important; border: 1px solid transparent; }
-.civitas-sidebar-link:hover, .civitas-sidebar-link:focus { color: var(--civitas-text) !important; background: rgba(243,183,35,.16); border-color: rgba(237,158,27,.25); }
-.civitas-sidebar-link.active { color: var(--civitas-primary) !important; background: var(--civitas-primary-soft); border-color: rgba(25,132,238,.22); box-shadow: inset 3px 0 0 var(--civitas-primary); }
+.civitas-sidebar-link:hover, .civitas-sidebar-link:focus { color: var(--civitas-text) !important; background: rgba(243,183,35,.1); border-color: rgba(243,183,35,.18); }
+.civitas-sidebar-link.active { color: var(--civitas-primary) !important; background: rgba(25,132,238,.08); border-color: rgba(25,132,238,.14); box-shadow: inset 2px 0 0 rgba(25,132,238,.62); }
 .civitas-sidebar-link:hover .civitas-sidebar-link__meta, .civitas-sidebar-link.active .civitas-sidebar-link__meta { color: var(--civitas-text) !important; }
 .civitas-sidebar .accordion-item { border: 0 !important; }
 .civitas-sidebar .accordion-button { border-radius: .75rem !important; padding: .55rem .7rem; color: var(--civitas-text) !important; background: transparent !important; box-shadow: none; }
-.civitas-sidebar .accordion-button:not(.collapsed) { color: var(--civitas-primary) !important; background: var(--civitas-primary-soft) !important; }
+.civitas-sidebar .accordion-button:not(.collapsed) { color: var(--civitas-primary) !important; background: rgba(25,132,238,.07) !important; }
 .civitas-sidebar .accordion-button:focus { box-shadow: 0 0 0 .18rem rgba(25,132,238,.14); }
 .civitas-sidebar .border-start { border-color: var(--civitas-border) !important; }
 [data-bs-theme="dark"] .civitas-sidebar, .theme-dark .civitas-sidebar, body.theme-dark .civitas-sidebar { background: linear-gradient(180deg,#102748 0%,#0d2240 100%) !important; color: var(--civitas-text); border-right-color: rgba(255,255,255,.1) !important; }

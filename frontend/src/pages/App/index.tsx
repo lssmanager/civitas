@@ -12,6 +12,7 @@ import { AccountPage } from "../AccountPage";
 import Callback from "../Callback";
 import { OwnerPage } from "../OwnerPage";
 import { OwnerAuditPage } from "../OwnerAuditPage";
+import { OwnerBrandingSettingsPage } from "../OwnerBrandingSettingsPage";
 import { OwnerOrganizationsPage } from "../OwnerOrganizationsPage";
 import { OwnerOrganizationConsolePage } from "../OwnerOrganizationConsolePage";
 import { OwnerOrganizationSettingsPage } from "../OwnerOrganizationSettingsPage";
@@ -92,7 +93,8 @@ function App() {
             <Route path="logs" element={<OwnerAuditPage />} />
             <Route path="system" element={<OwnerSystemPage />} />
             <Route path="audit" element={<Navigate to="/owner/logs" replace />} />
-            <Route path="settings" element={<Navigate to="/owner/settings/role-mapping" replace />} />
+            <Route path="settings" element={<Navigate to="/owner/settings/branding" replace />} />
+            <Route path="settings/branding" element={<OwnerBrandingSettingsPage />} />
             <Route path="settings/role-mapping" element={<OwnerSettingsPage />} />
           </Route>
           <Route path="select-organization" element={<SelectOrganizationPage />} />
