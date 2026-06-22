@@ -102,6 +102,9 @@ const normalizeInteger = (value) => {
   const parsed = Number.parseInt(value, 10);
   return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
 };
+const getSourceNumberOfEmployees = (source = {}) => source.civitasProfile?.business?.numberOfEmployees
+  ?? source.crm?.numberOfEmployees
+  ?? source.numberOfEmployees;
 
 const buildStructuredAddress = (company = {}) => [
   company.addressLine1,
@@ -126,7 +129,7 @@ function normalizeCrmCompanyInput(input = {}, fallback = {}) {
     state: normalizeString(input.state ?? input.department),
     postalCode: normalizeString(input.postalCode ?? input.zip),
     country: normalizeString(input.country),
-    numberOfEmployees: normalizeInteger(input.numberOfEmployees),
+    numberOfEmployees: normalizeInteger(getSourceNumberOfEmployees(input)),
     industry: normalizeString(input.industry),
     type: normalizeString(input.type),
     companyOwner: normalizeString(input.companyOwner),
@@ -149,7 +152,8 @@ function buildFluentCrmCompanyPayload(company = {}) {
   if (company.state) customValues.state = company.state;
   if (company.postalCode) customValues.postal_code = company.postalCode;
   if (company.country) customValues.country = company.country;
-  if (company.numberOfEmployees != null) customValues.number_of_employees = company.numberOfEmployees;
+  const employeesNumber = normalizeInteger(getSourceNumberOfEmployees(company));
+  if (employeesNumber != null) customValues.employees_number = employeesNumber;
 
   return {
     name: company.companyName || company.name || company.nameCache,
@@ -163,7 +167,7 @@ function buildFluentCrmCompanyPayload(company = {}) {
     state: company.state || undefined,
     postal_code: company.postalCode || undefined,
     country: company.country || undefined,
-    number_of_employees: company.numberOfEmployees ?? undefined,
+    employees_number: employeesNumber ?? undefined,
     industry: company.industry || undefined,
     type: company.type || undefined,
     owner: company.companyOwner || undefined,

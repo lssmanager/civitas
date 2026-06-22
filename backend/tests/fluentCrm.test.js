@@ -561,7 +561,7 @@ test("buildFluentCrmCompanyPayload maps NIT and verification digit to custom val
     state: "Cundinamarca",
     postal_code: "110111",
     country: "Colombia",
-    number_of_employees: 42,
+    employees_number: 42,
   });
   assert.equal(payload.address, "Calle 123");
   assert.equal(payload.address_line_1, "Calle 123");
@@ -569,9 +569,28 @@ test("buildFluentCrmCompanyPayload maps NIT and verification digit to custom val
   assert.equal(payload.state, "Cundinamarca");
   assert.equal(payload.postal_code, "110111");
   assert.equal(payload.country, "Colombia");
-  assert.equal(payload.number_of_employees, 42);
+  assert.equal(payload.employees_number, 42);
   assert.deepEqual(payload.tags, ["Admin-org"]);
   assert.deepEqual(payload.lists, ["Colegio San Jose"]);
+});
+
+
+test("buildFluentCrmCompanyPayload maps employees_number from Logto customData sources", () => {
+  const { buildFluentCrmCompanyPayload, normalizeCrmCompanyInput } = require("../services/fluentCrm");
+  const normalized = normalizeCrmCompanyInput({
+    companyName: "Colegio Logto",
+    civitasProfile: { business: { numberOfEmployees: "37" } },
+    crm: { numberOfEmployees: "12" },
+  });
+  const payload = buildFluentCrmCompanyPayload({
+    companyName: "Colegio Logto",
+    civitasProfile: { business: { numberOfEmployees: "37" } },
+  });
+
+  assert.equal(normalized.numberOfEmployees, 37);
+  assert.equal(payload.employees_number, 37);
+  assert.deepEqual(payload.custom_values, { employees_number: 37 });
+  assert.equal(payload.number_of_employees, undefined);
 });
 
 
