@@ -15,6 +15,10 @@ const {
   updateLogtoOrganization,
   updateLogtoUser,
   listLogtoOrganizationRoles,
+  findOrganizationRoleByName,
+  createOrResolveLogtoUserByEmail,
+  addUserToLogtoOrganization,
+  assignOrganizationRoleToUser,
   listLogtoOrganizationUserRoles,
   listLogtoOrganizationUsers,
   listLogtoOrganizations,
@@ -32,7 +36,8 @@ const {
   listAuditLogs,
   recordAuditLogBestEffort,
 } = require("./services/auditLogs");
-const { normalizeCanonicalProvisioningInput, runCanonicalOrganizationBootstrap } = require("./services/organizationProvisioningCore");
+const { buildLogtoUsername, normalizeCanonicalProvisioningInput, runCanonicalOrganizationBootstrap } = require("./services/organizationProvisioningCore");
+const { buildLogtoUserCreatePayload } = require("./services/organizationProvisioningPayloads");
 const { buildLogtoOrganizationCustomData, normalizeExtendedProvisioningInput } = require("./services/organizationProvisioningSettings");
 const {
   FluentCrmError,
@@ -61,7 +66,7 @@ const {
   upsertWordPressRoleMappings,
 } = require("./services/wordpressRoles");
 const { db } = require("./db/client");
-const { crmRoleMappings, organizationProfiles, wordpressRoleMappings } = require("./db/schema");
+const { crmRoleMappings, organizationProfiles, syncOperations, wordpressRoleMappings } = require("./db/schema");
 const { getCommercialStatusForOrganization, getLatestCommercialEventsForOrganization, processCommercialEvent, verifyCommercialWebhookSignature } = require("./services/commercialEvents");
 const { getWorkerHealthSnapshot, loadOperationsSummary } = require("./services/operationalObservability");
 const {
@@ -403,23 +408,40 @@ async function runFluentCrmOrganizationStep({ logtoOrganization, logtoOrganizati
   };
 }
 
-const getLogtoUserIdentityFields = (user = {}) => ({
-  logtoUserId: user.id || user.userId || user.logtoUserId || user.sub || null,
-  name: user.name || user.profile?.name || null,
-  email: user.primaryEmail || user.email || user.profile?.email || null,
-  phone: user.primaryPhone || user.phone || user.profile?.phone || null,
-  username: user.username || user.profile?.username || null,
-  avatarUrl: user.avatar || user.avatarUrl || user.profile?.picture || null,
-  mfa: {
-    enabled: Array.isArray(user.mfaVerifications) ? user.mfaVerifications.length > 0 : user.mfaEnabled ?? user.mfa?.enabled ?? user.twoFactorEnabled ?? null,
-    method: Array.isArray(user.mfaVerifications) ? user.mfaVerifications.map((factor) => factor.type || factor.usageType || factor).filter(Boolean).join(", ") || null : user.mfa?.method || null,
-    availability: Array.isArray(user.mfaVerifications) || user.mfaEnabled !== undefined || user.mfa?.enabled !== undefined || user.twoFactorEnabled !== undefined ? "available_from_logto" : "not_available_from_provider",
-  },
-  connections: Array.isArray(user.identities) ? user.identities.map((identity) => identity.provider || identity.connectorId).filter(Boolean) : Array.isArray(user.ssoIdentities) ? user.ssoIdentities.map((identity) => identity.issuer || identity.connectorId).filter(Boolean) : [],
-  lastLoginAt: user.lastSignInAt || user.lastLoginAt || user.updatedAt || null,
-  sessions: { availability: "not_loaded", note: "Logto session details require provider-specific session endpoints; Civitas does not mirror sessions locally." },
-  spentTime: { availability: "not_available", value: null, note: "No reliable Logto v1.40.1 aggregate spent-time signal is persisted in Civitas." },
-});
+const getColombianNameFields = (user = {}) => {
+  const source = user.customData?.civitasProfile || user.customData?.civitas || user.profile?.civitas || {};
+  const primerNombre = source.primerNombre ?? user.profile?.primerNombre ?? null;
+  const segundoNombre = source.segundoNombre ?? user.profile?.segundoNombre ?? null;
+  const primerApellido = source.primerApellido ?? user.profile?.primerApellido ?? null;
+  const segundoApellido = source.segundoApellido ?? user.profile?.segundoApellido ?? null;
+  const derivedName = [primerNombre, segundoNombre, primerApellido, segundoApellido].filter(Boolean).join(" ") || null;
+  return { primerNombre, segundoNombre, primerApellido, segundoApellido, derivedName };
+};
+
+const getLogtoUserIdentityFields = (user = {}) => {
+  const names = getColombianNameFields(user);
+  return {
+    logtoUserId: user.id || user.userId || user.logtoUserId || user.sub || null,
+    primerNombre: names.primerNombre,
+    segundoNombre: names.segundoNombre,
+    primerApellido: names.primerApellido,
+    segundoApellido: names.segundoApellido,
+    name: names.derivedName || user.name || user.profile?.name || null,
+    email: user.primaryEmail || user.email || user.profile?.email || null,
+    phone: user.primaryPhone || user.phone || user.profile?.phone || null,
+    username: user.username || user.profile?.username || null,
+    avatarUrl: user.avatar || user.avatarUrl || user.profile?.picture || null,
+    mfa: {
+      enabled: Array.isArray(user.mfaVerifications) ? user.mfaVerifications.length > 0 : user.mfaEnabled ?? user.mfa?.enabled ?? user.twoFactorEnabled ?? null,
+      method: Array.isArray(user.mfaVerifications) ? user.mfaVerifications.map((factor) => factor.type || factor.usageType || factor).filter(Boolean).join(", ") || null : user.mfa?.method || null,
+      availability: Array.isArray(user.mfaVerifications) || user.mfaEnabled !== undefined || user.mfa?.enabled !== undefined || user.twoFactorEnabled !== undefined ? "available_from_logto" : "not_available_from_provider",
+    },
+    connections: Array.isArray(user.identities) ? user.identities.map((identity) => identity.provider || identity.connectorId).filter(Boolean) : Array.isArray(user.ssoIdentities) ? user.ssoIdentities.map((identity) => identity.issuer || identity.connectorId).filter(Boolean) : [],
+    lastLoginAt: user.lastSignInAt || user.lastLoginAt || null,
+    sessions: { availability: "not_loaded", note: "Logto session details require provider-specific session endpoints; Civitas does not mirror sessions locally." },
+    spentTime: { availability: "not_available", value: null, note: "No reliable Logto v1.40.1 aggregate spent-time signal is persisted in Civitas." },
+  };
+};
 
 const getCrmExclusiveFields = (contact = {}, company = null) => ({
   company: contact.company || contact.company_name || company?.name || company?.title || null,
@@ -445,7 +467,29 @@ async function getCrmDirectoryBlock({ email, profile }) {
   }
 }
 
-async function buildOrganizationDirectoryResponse({ organizationId, actorUserId, accessMode, authUser, internalUser }) {
+function memberMatchesDirectoryQuery(member, query = {}) {
+  const identity = member.identity || {};
+  const q = String(query.q || "").trim().toLowerCase();
+  const roles = identity.roles || [];
+  const text = [identity.primerNombre, identity.segundoNombre, identity.primerApellido, identity.segundoApellido, identity.name, identity.email, identity.phone, identity.logtoUserId, ...roles].filter(Boolean).join(" ").toLowerCase();
+  if (q && !text.includes(q)) return false;
+  if (query.role && !roles.includes(String(query.role))) return false;
+  if (query.status && String(query.status) !== "all" && String(member.civitas?.membershipStatus || "active") !== String(query.status)) return false;
+  if (query.mfa === "enabled" && identity.mfa?.enabled !== true) return false;
+  if (query.mfa === "disabled" && identity.mfa?.enabled !== false) return false;
+  if (query.origin && String(query.origin) !== "all" && !String(member.civitas?.origin || "Logto").toLowerCase().includes(String(query.origin).toLowerCase())) return false;
+  if (query.lastLogin) {
+    const now = Date.now();
+    const last = identity.lastLoginAt ? new Date(identity.lastLoginAt).getTime() : null;
+    if (query.lastLogin === "never" && last) return false;
+    if (query.lastLogin === "7d" && (!last || now - last > 7 * 86400000)) return false;
+    if (query.lastLogin === "30d" && (!last || now - last > 30 * 86400000)) return false;
+    if (query.lastLogin === "gt30d" && (!last || now - last <= 30 * 86400000)) return false;
+  }
+  return true;
+}
+
+async function buildOrganizationDirectoryResponse({ organizationId, actorUserId, accessMode, authUser, internalUser, query = {} }) {
   const [members, profiles] = await Promise.all([listLogtoOrganizationUsers({ organizationId }), listOrganizationProfiles()]);
   const profile = profiles.find((item) => item.logtoOrganizationId === organizationId) || null;
   const directoryMembers = await Promise.all(members.map(async (member) => {
@@ -460,17 +504,24 @@ async function buildOrganizationDirectoryResponse({ organizationId, actorUserId,
         seatConsumption: 1,
         syncStatus: profile?.fluentcrmSyncStatus || "not_linked",
         auditStatus: "ok",
+        membershipStatus: "active",
+        origin: "Logto",
         organizationMetadata: profile ? { profileId: profile.id, status: profile.status, slug: profile.slug, adminDomain: profile.adminDomain } : {},
       },
     };
   }));
+
+  const filteredMembers = directoryMembers.filter((member) => memberMatchesDirectoryQuery(member, query));
+  const limit = Number.isFinite(Number(query.limit)) ? Math.max(0, Number(query.limit)) : filteredMembers.length;
+  const offset = Number.isFinite(Number(query.offset)) ? Math.max(0, Number(query.offset)) : 0;
+  const pagedMembers = filteredMembers.slice(offset, offset + limit);
 
   await recordAuditLogBestEffort({
     actorUserId,
     organizationId,
     action: AUDIT_ACTIONS.OWNER_ORGANIZATION_DIRECTORY_ACCESS,
     result: AUDIT_RESULTS.SUCCESS,
-    metadata: { ...buildAuditContext({ authUser, internalUser, organization: { id: organizationId, name: profile?.nameCache } }), accessMode, memberCount: directoryMembers.length },
+    metadata: { ...buildAuditContext({ authUser, internalUser, organization: { id: organizationId, name: profile?.nameCache } }), accessMode, memberCount: pagedMembers.length, totalMatched: filteredMembers.length },
   });
 
   return {
@@ -490,7 +541,8 @@ async function buildOrganizationDirectoryResponse({ organizationId, actorUserId,
       auditStatus: "ok",
       organizationMetadata: profile ? { profileId: profile.id, status: profile.status, slug: profile.slug, adminDomain: profile.adminDomain } : {},
     },
-    members: directoryMembers,
+    pagination: { total: filteredMembers.length, limit, offset },
+    members: pagedMembers,
   };
 }
 
@@ -641,12 +693,48 @@ app.get("/owner/operations/summary", requireAuth(API_RESOURCE), requireOwner, as
   }
 });
 
+
+async function checkOwnerIntegrationHealth() {
+  const checkedAt = new Date().toISOString();
+  const makeCheck = async ({ key, label, system, required = true, run, notConfiguredMessage = "No configurado" }) => {
+    try {
+      const result = await run();
+      return { key, label, system, required, status: result.status || "ok", severity: result.severity || "success", message: result.message || "Conexión verificada", checkedAt, details: result.details || null, nextAction: result.nextAction || null };
+    } catch (error) {
+      const missingConfig = error.code?.includes?.("CONFIG_MISSING") || /required|missing|not configured|no configur/i.test(error.message || "");
+      return { key, label, system, required, status: missingConfig ? "not_configured" : "error", severity: required ? "danger" : "warning", message: missingConfig ? notConfiguredMessage : getSafeErrorMessage(error), checkedAt, details: error.diagnostic || error.body || null, nextAction: missingConfig ? "Configurar credenciales/URL en variables de entorno." : "Revisar credenciales, permisos y conectividad desde soporte." };
+    }
+  };
+  const workerHealth = getWorkerHealthSnapshot();
+  const checks = await Promise.all([
+    makeCheck({ key: "redis", label: "Redis / BullMQ", system: "redis", run: async () => ({ status: workerHealth.redis.status === "error" ? "error" : workerHealth.redis.status === "unknown" ? "unknown" : "ok", severity: workerHealth.redis.status === "error" ? "danger" : workerHealth.redis.status === "unknown" ? "warning" : "success", message: workerHealth.redis.status === "error" ? "Redis no disponible para colas operativas." : workerHealth.redis.status === "unknown" ? "Redis no reporta estado activo; configura REDIS_STATUS/monitor real." : "Redis operativo para colas.", details: { readiness: workerHealth.readiness, redisUrlConfigured: Boolean(process.env.REDIS_URL), queues: workerHealth.queues } }) }),
+    makeCheck({ key: "logto", label: "Logto Management API", system: "logto", run: async () => { const roles = await listLogtoOrganizationRoles(); return { status: "ok", message: "Logto responde y expone roles de organización.", details: { roleCount: roles.length } }; } }),
+    makeCheck({ key: "fluentcrm", label: "FluentCRM", system: "fluentcrm", run: async () => ({ ...(await validateFluentCrmConfiguration()), message: "FluentCRM configurado y alcanzable." }), notConfiguredMessage: "FluentCRM no está configurado para sincronización downstream." }),
+    makeCheck({ key: "wordpress", label: "WordPress", system: "wordpress", run: async () => { const roles = await listWordPressRoles(); return { status: "ok", message: "WordPress responde con catálogo de roles.", details: { roleCount: roles.length } }; }, notConfiguredMessage: "WordPress no está configurado para sincronización de roles/downstream." }),
+    Promise.resolve({ key: "moodle", label: "Moodle", system: "moodle", required: false, status: process.env.MOODLE_BASE_URL ? "pending_integration" : "not_configured", severity: "secondary", message: process.env.MOODLE_BASE_URL ? "Moodle tiene URL configurada; falta activar el conector operacional." : "Preparado para integración futura de Moodle; aún no es requerido.", checkedAt, details: { baseUrlConfigured: Boolean(process.env.MOODLE_BASE_URL), roadmap: "future_lms_downstream_sync" }, nextAction: "Cuando se integre Moodle, conectar este check a su health endpoint y mappings." }),
+  ]);
+  const requiredChecks = checks.filter((check) => check.required !== false);
+  const hasError = requiredChecks.some((check) => ["error"].includes(check.status));
+  const hasWarning = requiredChecks.some((check) => ["unknown", "not_configured"].includes(check.status));
+  return { checkedAt, status: hasError ? "degraded" : hasWarning ? "attention" : "ok", checks };
+}
+
 app.get("/owner/system/worker-health", requireAuth(API_RESOURCE), requireOwner, async (_req, res) => {
   try {
     return res.json(getWorkerHealthSnapshot());
   } catch (error) {
     console.error("Failed to load worker health snapshot", error);
     return res.status(500).json({ error: "Worker health unavailable", message: "No se pudo cargar la salud técnica del worker." });
+  }
+});
+
+
+app.get("/owner/system/integrations-health", requireAuth(API_RESOURCE), requireOwner, async (_req, res) => {
+  try {
+    return res.json(await checkOwnerIntegrationHealth());
+  } catch (error) {
+    console.error("Failed to load integration health", error);
+    return res.status(500).json({ error: "Integration health unavailable", message: "No se pudo cargar la salud de integraciones." });
   }
 });
 
@@ -1112,6 +1200,55 @@ app.get("/owner/organizations/:organizationId/commercial-events/latest", require
   return res.json({ events });
 });
 
+
+function normalizeMemberCreateInput(body = {}, organizationId) {
+  const trim = (value) => (typeof value === "string" && value.trim() ? value.trim() : null);
+  const primerNombre = trim(body.primerNombre);
+  const segundoNombre = trim(body.segundoNombre);
+  const primerApellido = trim(body.primerApellido);
+  const segundoApellido = trim(body.segundoApellido);
+  const email = trim(body.email)?.toLowerCase() || null;
+  const phone = trim(body.phone);
+  const phoneExtension = trim(body.phoneExtension);
+  const position = trim(body.position);
+  const organizationRoleName = trim(body.organizationRoleName);
+  const name = [primerNombre, segundoNombre, primerApellido, segundoApellido].filter(Boolean).join(" ");
+  const errors = [];
+  if (!primerNombre) errors.push({ field: "primerNombre", message: "Nombre 1 es requerido" });
+  if (!primerApellido) errors.push({ field: "primerApellido", message: "Apellido 1 es requerido" });
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors.push({ field: "email", message: "Email válido es requerido" });
+  if (!organizationRoleName) errors.push({ field: "organizationRoleName", message: "Rol de organización es requerido" });
+  return { errors, value: { primerNombre, segundoNombre, primerApellido, segundoApellido, email, phone, phoneExtension, position, organizationRoleName, organizationId, name, givenName: [primerNombre, segundoNombre].filter(Boolean).join(" "), familyName: [primerApellido, segundoApellido].filter(Boolean).join(" "), username: buildLogtoUsername({ email }) } };
+}
+
+
+app.post("/owner/organizations/:organizationId/members", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  let operation = null;
+  try {
+    const internalUser = await getOrCreateInternalUser(req.user);
+    const normalized = normalizeMemberCreateInput(req.body || {}, req.params.organizationId);
+    if (normalized.errors.length) return res.status(400).json({ error: "Bad Request", details: normalized.errors });
+    const payload = normalized.value;
+    operation = await createSyncOperation({ operationType: "organization_member_create", entityType: "organization_member", entityId: req.params.organizationId, logtoOrganizationId: req.params.organizationId, idempotencyKey: req.body?.idempotencyKey || `organization_member_create:${req.params.organizationId}:${payload.email}`, payloadSnapshotJson: { ...payload, hitlStatuses: ["pending", "queued", "processing", "hitl_required", "resolved", "failed", "retryable"] } });
+    const role = await findOrganizationRoleByName(payload.organizationRoleName);
+    const roleId = role?.id || role?.organizationRoleId || role?.roleId;
+    if (!roleId) throw Object.assign(new Error(`Organization role ${payload.organizationRoleName} does not exist`), { status: 409, hitl: "rol seleccionado no existe en la plantilla" });
+    const userPayload = buildLogtoUserCreatePayload({ email: payload.email, phone: payload.phone, username: payload.username, name: payload.name, firstName: payload.givenName, lastName: payload.familyName, position: payload.position, phoneExtension: payload.phoneExtension });
+    userPayload.customData = { ...(userPayload.customData || {}), civitasProfile: { ...(userPayload.customData?.civitasProfile || {}), primerNombre: payload.primerNombre, segundoNombre: payload.segundoNombre, primerApellido: payload.primerApellido, segundoApellido: payload.segundoApellido, position: payload.position, phoneExtension: payload.phoneExtension, source: "owner_add_user" } };
+    const resolved = await createOrResolveLogtoUserByEmail(userPayload);
+    const logtoUserId = resolved.user?.id || resolved.user?.userId || resolved.user?.logtoUserId;
+    if (!logtoUserId) throw new Error("Logto user upsert did not return an id");
+    await addUserToLogtoOrganization({ organizationId: req.params.organizationId, userId: logtoUserId });
+    await assignOrganizationRoleToUser({ organizationId: req.params.organizationId, userId: logtoUserId, organizationRoleId: roleId, organizationRoleName: payload.organizationRoleName });
+    await db.update(syncOperations).set({ status: "completed", canonicalStatus: "completed", downstreamStatus: "queued", logtoUserId, resultSnapshotJson: { logtoUserId, userCreated: Boolean(resolved.created), roleName: payload.organizationRoleName }, updatedAt: new Date() }).where(eq(syncOperations.id, operation.id));
+    await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: req.params.organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "organization_member_create", syncOperationId: operation.id, logtoUserId, email: payload.email, roleName: payload.organizationRoleName, downstreamSync: "queued" } });
+    return res.status(202).json({ status: "queued", operationType: "organization_member_create", syncOperation: operation, logtoUserId, roleName: payload.organizationRoleName, message: "Miembro creado/vinculado en Logto; downstream queda registrado para worker/reintento si aplica." });
+  } catch (error) {
+    if (operation?.id) await db.update(syncOperations).set({ status: "hitl_required", canonicalStatus: "failed", downstreamStatus: "pending", lastErrorJson: { message: getSafeErrorMessage(error), retryable: false, hitl: error.hitl || "conflicto requiere revisión humana" }, updatedAt: new Date() }).where(eq(syncOperations.id, operation.id)).catch(() => {});
+    return res.status(error.status || 502).json({ error: "Member create requires review", message: safeFunctionalMessage(getSafeErrorMessage(error), "No se pudo completar la creación del miembro; quedó como tarea HITL/reintento."), status: "hitl_required", syncOperationId: operation?.id || null });
+  }
+});
+
 app.patch("/owner/organizations/:organizationId/members/:logtoUserId/identity", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
   let internalUser = null;
   try {
@@ -1457,7 +1594,7 @@ app.get("/owner/integrations/fluentcrm/health", requireAuth(API_RESOURCE), requi
 app.get("/owner/organizations/:organizationId/directory", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
   try {
     const internalUser = await getOrCreateInternalUser(req.user);
-    const result = await buildOrganizationDirectoryResponse({ organizationId: req.params.organizationId, actorUserId: internalUser.id, accessMode: "owner_global", authUser: req.user, internalUser });
+    const result = await buildOrganizationDirectoryResponse({ organizationId: req.params.organizationId, actorUserId: internalUser.id, accessMode: "owner_global", authUser: req.user, internalUser, query: req.query });
     return res.json(result);
   } catch (error) {
     console.error("Failed to build owner organization directory", error);
@@ -1468,7 +1605,7 @@ app.get("/owner/organizations/:organizationId/directory", requireAuth(API_RESOUR
 app.get("/organizations/:organizationId/directory", requireOrganizationAccess({ requiredScopes: ["organizations:read"], requiredRoleName: ORGANIZATION_ADMIN_ROLE_NAME }), async (req, res) => {
   try {
     const internalUser = await getOrCreateInternalUser(req.user);
-    const result = await buildOrganizationDirectoryResponse({ organizationId: req.params.organizationId, actorUserId: internalUser.id, accessMode: "organization_admin", authUser: req.user, internalUser });
+    const result = await buildOrganizationDirectoryResponse({ organizationId: req.params.organizationId, actorUserId: internalUser.id, accessMode: "organization_admin", authUser: req.user, internalUser, query: req.query });
     return res.json(result);
   } catch (error) {
     console.error("Failed to build organization directory", error);
