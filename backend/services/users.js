@@ -52,6 +52,16 @@ const getIdentityFromLogtoClaims = (claims = {}) => ({
   username: getUsernameFromClaims(claims),
 });
 
+const userSessionColumns = {
+  id: users.id,
+  logtoUserId: users.logtoUserId,
+  email: users.email,
+  status: users.status,
+  lastLoginAt: users.lastLoginAt,
+  createdAt: users.createdAt,
+  updatedAt: users.updatedAt,
+};
+
 const serializeUser = (user) => ({
   id: user.id,
   logtoUserId: user.logtoUserId,
@@ -63,7 +73,7 @@ const serializeUser = (user) => ({
 });
 
 async function findUserByLogtoUserId(logtoUserId) {
-  const [user] = await db.select().from(users).where(eq(users.logtoUserId, logtoUserId)).limit(1);
+  const [user] = await db.select(userSessionColumns).from(users).where(eq(users.logtoUserId, logtoUserId)).limit(1);
   return user;
 }
 
@@ -85,7 +95,7 @@ async function createUserFromLogtoClaims(claims) {
         updatedAt: now,
       },
     })
-    .returning();
+    .returning(userSessionColumns);
 
   return user;
 }
@@ -101,7 +111,7 @@ async function updateLastLogin(userId, email) {
     updateValues.email = email;
   }
 
-  const [user] = await db.update(users).set(updateValues).where(eq(users.id, userId)).returning();
+  const [user] = await db.update(users).set(updateValues).where(eq(users.id, userId)).returning(userSessionColumns);
   return user;
 }
 
