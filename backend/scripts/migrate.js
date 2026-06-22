@@ -1,23 +1,20 @@
 const path = require("node:path");
-const fs = require("node:fs");
 const { migrate } = require("drizzle-orm/node-postgres/migrator");
 const { db, pool } = require("../db/client");
 const { getDatabaseConnectionTarget } = require("../db/connection");
+const { validateMigrationManifest } = require("./migrationManifest");
 
 async function runMigrations() {
   const target = getDatabaseConnectionTarget();
 
   const migrationsFolder = path.resolve(__dirname, "..", "drizzle");
-  const migrationFiles = fs
-    .readdirSync(migrationsFolder)
-    .filter((file) => file.endsWith(".sql"))
-    .sort();
+  const manifest = validateMigrationManifest(migrationsFolder);
 
   console.log(
     `[migrate] running database migrations against ${target.host}:${target.port}/${target.database}`
   );
   console.log(`[migrate] migrations folder: ${migrationsFolder}`);
-  console.log(`[migrate] available migration files: ${migrationFiles.join(", ") || "none"}`);
+  console.log(`[migrate] available migration files: ${manifest.migrationFiles.join(", ") || "none"}`);
 
   try {
     await migrate(db, { migrationsFolder });
