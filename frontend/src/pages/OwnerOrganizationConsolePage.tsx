@@ -13,13 +13,22 @@ type MemberIdentityDraft = { primerNombre: string; segundoNombre: string; primer
 const buildDisplayName = (identity: { primerNombre?: string | null; segundoNombre?: string | null; primerApellido?: string | null; segundoApellido?: string | null; name?: string | null }) =>
   [identity.primerNombre, identity.segundoNombre, identity.primerApellido, identity.segundoApellido].map((value) => value?.trim() || "").filter(Boolean).join(" ") || identity.name || "No disponible";
 
+const splitLegacyDisplayName = (name?: string | null) => {
+  const parts = name?.split(/\s+/).map((value) => value.trim()).filter(Boolean) ?? [];
+  if (parts.length === 0) return { primerNombre: "", segundoNombre: "", primerApellido: "", segundoApellido: "" };
+  if (parts.length === 1) return { primerNombre: parts[0], segundoNombre: "", primerApellido: "", segundoApellido: "" };
+  if (parts.length === 2) return { primerNombre: parts[0], segundoNombre: "", primerApellido: parts[1], segundoApellido: "" };
+  if (parts.length === 3) return { primerNombre: parts[0], segundoNombre: "", primerApellido: parts[1], segundoApellido: parts[2] };
+  return { primerNombre: parts[0], segundoNombre: parts.slice(1, -2).join(" "), primerApellido: parts[parts.length - 2], segundoApellido: parts[parts.length - 1] };
+};
+
 const buildMemberDraft = (identity: { primerNombre?: string | null; segundoNombre?: string | null; primerApellido?: string | null; segundoApellido?: string | null; email?: string | null; phone?: string | null; name?: string | null }): MemberIdentityDraft => {
-  const parts = !identity.primerNombre && !identity.primerApellido && identity.name ? identity.name.split(/\s+/).filter(Boolean) : [];
+  const fallback = !identity.primerNombre && !identity.primerApellido ? splitLegacyDisplayName(identity.name) : splitLegacyDisplayName(null);
   return {
-    primerNombre: identity.primerNombre ?? parts[0] ?? "",
-    segundoNombre: identity.segundoNombre ?? (parts.length > 3 ? parts.slice(1, -2).join(" ") : ""),
-    primerApellido: identity.primerApellido ?? (parts.length > 1 ? parts[parts.length - 2] ?? parts[1] ?? "" : ""),
-    segundoApellido: identity.segundoApellido ?? (parts.length > 2 ? parts[parts.length - 1] ?? "" : ""),
+    primerNombre: identity.primerNombre ?? fallback.primerNombre,
+    segundoNombre: identity.segundoNombre ?? fallback.segundoNombre,
+    primerApellido: identity.primerApellido ?? fallback.primerApellido,
+    segundoApellido: identity.segundoApellido ?? fallback.segundoApellido,
     email: identity.email ?? "",
     previousEmail: identity.email ?? "",
     phone: identity.phone ?? "",
