@@ -3,17 +3,41 @@ import { useOwnerApi, type OwnerReconciliationAction, type OwnerReconciliationTa
 import { useStableResource } from "../shared/hooks/useStableResource";
 import { DataTable, ErrorState, LoadingState, PageCard, PageShell } from "../shared/ui";
 
-const actionLabels: Array<{ action: OwnerReconciliationAction; label: string }> = [
-  { action: "approve_link", label: "Approve link" },
-  { action: "reject_link", label: "Reject link" },
-  { action: "create_local_profile", label: "Create local profile" },
-  { action: "create_logto_organization", label: "Create Logto organization" },
-  { action: "archive_local_profile", label: "Archive local profile" },
-  { action: "merge_profiles", label: "Merge profiles" },
-  { action: "mark_legacy", label: "Mark as legacy" },
-  { action: "ignore", label: "Ignore" },
-  { action: "retry", label: "Retry worker task" },
-];
+const actionLabelsByType: Record<string, Array<{ action: OwnerReconciliationAction; label: string }>> = {
+  logto_org_missing_local_profile: [
+    { action: "create_local_profile", label: "Crear profile local" },
+    { action: "ignore", label: "Ignorar por ahora" },
+    { action: "retry", label: "Reintentar worker" },
+  ],
+  name_match_pending_link: [
+    { action: "approve_link", label: "Aprobar vínculo" },
+    { action: "reject_link", label: "Rechazar vínculo" },
+    { action: "create_local_profile", label: "Crear profile separado" },
+  ],
+  duplicate_local_profiles_for_logto_org: [
+    { action: "merge_profiles", label: "Fusionar metadata" },
+    { action: "archive_local_profile", label: "Archivar duplicados" },
+    { action: "mark_legacy", label: "Marcar legacy" },
+  ],
+  local_profile_without_logto_org: [
+    { action: "create_logto_organization", label: "Crear organización en Logto" },
+    { action: "approve_link", label: "Vincular a organización existente" },
+    { action: "archive_local_profile", label: "Archivar profile local" },
+    { action: "mark_legacy", label: "Marcar legacy" },
+  ],
+  downstream_sync_failed: [
+    { action: "retry", label: "Reintentar sync" },
+    { action: "ignore", label: "Marcar resuelto manualmente" },
+  ],
+};
+
+const getActionLabels = (task: OwnerReconciliationTask): Array<{ action: OwnerReconciliationAction; label: string }> => {
+  const labels = actionLabelsByType[task.type] || ([{ action: "ignore", label: "Ignorar" }, { action: "retry", label: "Reintentar" }] as Array<{ action: OwnerReconciliationAction; label: string }>);
+  if (task.type === "logto_org_missing_local_profile" && task.status === "hitl_required") {
+    return [...labels.slice(0, 1), { action: "complete_metadata", label: "Completar metadata" }, ...labels.slice(1)];
+  }
+  return labels;
+};
 
 const taskBadgeVariant = (task: OwnerReconciliationTask) => {
   if (task.status === "failed" || task.severity === "critical") return "danger";
@@ -50,13 +74,13 @@ export function OwnerSystemPage() {
           <DataTable rows={reconciliation.data.tasks} getRowKey={(row) => row.id} columns={[
             { key: "type", header: "Tipo", render: (row) => <div><strong>{row.type}</strong><div className="small text-muted">{row.dedupeKey}</div></div> },
             { key: "status", header: "Estado", render: (row) => <Badge bg={taskBadgeVariant(row)}>{row.status}</Badge> },
-            { key: "entities", header: "Entidades", render: (row) => <span className="small">Logto: {row.logtoOrganizationId || "—"}<br />Profile: {row.profileId || "—"}</span> },
+            { key: "entities", header: "Entidades", render: (row) => <span className="small">Logto: {row.logtoOrganizationId || "—"}<br />Profile: {row.profileId || "missing / null"}</span> },
             { key: "evidence", header: "Evidencia", render: (row) => {
               const evidence = JSON.stringify(row.evidence);
               return <code className="small text-break">{evidence.slice(0, 260)}{evidence.length > 260 ? "…" : ""}</code>;
             } },
             { key: "action", header: "Acción sugerida", render: (row) => row.suggestedAction || "—" },
-            { key: "buttons", header: "Resolución", render: (row) => <div className="d-flex flex-wrap gap-1">{actionLabels.map((item) => <Button key={item.action} size="sm" variant={item.action === "ignore" ? "outline-secondary" : "outline-primary"} onClick={() => void resolveTask(row.id, item.action)}>{item.label}</Button>)}</div> },
+            { key: "buttons", header: "Resolución", render: (row) => <div className="d-flex flex-wrap gap-1">{getActionLabels(row).map((item) => <Button key={item.action} size="sm" variant={item.action === "ignore" ? "outline-secondary" : "outline-primary"} onClick={() => void resolveTask(row.id, item.action)}>{item.label}</Button>)}</div> },
           ]} />
         ) : null}
       </PageCard>

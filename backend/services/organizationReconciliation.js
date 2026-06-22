@@ -20,9 +20,22 @@ const safeJson = (value) => (value === undefined ? null : value);
 const toIso = (value) => value?.toISOString?.() ?? value ?? null;
 const normalizeStatus = (status) => (status === "queued" ? "pending" : status);
 const dedupeKeyFor = ({ type, logtoOrganizationId = null, profileId = null }) => `reconciliation:${type}:${logtoOrganizationId || profileId || "unknown"}`;
+const SECRET_KEY_PATTERN = /(secret|token|api[-_ ]?key|access[-_ ]?token|refresh[-_ ]?token|internal[-_ ]?secret[-_ ]?ref)/i;
+
+function redactEvidence(value) {
+  if (Array.isArray(value)) return value.map(redactEvidence);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value).map(([key, nestedValue]) => {
+    if (SECRET_KEY_PATTERN.test(key)) {
+      return [key, nestedValue ? "[redacted]" : nestedValue];
+    }
+    return [key, redactEvidence(nestedValue)];
+  }));
+}
+
 
 function taskPayload({ type, status, sourceSystem = "logto", targetSystem = "civitas", logtoOrganizationId = null, profileId = null, severity = "warning", requiresHuman = true, suggestedAction, evidence = {}, resolution = null }) {
-  return { type, status, sourceSystem, targetSystem, logtoOrganizationId, profileId, severity, requiresHuman, suggestedAction, evidence, resolution };
+  return { type, status, sourceSystem, targetSystem, logtoOrganizationId, profileId, severity, requiresHuman, suggestedAction, evidence: redactEvidence(evidence), resolution };
 }
 
 function serializeReconciliationTask(operation = {}) {
@@ -106,16 +119,14 @@ async function materializeReconciliationTasks({ organizations = [], reconciliati
   const taskInputs = [];
   for (const organization of organizations) {
     const evidence = { logto: { id: organization.logtoOrganizationId, name: organization.name, canonical: organization.canonical }, civitas: { profile: organization.profile }, matchedFields: organization.reconciliation?.matchedBy ? [organization.reconciliation.matchedBy] : [], confidence: organization.reconciliation?.matchedBy === "name" ? 0.8 : 1 };
-    if (organization.reconciliation?.status === "metadata_missing") {
-      const provisioning = organization.canonical?.customData?.provisioning || {};
-      const civitasProfile = organization.canonical?.customData?.civitasProfile || null;
-      const hasMinimumMetadata = Boolean(civitasProfile && (provisioning.appSubdomain || organization.canonical?.appSubdomain) && (provisioning.slug || organization.canonical?.slug));
-      taskInputs.push({ type: TASK_TYPES.LOGTO_ORG_MISSING_LOCAL_PROFILE, sourceSystem: "logto", targetSystem: "civitas", logtoOrganizationId: organization.logtoOrganizationId, status: hasMinimumMetadata ? "pending" : "hitl_required", requiresHuman: !hasMinimumMetadata, severity: hasMinimumMetadata ? "info" : "warning", suggestedAction: hasMinimumMetadata ? "Crear profile local mínimo desde metadata segura de Logto." : "Completar metadata obligatoria antes de crear el profile local.", evidence });
+    if (["ready_to_seed_profile", "missing_required_profile_metadata"].includes(organization.reconciliation?.status)) {
+      const hasMinimumMetadata = Boolean((organization.canonical?.appSubdomain || organization.canonical?.slug) && (organization.canonical?.inviteDomain || organization.canonical?.institutionalDomain || organization.canonical?.name));
+      taskInputs.push({ type: TASK_TYPES.LOGTO_ORG_MISSING_LOCAL_PROFILE, sourceSystem: "logto", targetSystem: "civitas", logtoOrganizationId: organization.logtoOrganizationId, status: hasMinimumMetadata ? "pending" : "hitl_required", requiresHuman: !hasMinimumMetadata, severity: hasMinimumMetadata ? "info" : "warning", suggestedAction: hasMinimumMetadata ? "Crear profile local mínimo desde metadata normalizada de Logto" : "Completar metadata obligatoria antes de crear el profile local.", evidence });
     }
     if (organization.reconciliation?.duplicateProfileIds?.length > 0) {
       taskInputs.push({ type: TASK_TYPES.DUPLICATE_LOCAL_PROFILES_FOR_LOGTO_ORG, logtoOrganizationId: organization.logtoOrganizationId, profileId: organization.reconciliation.canonicalProfileId, canonicalProfileId: organization.reconciliation.canonicalProfileId, duplicateProfileIds: organization.reconciliation.duplicateProfileIds, status: "hitl_required", requiresHuman: true, severity: "critical", suggestedAction: "Seleccionar profile canónico y decidir fusionar, archivar o conservar duplicados.", evidence: { ...evidence, civitas: { profileIds: organization.reconciliation.profileIds, canonicalProfileId: organization.reconciliation.canonicalProfileId, duplicateProfileIds: organization.reconciliation.duplicateProfileIds } } });
     }
-    if (organization.reconciliation?.status === "name_matched_pending_link") {
+    if (organization.reconciliation?.status === "name_match_pending_link") {
       taskInputs.push({ type: TASK_TYPES.NAME_MATCH_PENDING_LINK, logtoOrganizationId: organization.logtoOrganizationId, profileId: organization.reconciliation.canonicalProfileId, status: "hitl_required", requiresHuman: true, severity: "warning", suggestedAction: "Revisar evidencia y aprobar o rechazar vínculo por nombre; no se vincula automáticamente.", evidence: { ...evidence, matchedFields: ["name"], confidence: 0.8 } });
     }
   }
@@ -147,14 +158,14 @@ async function processReconciliationTask(operation) {
       logtoOrganizationId: operation.logtoOrganizationId,
       nameCache: canonical.name || payload.evidence?.logto?.name || null,
       type: business.type || provisioning.type || null,
-      subdomain: canonical.appSubdomain || provisioning.appSubdomain || null,
+      subdomain: canonical.appSubdomain || provisioning.appSubdomain || customData.subdomain || null,
       slug: canonical.slug || provisioning.slug || null,
-      adminDomain: canonical.adminDomain || provisioning.institutionalDomain || null,
+      adminDomain: canonical.adminDomain || canonical.institutionalDomain || provisioning.institutionalDomain || null,
       logoUrl: branding.logoUrl || branding.lightLogoUrl || null,
       faviconUrl: branding.faviconUrl || branding.lightFaviconUrl || null,
       primaryColor: branding.primaryColor || branding.lightPrimaryColor || null,
       primaryColorDark: branding.primaryColorDark || branding.darkPrimaryColor || null,
-      settings: { source: "logto_civitas_profile", business, contact: civitasProfile.contact || {}, branding },
+      settings: { source: "logto_normalized_metadata", business: { ...business, inviteDomain: canonical.inviteDomain || canonical.institutionalDomain || null }, contact: civitasProfile.contact || {}, branding, legacyCustomData: customData },
       seatTotal: Number(provisioning.seatTotal || civitasProfile.seatTotal || 0) || 0,
       logtoSyncStatus: LOGTO_SYNC_STATUSES.METADATA_LINKED || "metadata_linked",
       logtoSyncError: null,

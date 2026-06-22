@@ -121,21 +121,54 @@ const deriveAppSubdomainFromOidcRedirectUri = (oidcRedirectUri) => {
   }
 };
 
+const stringOrNull = (value) => (typeof value === "string" && value.trim() ? value.trim() : null);
+const objectOrEmpty = (value) => (value && typeof value === "object" && !Array.isArray(value) ? value : {});
+
+const parseLogtoDescriptionMetadata = (description) => {
+  const parsed = {};
+  if (typeof description !== "string") return parsed;
+  for (const part of description.split("|")) {
+    const [rawKey, ...rawValueParts] = part.split(":");
+    const key = rawKey?.trim().toLowerCase();
+    const value = rawValueParts.join(":").trim();
+    if (!key || !value) continue;
+    if (key === "slug") parsed.slug = value;
+    if (key === "domain") parsed.inviteDomain = value;
+    if (key === "admin") parsed.suggestedAdministrativeContact = value;
+  }
+  return parsed;
+};
+
 const buildCanonicalLogtoOrganizationFields = (logtoOrganization = {}) => {
   const customData = getLogtoOrganizationCustomData(logtoOrganization);
-  const provisioning = customData.provisioning && typeof customData.provisioning === "object" ? customData.provisioning : {};
-  const oidcRedirectUri = typeof customData.oidcRedirectUri === "string" ? customData.oidcRedirectUri : null;
-  const appSubdomain = typeof provisioning.appSubdomain === "string" && provisioning.appSubdomain
-    ? provisioning.appSubdomain
-    : deriveAppSubdomainFromOidcRedirectUri(oidcRedirectUri);
+  const provisioning = objectOrEmpty(customData.provisioning);
+  const civitasProfile = objectOrEmpty(customData.civitasProfile);
+  const business = objectOrEmpty(civitasProfile.business);
+  const descriptionMetadata = parseLogtoDescriptionMetadata(logtoOrganization.description);
+  const oidcRedirectUri = stringOrNull(customData.oidcRedirectUri || provisioning.oidcRedirectUri);
+  const appSubdomain = stringOrNull(provisioning.appSubdomain)
+    || stringOrNull(customData.appSubdomain)
+    || stringOrNull(business.subdomain)
+    || stringOrNull(customData.subdomain)
+    || deriveAppSubdomainFromOidcRedirectUri(oidcRedirectUri);
+  const inviteDomain = stringOrNull(provisioning.inviteDomain)
+    || stringOrNull(provisioning.institutionalDomain)
+    || stringOrNull(customData.inviteDomain)
+    || stringOrNull(business.institutionalDomain)
+    || stringOrNull(descriptionMetadata.inviteDomain);
 
   return {
     name: getCanonicalLogtoOrganizationName(logtoOrganization),
+    id: getLogtoOrganizationId(logtoOrganization),
+    description: stringOrNull(logtoOrganization.description),
     customData,
     oidcRedirectUri,
     appSubdomain,
-    slug: typeof provisioning.slug === "string" ? provisioning.slug : null,
-    adminDomain: typeof provisioning.institutionalDomain === "string" ? provisioning.institutionalDomain : null,
+    slug: stringOrNull(provisioning.slug) || stringOrNull(business.slug) || stringOrNull(descriptionMetadata.slug) || appSubdomain,
+    adminDomain: stringOrNull(provisioning.adminDomain) || stringOrNull(customData.adminDomain) || null,
+    inviteDomain,
+    institutionalDomain: inviteDomain,
+    suggestedAdministrativeContact: descriptionMetadata.suggestedAdministrativeContact || null,
     visibleSource: "logto",
   };
 };
@@ -267,13 +300,16 @@ function buildLogtoOrganizationDirectory({ logtoOrganizations, profiles }) {
       const duplicateProfileIds = linkedProfilesSorted.slice(1).map((associatedProfile) => associatedProfile.id);
       const hasConflict = linkedProfilesSorted.length > 1;
       const hasNameMatchPendingLink = !profile && nameMatchedProfilesSorted.length > 0;
+      const hasMinimumProfileSeedMetadata = Boolean((canonical.appSubdomain || canonical.slug) && (canonical.inviteDomain || canonical.institutionalDomain || canonical.name));
       const reconciliationStatus = hasConflict
-        ? "conflict"
+        ? "duplicate_local_profiles"
         : profile
           ? "linked"
           : hasNameMatchPendingLink
-            ? "name_matched_pending_link"
-            : "metadata_missing";
+            ? "name_match_pending_link"
+            : hasMinimumProfileSeedMetadata
+              ? "ready_to_seed_profile"
+              : "missing_required_profile_metadata";
 
       return {
         logtoOrganizationId,
@@ -281,14 +317,14 @@ function buildLogtoOrganizationDirectory({ logtoOrganizations, profiles }) {
         canonical,
         logtoOrganization,
         profile: profile ? serializeOrganizationProfile(profile) : null,
-        syncStatus: hasConflict ? "conflict" : hasNameMatchPendingLink ? "pending" : profile?.logtoSyncStatus || "metadata_missing",
+        syncStatus: hasConflict ? "duplicate_local_profiles" : hasNameMatchPendingLink ? "name_match_pending_link" : profile?.logtoSyncStatus || "local_profile_missing",
         syncError: hasConflict
           ? "Multiple internal profiles match this Logto organization; only the newest profile is used for operational state and the rest are reconciliation incidents."
           : profile?.logtoSyncError || null,
         reconciliation: {
           status: reconciliationStatus,
           profileCount: linkedProfilesSorted.length + nameMatchedProfilesSorted.length,
-          matchedBy: linkedProfiles.length > 0 ? "logto_organization_id" : nameMatchedProfilesSorted.length > 0 ? "name" : null,
+          matchedBy: linkedProfiles.length > 0 ? "logto_organization_id" : nameMatchedProfilesSorted.length > 0 ? "name" : (!profile ? "logto_organization_id" : null),
           profileIds: [...linkedProfilesSorted, ...nameMatchedProfilesSorted].map((associatedProfile) => associatedProfile.id),
           canonicalProfileId: profile?.id || nameMatchedProfilesSorted[0]?.id || null,
           duplicateProfileIds,
