@@ -10,7 +10,7 @@ export function LoadingState({
   description = "Preparando contenido local sin consumir servicios externos.",
 }: LoadingStateProps) {
   return (
-    <div className="civitas-state text-center p-4 p-md-5 rounded-4 border bg-white">
+    <div className="civitas-state text-center p-4 p-md-5 rounded-4 border">
       <Spinner animation="border" role="status" className="mb-3">
         <span className="visually-hidden">Cargando...</span>
       </Spinner>

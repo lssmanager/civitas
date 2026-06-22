@@ -20,6 +20,7 @@ export function AppLayout() {
       </div>
 
       <Offcanvas
+        className="civitas-sidebar-offcanvas"
         show={showNavigation}
         onHide={() => setShowNavigation(false)}
         aria-labelledby="mobile-navigation-title"
@@ -30,7 +31,7 @@ export function AppLayout() {
           </Offcanvas.Title>
           <SidebarBrand />
         </Offcanvas.Header>
-        <Offcanvas.Body className="p-0">
+        <Offcanvas.Body className="p-0 civitas-sidebar">
           <SidebarNav onNavigate={() => setShowNavigation(false)} />
         </Offcanvas.Body>
       </Offcanvas>

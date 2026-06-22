@@ -22,7 +22,7 @@ function LogtoSessionControls() {
         <span className="badge text-bg-success-subtle text-success-emphasis border border-success-subtle">
           Logto activo
         </span>
-        <span className="text-truncate" style={{ maxWidth: 220 }} title={idTokenClaims?.sub}>
+        <span className="text-truncate civitas-header__user" title={idTokenClaims?.sub}>
           {displayName}
         </span>
         <Button

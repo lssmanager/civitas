@@ -1,7 +1,7 @@
 import { Accordion, Badge, Button, Pagination } from "react-bootstrap";
 import { useOwnerApi, type OwnerAuditLog, type OwnerAuditPagination, type OwnerAuditResponse } from "../../api/owner";
 import { useStableResource } from "../../shared/hooks/useStableResource";
-import { EmptyState, ErrorState, LoadingState, PageCard, PageShell } from "../../shared/ui";
+import { EmptyState, ErrorState, JsonLogBlock, LoadingState, PageCard, PageShell } from "../../shared/ui";
 
 const PAGE_SIZE = 25;
 const INITIAL_AUDIT_PARAMS: Required<OwnerAuditPagination> = { limit: PAGE_SIZE, offset: 0 };
@@ -43,7 +43,6 @@ const formatOrganization = (row: OwnerAuditLog) => {
 const formatLogStatement = (row: OwnerAuditLog) =>
   `${row.result.toUpperCase()} · ${row.action} · ${formatOrganization(row)} · ${formatDate(row.createdAt)}`;
 
-const getJsonPayload = (row: OwnerAuditLog) => JSON.stringify(row, null, 2);
 
 function AuditLogCard({ row }: { row: OwnerAuditLog }) {
   return (
@@ -60,7 +59,7 @@ function AuditLogCard({ row }: { row: OwnerAuditLog }) {
         </div>
       </Accordion.Header>
       <Accordion.Body>
-        <pre className="civitas-json-view mb-0"><code>{getJsonPayload(row)}</code></pre>
+        <JsonLogBlock value={row} />
       </Accordion.Body>
     </Accordion.Item>
   );
@@ -70,7 +69,7 @@ function AuditLogList({ rows }: { rows: OwnerAuditLog[] }) {
   if (rows.length === 0) return null;
 
   return (
-    <Accordion alwaysOpen className="civitas-audit-list d-grid gap-3">
+    <Accordion alwaysOpen defaultActiveKey={rows[0]?.id} className="civitas-audit-list d-grid gap-3">
       {rows.map((row) => (
         <AuditLogCard key={row.id} row={row} />
       ))}
