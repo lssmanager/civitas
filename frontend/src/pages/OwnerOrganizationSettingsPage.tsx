@@ -155,8 +155,8 @@ export function OwnerOrganizationSettingsPage() {
                     <dl className="mb-0 small">
                       <dt>Favicon light</dt><dd className="text-break">{profile?.branding?.lightFaviconUrl ?? profile?.branding?.faviconUrl ?? "Sin favicon claro"}</dd>
                       <dt>Favicon dark</dt><dd className="text-break">{profile?.branding?.darkFaviconUrl ?? "Sin favicon oscuro"}</dd>
-                      <dt>Color primario</dt><dd>{profile?.branding?.primaryColor ?? "Sin color"}</dd>
-                      <dt>Color oscuro</dt><dd>{profile?.branding?.primaryColorDark ?? "Sin color"}</dd>
+                      <dt>Color primario light</dt><dd>{profile?.branding?.lightPrimaryColor ?? profile?.branding?.primaryColor ?? "Sin color claro"}</dd>
+                      <dt>Color primario dark</dt><dd>{profile?.branding?.darkPrimaryColor ?? profile?.branding?.primaryColorDark ?? "Sin color oscuro"}</dd>
                     </dl>
                   </Accordion.Body>
                 </Accordion.Item>

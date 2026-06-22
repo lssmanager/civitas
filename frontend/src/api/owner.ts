@@ -18,6 +18,8 @@ export type OwnerOrganizationBranding = {
   faviconUrl: string | null;
   primaryColor: string | null;
   primaryColorDark: string | null;
+  lightPrimaryColor?: string | null;
+  darkPrimaryColor?: string | null;
   lightLogoUrl?: string | null;
   darkLogoUrl?: string | null;
   lightMarkUrl?: string | null;
