@@ -143,6 +143,8 @@ const ensureMinimumAdministrativeContact = (
     return {
       ...createAdministrativeContact(index + 1, phoneCountryCode),
       ...contact,
+      key: `responsible${index + 1}` as AdministrativeContactKey,
+      label: `Usuario ${index + 1}`,
       primerNombre: contact.primerNombre ?? legacy.firstName ?? "",
       segundoNombre: contact.segundoNombre ?? "",
       primerApellido: contact.primerApellido ?? legacy.lastName ?? "",
@@ -575,6 +577,17 @@ export function OwnerOrganizationsPage() {
         ],
       };
     });
+  };
+
+  const removeAdministrativeContact = (key: AdministrativeContactKey) => {
+    setStepError(null);
+    setFormData((current) => ({
+      ...current,
+      administrativeContacts: ensureMinimumAdministrativeContact(
+        current.administrativeContacts.filter((contact) => contact.key !== key),
+        defaultCallingCode,
+      ),
+    }));
   };
 
   const addCollectionValue = (collection: "tags" | "lists", value: string) => {
@@ -1179,7 +1192,7 @@ export function OwnerOrganizationsPage() {
         <div className="d-flex flex-column gap-1">
           <h3 className="h5 mb-0">Roles y contactos</h3>
           <p className="text-secondary mb-0">
-            Contactos adicionales y settings globales. Los administradores se crean desde Añadir usuario.
+            Contactos adicionales y settings globales. El primer usuario es obligatorio; los demás se agregan al final del último card.
           </p>
         </div>
         <div className="small text-secondary text-xl-end">
@@ -1187,27 +1200,39 @@ export function OwnerOrganizationsPage() {
         </div>
       </div>
       <div className="border rounded-3 p-3 d-flex flex-column gap-3 bg-light bg-opacity-50">
-        <div className="d-flex justify-content-between align-items-center gap-3">
-          <div>
-            <h4 className="h6 mb-0">Creación de usuarios</h4>
-            <div className="small text-secondary">Mínimo 1 usuario requerido; puedes añadir más y seleccionar el rol de cada uno.</div>
-          </div>
-          <Button type="button" variant="outline-primary" size="sm" onClick={addAdministrativeContact}>
-            Añadir usuario
-          </Button>
+        <div>
+          <h4 className="h6 mb-0">Creación de usuarios</h4>
+          <div className="small text-secondary">Mínimo 1 usuario requerido; agrega los siguientes desde el último card y elimina cualquier adicional con la papelera.</div>
         </div>
         <div className="d-flex flex-column gap-3">
           {formData.administrativeContacts.length === 0 ? (
             <div className="small text-secondary">
-              Debes crear al menos 1 usuario. Usa Añadir usuario si necesitas más usuarios.
+              Debes crear al menos 1 usuario. Usa el botón + para añadir más usuarios.
             </div>
           ) : null}
-          {formData.administrativeContacts.map((contact) => {
+          {formData.administrativeContacts.map((contact, index) => {
             const previewTag = deriveContactTag(contact.organizationRoleName);
+            const isLastContact = index === formData.administrativeContacts.length - 1;
+            const canRemoveContact = index > 0;
             return (
               <div key={contact.key} className="border rounded-3 p-3 bg-white d-flex flex-column gap-3">
                 <div className="d-flex flex-column flex-lg-row justify-content-between gap-2">
-                  <h5 className="h6 mb-0">{contact.label}</h5>
+                  <div className="d-flex align-items-center gap-2">
+                    <h5 className="h6 mb-0">{contact.label}</h5>
+                    {canRemoveContact ? (
+                      <Button
+                        type="button"
+                        variant="outline-danger"
+                        size="sm"
+                        className="px-2 py-0"
+                        onClick={() => removeAdministrativeContact(contact.key)}
+                        aria-label={`Eliminar ${contact.label}`}
+                        title={`Eliminar ${contact.label}`}
+                      >
+                        🗑
+                      </Button>
+                    ) : null}
+                  </div>
                   <div className="d-flex flex-wrap gap-3 small text-secondary">
                     <span>
                       Username Logto:
@@ -1343,6 +1368,22 @@ export function OwnerOrganizationsPage() {
                     </Form.Select>
                   </Form.Group>
                 </div>
+                {isLastContact ? (
+                  <div className="d-flex justify-content-end">
+                    <Button
+                      type="button"
+                      variant="outline-primary"
+                      size="sm"
+                      className="rounded-circle d-inline-flex align-items-center justify-content-center"
+                      style={{ width: 40, height: 40 }}
+                      onClick={addAdministrativeContact}
+                      aria-label="Añadir otro usuario"
+                      title="Añadir otro usuario"
+                    >
+                      +
+                    </Button>
+                  </div>
+                ) : null}
               </div>
             );
           })}
