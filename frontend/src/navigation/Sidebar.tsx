@@ -1,5 +1,5 @@
 import { Accordion, Nav } from "react-bootstrap";
-import { NavLink, useLocation } from "react-router-dom";
+import { Link, NavLink, useLocation } from "react-router-dom";
 import {
   ownerNavigationTree,
   primaryNavigation,
@@ -19,7 +19,7 @@ export function Sidebar() {
 export function SidebarBrand() {
   return (
     <div className="civitas-sidebar__brand px-4 py-4 border-bottom">
-      <a className="civitas-sidebar__brand-link" href="/owner" aria-label="Civitas">
+      <Link className="civitas-sidebar__brand-link" to="/owner" aria-label="Civitas">
         <img
           src="/civitas-logo-light.svg"
           alt="Civitas"
@@ -37,7 +37,7 @@ export function SidebarBrand() {
           aria-hidden="true"
           className="civitas-sidebar__logo civitas-sidebar__logo--mark"
         />
-      </a>
+      </Link>
     </div>
   );
 }

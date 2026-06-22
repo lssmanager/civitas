@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Alert, Badge, Button, Form } from "react-bootstrap";
+import { Accordion, Alert, Badge, Button, Form } from "react-bootstrap";
 import { useOwnerApi } from "../api/owner";
 import { useStableResource } from "../shared/hooks/useStableResource";
 import { ErrorState, LoadingState, PageCard, PageShell } from "../shared/ui";
@@ -130,55 +130,37 @@ export function OwnerOrganizationSettingsPage() {
           </div>
           <div className="col-12 col-lg-6">
             <PageCard title="Branding" subtitle="Submenú preparado para logo largo, logo corto y variantes light/dark de la organización.">
-              <div className="accordion civitas-settings-branding" id="settingsBrandingAccordion">
-                <div className="accordion-item">
-                  <h3 className="accordion-header">
-                    <button className="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#settingsBrandingLongLogo" aria-expanded="true" aria-controls="settingsBrandingLongLogo">
-                      Logo largo
-                    </button>
-                  </h3>
-                  <div id="settingsBrandingLongLogo" className="accordion-collapse collapse show" data-bs-parent="#settingsBrandingAccordion">
-                    <div className="accordion-body">
-                      <dl className="mb-0 small">
-                        <dt>Logo largo light</dt><dd className="text-break">{profile?.branding?.lightLogoUrl ?? profile?.branding?.logoUrl ?? "Sin logo claro"}</dd>
-                        <dt>Logo largo dark</dt><dd className="text-break">{profile?.branding?.darkLogoUrl ?? "Sin logo oscuro"}</dd>
-                      </dl>
-                    </div>
-                  </div>
-                </div>
-                <div className="accordion-item">
-                  <h3 className="accordion-header">
-                    <button className="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#settingsBrandingShortLogo" aria-expanded="false" aria-controls="settingsBrandingShortLogo">
-                      Logo corto / favicon
-                    </button>
-                  </h3>
-                  <div id="settingsBrandingShortLogo" className="accordion-collapse collapse" data-bs-parent="#settingsBrandingAccordion">
-                    <div className="accordion-body">
-                      <dl className="mb-0 small">
-                        <dt>Logo corto light</dt><dd className="text-break">{profile?.branding?.lightMarkUrl ?? profile?.branding?.lightFaviconUrl ?? profile?.branding?.faviconUrl ?? "Sin logo corto claro"}</dd>
-                        <dt>Logo corto dark</dt><dd className="text-break">{profile?.branding?.darkMarkUrl ?? profile?.branding?.darkFaviconUrl ?? "Sin logo corto oscuro"}</dd>
-                      </dl>
-                    </div>
-                  </div>
-                </div>
-                <div className="accordion-item">
-                  <h3 className="accordion-header">
-                    <button className="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#settingsBrandingTheme" aria-expanded="false" aria-controls="settingsBrandingTheme">
-                      Tema
-                    </button>
-                  </h3>
-                  <div id="settingsBrandingTheme" className="accordion-collapse collapse" data-bs-parent="#settingsBrandingAccordion">
-                    <div className="accordion-body">
-                      <dl className="mb-0 small">
-                        <dt>Favicon light</dt><dd className="text-break">{profile?.branding?.lightFaviconUrl ?? profile?.branding?.faviconUrl ?? "Sin favicon claro"}</dd>
-                        <dt>Favicon dark</dt><dd className="text-break">{profile?.branding?.darkFaviconUrl ?? "Sin favicon oscuro"}</dd>
-                        <dt>Color primario</dt><dd>{profile?.branding?.primaryColor ?? "Sin color"}</dd>
-                        <dt>Color oscuro</dt><dd>{profile?.branding?.primaryColorDark ?? "Sin color"}</dd>
-                      </dl>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <Accordion defaultActiveKey="long-logo" className="civitas-settings-branding">
+                <Accordion.Item eventKey="long-logo">
+                  <Accordion.Header>Logo largo</Accordion.Header>
+                  <Accordion.Body>
+                    <dl className="mb-0 small">
+                      <dt>Logo largo light</dt><dd className="text-break">{profile?.branding?.lightLogoUrl ?? profile?.branding?.logoUrl ?? "Sin logo claro"}</dd>
+                      <dt>Logo largo dark</dt><dd className="text-break">{profile?.branding?.darkLogoUrl ?? "Sin logo oscuro"}</dd>
+                    </dl>
+                  </Accordion.Body>
+                </Accordion.Item>
+                <Accordion.Item eventKey="short-logo">
+                  <Accordion.Header>Logo corto / favicon</Accordion.Header>
+                  <Accordion.Body>
+                    <dl className="mb-0 small">
+                      <dt>Logo corto light</dt><dd className="text-break">{profile?.branding?.lightMarkUrl ?? profile?.branding?.lightFaviconUrl ?? profile?.branding?.faviconUrl ?? "Sin logo corto claro"}</dd>
+                      <dt>Logo corto dark</dt><dd className="text-break">{profile?.branding?.darkMarkUrl ?? profile?.branding?.darkFaviconUrl ?? "Sin logo corto oscuro"}</dd>
+                    </dl>
+                  </Accordion.Body>
+                </Accordion.Item>
+                <Accordion.Item eventKey="theme">
+                  <Accordion.Header>Tema</Accordion.Header>
+                  <Accordion.Body>
+                    <dl className="mb-0 small">
+                      <dt>Favicon light</dt><dd className="text-break">{profile?.branding?.lightFaviconUrl ?? profile?.branding?.faviconUrl ?? "Sin favicon claro"}</dd>
+                      <dt>Favicon dark</dt><dd className="text-break">{profile?.branding?.darkFaviconUrl ?? "Sin favicon oscuro"}</dd>
+                      <dt>Color primario</dt><dd>{profile?.branding?.primaryColor ?? "Sin color"}</dd>
+                      <dt>Color oscuro</dt><dd>{profile?.branding?.primaryColorDark ?? "Sin color"}</dd>
+                    </dl>
+                  </Accordion.Body>
+                </Accordion.Item>
+              </Accordion>
             </PageCard>
           </div>
 
