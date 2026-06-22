@@ -102,11 +102,31 @@ function runNodeScript(scriptPath, stepName) {
 }
 
 function shouldRunMigrationsOnStartup() {
-  return String(process.env.RUN_MIGRATIONS_ON_STARTUP || "true").toLowerCase() !== "false";
+  return String(process.env.RUN_MIGRATIONS_ON_STARTUP || "false").toLowerCase() === "true";
 }
 
 function allowSchemaDrift() {
   return String(process.env.ALLOW_SCHEMA_DRIFT || "false").toLowerCase() === "true";
+}
+
+function getStartupEnvironmentSummary() {
+  let database = null;
+
+  if (process.env.DATABASE_URL) {
+    try {
+      const target = getDatabaseConnectionTarget();
+      database = { host: target.host, port: target.port, database: target.database };
+    } catch (error) {
+      database = { invalid: true, error: error.message };
+    }
+  }
+
+  return {
+    nodeEnv: process.env.NODE_ENV || null,
+    runMigrationsOnStartup: shouldRunMigrationsOnStartup(),
+    allowSchemaDrift: allowSchemaDrift(),
+    database,
+  };
 }
 
 async function validateStartupSchema() {
@@ -114,17 +134,26 @@ async function validateStartupSchema() {
     const result = await validateDatabaseSchema(pool);
     console.log("[startup] database schema validation passed");
     if (result.missingRecommendedIndexes.length) {
-      console.warn("[startup] database schema validation warning: recommended indexes are missing", {
-        missingRecommendedIndexes: result.missingRecommendedIndexes,
-        migration: "Run npm run migrate to create non-critical indexes.",
-      });
+      console.warn(
+        "[startup] database schema validation warning: recommended indexes are missing",
+        JSON.stringify({
+          missingRecommendedIndexes: result.missingRecommendedIndexes,
+          migration: "Run npm run migrate to create non-critical indexes.",
+          environment: getStartupEnvironmentSummary(),
+        }, null, 2)
+      );
     }
   } catch (error) {
     if (allowSchemaDrift()) {
-      console.warn("[startup] ALLOW_SCHEMA_DRIFT=true; database schema validation failed but server will start", {
-        message: error.message,
-        diagnostic: error.diagnostic,
-      });
+      console.warn(
+        "[startup] ALLOW_SCHEMA_DRIFT=true; database schema validation failed but server will start",
+        JSON.stringify({
+          message: error.message,
+          diagnostic: error.diagnostic,
+          suggestedCommand: "npm run migrate",
+          environment: getStartupEnvironmentSummary(),
+        }, null, 2)
+      );
       return;
     }
     throw error;
@@ -165,9 +194,9 @@ async function main() {
     await waitForDatabase();
 
     if (shouldRunMigrationsOnStartup()) {
-      console.log("[startup] running migrations...");
+      console.log("[startup] running database migrations");
       await runNodeScript("scripts/migrate.js", "migrations");
-      console.log("[startup] migrations completed");
+      console.log("[startup] database migrations completed");
       await validateStartupSchema();
     } else {
       await validateStartupSchema();
@@ -176,7 +205,14 @@ async function main() {
 
     startServer();
   } catch (error) {
-    console.error(`[startup] ${error.message}`, error.diagnostic ? { diagnostic: error.diagnostic } : undefined);
+    console.error(
+      `[startup] ${error.message}`,
+      JSON.stringify({
+        diagnostic: error.diagnostic,
+        suggestedCommand: "npm run migrate",
+        environment: getStartupEnvironmentSummary(),
+      }, null, 2)
+    );
     await pool.end().catch(() => {});
     process.exit(1);
   }
