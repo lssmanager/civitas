@@ -26,16 +26,16 @@ export function SystemCheckCard({
   className,
 }: SystemCheckCardProps) {
   return (
-    <article className={`lss-system-check-card ${className ?? ""}`.trim()}>
-      <div className="lss-system-check-card__head">
+    <article className={`civitas-system-check-card ${className ?? ""}`.trim()}>
+      <div className="civitas-system-check-card__head">
         <div>
-          <div className="lss-system-check-card__title">{title}</div>
-          <div className="lss-system-check-card__meta">{system}{required ? " · requerido" : " · opcional/futuro"}</div>
+          <div className="civitas-system-check-card__title">{title}</div>
+          <div className="civitas-system-check-card__meta">{system}{required ? " · requerido" : " · opcional/futuro"}</div>
         </div>
         <StatusPill status={status} label={badgeLabel ?? status} />
       </div>
-      <p className="lss-system-check-card__message">{message}</p>
-      {nextAction ? <p className="lss-system-check-card__action">Acción: {nextAction}</p> : null}
+      <p className="civitas-system-check-card__message">{message}</p>
+      {nextAction ? <p className="civitas-system-check-card__action">Acción: {nextAction}</p> : null}
       {actions}
     </article>
   );
