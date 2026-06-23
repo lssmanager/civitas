@@ -5,6 +5,7 @@ const ORGANIZATION_ADMIN_ROLE_NAME = "Admin-org";
 const JIT_DEFAULT_ORGANIZATION_ROLE_NAME = "Student-org";
 const REQUIRED_ORGANIZATION_ROLE_NAMES = [ORGANIZATION_ADMIN_ROLE_NAME, JIT_DEFAULT_ORGANIZATION_ROLE_NAME];
 const PROHIBITED_ORGANIZATION_USER_GLOBAL_ROLE_NAMES = ["owner_global"];
+const SENSITIVE_KEY_PATTERN = /(authorization|password|secret|token|credential|cookie|client[_-]?secret|api[_-]?key)/i;
 
 const { getTimeoutMs, withTimeout } = require("./timeouts");
 
@@ -12,13 +13,47 @@ let tokenCache = null;
 
 const getLogtoTimeoutMs = () => getTimeoutMs("LOGTO_MANAGEMENT_TIMEOUT_MS", 8000);
 
+function sanitizeForDiagnostics(value, depth = 0) {
+  if (value == null) return value;
+  if (depth > 4) return "[MaxDepth]";
+  if (value instanceof Error) return { name: value.name, message: value.message, status: value.status, code: value.code };
+  if (Array.isArray(value)) return value.slice(0, 25).map((item) => sanitizeForDiagnostics(item, depth + 1));
+  if (typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, SENSITIVE_KEY_PATTERN.test(key) ? "[Redacted]" : sanitizeForDiagnostics(entry, depth + 1)]));
+  }
+  if (typeof value === "string") return value.length > 1000 ? `${value.slice(0, 1000)}…` : value;
+  return value;
+}
+
+function sanitizePublicRequest(request) {
+  if (!request || typeof request !== "object") return null;
+  return {
+    method: request.method || "GET",
+    path: request.path || null,
+  };
+}
+
+function sanitizePublicErrorBody(body) {
+  if (!body || typeof body !== "object") return null;
+  const sanitized = {};
+  if (typeof body.reason === "string" && body.reason) sanitized.reason = body.reason;
+  if (typeof body.status === "string" || Number.isInteger(body.status)) sanitized.status = body.status;
+  if (Number.isInteger(body.timeoutMs)) sanitized.timeoutMs = body.timeoutMs;
+  if (Array.isArray(body.missingRoleNames) && body.missingRoleNames.length > 0) sanitized.missingRoleNames = body.missingRoleNames.slice(0, 20);
+  return Object.keys(sanitized).length ? sanitized : null;
+}
+
 class LogtoManagementApiError extends Error {
-  constructor(message, { status, body, request } = {}) {
+  constructor(message, { status, body, request, diagnostic } = {}) {
     super(message);
     this.name = "LogtoManagementApiError";
     this.status = status;
-    this.body = body;
-    this.request = request;
+    this.body = sanitizePublicErrorBody(body);
+    this.request = sanitizePublicRequest(request);
+    this.diagnostic = null;
+    this.internalBody = sanitizeForDiagnostics(body);
+    this.internalRequest = request ? sanitizeForDiagnostics(request) : null;
+    this.internalDiagnostic = diagnostic || null;
   }
 }
 
@@ -30,7 +65,7 @@ const getRequiredEnv = (name) => {
       body: { reason: "missing_logto_management_configuration", env: name },
     });
     error.code = "LOGTO_MANAGEMENT_CONFIG_MISSING";
-    error.diagnostic = `Missing environment variable ${name}; configure Logto Management API credentials before calling Civitas owner organization endpoints.`;
+    error.internalDiagnostic = `Missing environment variable ${name}; configure Logto Management API credentials before calling Civitas owner organization endpoints.`;
     throw error;
   }
   return value;
@@ -71,7 +106,7 @@ async function fetchLogtoManagementApiAccessToken() {
     if (error.code === "INTEGRATION_TIMEOUT") {
       const timeoutError = new LogtoManagementApiError("Logto Management API token request timed out", { status: 504, body: { reason: "logto_management_token_timeout", timeoutMs: error.timeoutMs } });
       timeoutError.code = "LOGTO_MANAGEMENT_TOKEN_TIMEOUT";
-      timeoutError.diagnostic = `Network timeout while requesting Logto M2M token after ${error.timeoutMs}ms.`;
+      timeoutError.internalDiagnostic = `Network timeout while requesting Logto M2M token after ${error.timeoutMs}ms.`;
       throw timeoutError;
     }
     throw error;
@@ -156,7 +191,7 @@ async function callLogtoManagementApi(path, options = {}) {
     if (error.code === "INTEGRATION_TIMEOUT") {
       const timeoutError = new LogtoManagementApiError("Logto Management API request timed out", { status: 504, body: { reason: "logto_management_request_timeout", timeoutMs: error.timeoutMs }, request });
       timeoutError.code = "LOGTO_MANAGEMENT_REQUEST_TIMEOUT";
-      timeoutError.diagnostic = `Network timeout while calling Logto Management API ${request.method} ${path} after ${error.timeoutMs}ms.`;
+      timeoutError.internalDiagnostic = `Network timeout while calling Logto Management API ${request.method} ${path} after ${error.timeoutMs}ms.`;
       throw timeoutError;
     }
     throw error;
@@ -436,7 +471,7 @@ function buildProhibitedGlobalRolesError({ userId, prohibitedRoles, removedRoles
   error.removedRoles = removedRoles;
   error.unremovableRoles = unremovableRoles;
   error.retainedRoles = retainedRoles;
-  error.diagnostic = existingUser
+  error.internalDiagnostic = existingUser
     ? "An existing Logto user has global roles incompatible with being an organization base admin. Civitas did not mutate the existing user; choose a different base admin or remove the incompatible global roles manually after verifying ownership."
     : "Logto assigned a global role to a newly created organization user. Civitas attempted to remove unsafe default global roles; remove default global roles for regular users because owner_global must be reserved for Civitas platform owners.";
   return error;
