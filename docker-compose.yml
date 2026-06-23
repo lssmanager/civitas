@@ -14,7 +14,7 @@ services:
       DATABASE_WAIT_INTERVAL_MS: ${DATABASE_WAIT_INTERVAL_MS:-2000}
       DATABASE_CONNECT_TIMEOUT_MS: ${DATABASE_CONNECT_TIMEOUT_MS:-1500}
       RUN_MIGRATIONS_ON_STARTUP: ${RUN_MIGRATIONS_ON_STARTUP:-false}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
       BULLMQ_PREFIX: ${BULLMQ_PREFIX:-civitas}
       LOGTO_ENDPOINT: ${LOGTO_ENDPOINT:-}
       LOGTO_JWKS_URL: ${LOGTO_JWKS_URL:-}
@@ -56,16 +56,13 @@ services:
       context: ./backend
     command: ["npm", "run", "start:worker"]
     restart: unless-stopped
-    depends_on:
-      redis:
-        condition: service_started
     networks:
       - default
       - loginet
     environment:
       NODE_ENV: production
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
       BULLMQ_PREFIX: ${BULLMQ_PREFIX:-civitas}
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
       LOGTO_ENDPOINT: ${LOGTO_ENDPOINT:-}
@@ -76,17 +73,6 @@ services:
       FLUENTCRM_BASE_URL: ${FLUENTCRM_BASE_URL:-}
       FLUENTCRM_USERNAME: ${FLUENTCRM_USERNAME:-}
       FLUENTCRM_APP_PASSWORD: ${FLUENTCRM_APP_PASSWORD:-}
-
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    networks:
-      - default
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 6
 
   frontend:
     build:
