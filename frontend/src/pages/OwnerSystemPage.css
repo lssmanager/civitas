@@ -1,0 +1,262 @@
+.owner-system-page {
+  gap: 1rem !important;
+}
+
+.owner-system-page .civitas-page-shell__header {
+  padding: 0.15rem 0 0.05rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.owner-system-page .civitas-page-shell__copy {
+  max-width: 60rem;
+}
+
+.owner-system-page .civitas-page-shell__eyebrow {
+  margin-bottom: 0.2rem !important;
+  font-size: 0.72rem;
+}
+
+.owner-system-page .civitas-page-shell__title {
+  margin-bottom: 0.3rem !important;
+  font-size: clamp(1.5rem, 2.4vw, 2rem);
+  line-height: 1.08;
+}
+
+.owner-system-page .civitas-page-shell__description {
+  max-width: 52rem;
+  margin-bottom: 0 !important;
+  font-size: 0.94rem;
+  line-height: 1.45;
+}
+
+.owner-system-page .civitas-page-shell__actions {
+  padding-top: 0.1rem;
+}
+
+.owner-system-page__toolbar {
+  display: flex;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.owner-system-page__toolbar-button {
+  min-height: 2.25rem;
+  padding: 0.35rem 0.9rem;
+  border-radius: 0.55rem;
+  font-size: 0.92rem;
+  font-weight: 500;
+}
+
+.owner-system-page__grid {
+  align-items: stretch;
+}
+
+.owner-system-page__hero-card,
+.owner-system-page__compact-card {
+  border-radius: 1.45rem;
+  box-shadow: 0 10px 28px rgba(3, 28, 68, 0.06);
+}
+
+.owner-system-page__hero-card .civitas-page-card__header {
+  padding: 1.2rem 1.45rem 1rem;
+}
+
+.owner-system-page__hero-card .civitas-page-card__header .h5 {
+  margin-bottom: 0.35rem !important;
+  font-size: 1.03rem;
+  font-weight: 650;
+}
+
+.owner-system-page__hero-card .civitas-page-card__header .text-secondary {
+  font-size: 0.92rem;
+  line-height: 1.4;
+}
+
+.owner-system-page__hero-card .civitas-page-card__body {
+  padding: 1.25rem 1.2rem 1.2rem;
+}
+
+.owner-system-page__check-card {
+  display: flex;
+  min-height: 7.55rem;
+  flex-direction: column;
+  justify-content: flex-start;
+  border: 1px solid rgba(201, 215, 232, 0.75);
+  border-radius: 0.95rem;
+  background: linear-gradient(180deg, #ffffff 0%, #fcfdff 100%);
+  padding: 1rem 1rem 1.05rem;
+}
+
+.owner-system-page__integration-copy {
+  min-width: 0;
+}
+
+.owner-system-page__integration-title {
+  font-size: 0.98rem;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--civitas-text);
+}
+
+.owner-system-page__integration-meta {
+  font-size: 0.82rem;
+  color: var(--civitas-muted);
+}
+
+.owner-system-page__integration-message {
+  margin: 1.15rem 0 0;
+  color: var(--civitas-text);
+  font-size: 0.98rem;
+  line-height: 1.45;
+}
+
+.owner-system-page__integration-action {
+  margin-top: 0.9rem;
+  color: var(--civitas-muted);
+  font-size: 0.92rem;
+  line-height: 1.4;
+}
+
+.owner-system-page__status-pill {
+  min-width: 0;
+  white-space: nowrap;
+  border-radius: 0.52rem !important;
+  padding: 0.26rem 0.56rem !important;
+  font-size: 0.76rem !important;
+  font-weight: 700 !important;
+  text-transform: lowercase;
+}
+
+.owner-system-page__compact-card .civitas-page-card__header {
+  padding: 1.2rem 1.35rem 0.95rem;
+}
+
+.owner-system-page__compact-card .civitas-page-card__header .h5 {
+  font-size: 0.98rem;
+  font-weight: 650;
+}
+
+.owner-system-page__compact-card .civitas-page-card__body {
+  padding: 0.95rem 1.35rem 1.2rem;
+}
+
+.owner-system-page__readiness-card,
+.owner-system-page__queue-card {
+  min-height: 11.35rem;
+}
+
+.owner-system-page__readiness-list .list-group-item {
+  min-height: 3rem;
+  border-bottom-style: solid;
+  border-bottom-width: 1px;
+  padding-top: 0.75rem;
+  padding-bottom: 0.75rem;
+}
+
+.owner-system-page__readiness-list .list-group-item:last-child {
+  border-bottom: 0;
+}
+
+.owner-system-page__readiness-label {
+  color: var(--civitas-text);
+  font-size: 0.98rem;
+  font-weight: 500;
+}
+
+.owner-system-page__queue-card .table-responsive {
+  margin-inline: -0.15rem;
+}
+
+.owner-system-page__queue-card .table thead th {
+  padding-top: 0.2rem;
+  padding-bottom: 0.65rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+}
+
+.owner-system-page__queue-card .table tbody td {
+  padding-top: 0.85rem;
+  padding-bottom: 0.85rem;
+  font-size: 1rem;
+}
+
+.owner-system-page__queue-col {
+  text-align: left;
+}
+
+.owner-system-page__queue-col--name {
+  width: 12%;
+}
+
+.owner-system-page__queue-col--age {
+  width: 20%;
+}
+
+@media (max-width: 1199.98px) {
+  .owner-system-page .civitas-page-shell__header {
+    padding-top: 0.35rem;
+  }
+
+  .owner-system-page__hero-card .civitas-page-card__header,
+  .owner-system-page__compact-card .civitas-page-card__header {
+    padding-inline: 1.2rem;
+  }
+
+  .owner-system-page__hero-card .civitas-page-card__body,
+  .owner-system-page__compact-card .civitas-page-card__body {
+    padding-inline: 1.1rem;
+  }
+}
+
+@media (max-width: 991.98px) {
+  .owner-system-page {
+    gap: 1.1rem !important;
+  }
+
+  .owner-system-page .civitas-page-shell__title {
+    font-size: 1.4rem;
+  }
+
+  .owner-system-page .civitas-page-shell__description {
+    font-size: 0.9rem;
+  }
+
+  .owner-system-page__check-card {
+    min-height: auto;
+  }
+}
+
+@media (max-width: 575.98px) {
+  .owner-system-page__toolbar {
+    width: 100%;
+  }
+
+  .owner-system-page__toolbar-button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .owner-system-page__hero-card .civitas-page-card__header,
+  .owner-system-page__compact-card .civitas-page-card__header,
+  .owner-system-page__hero-card .civitas-page-card__body,
+  .owner-system-page__compact-card .civitas-page-card__body {
+    padding-inline: 1rem;
+  }
+
+  .owner-system-page__integration-message {
+    font-size: 0.94rem;
+  }
+}
+
+[data-bs-theme="dark"] .owner-system-page .civitas-page-shell__header {
+  background: transparent;
+}
+
+[data-bs-theme="dark"] .owner-system-page__check-card {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: linear-gradient(180deg, rgba(16, 39, 72, 0.96) 0%, rgba(14, 33, 60, 0.96) 100%);
+}
