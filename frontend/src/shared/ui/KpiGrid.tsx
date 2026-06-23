@@ -6,5 +6,5 @@ type KpiGridProps = {
 };
 
 export function KpiGrid({ children, className }: KpiGridProps) {
-  return <div className={`lss-kpi-grid ${className ?? ""}`.trim()}>{children}</div>;
+  return <div className={`civitas-kpi-grid ${className ?? ""}`.trim()}>{children}</div>;
 }
