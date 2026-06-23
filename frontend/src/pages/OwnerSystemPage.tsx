@@ -1,16 +1,9 @@
 import "./OwnerSystemPage.css";
 
 import { Button, ListGroup } from "react-bootstrap";
-import { useOwnerApi, type OwnerIntegrationHealthCheck } from "../api/owner";
+import { useOwnerApi } from "../api/owner";
 import { useStableResource } from "../shared/hooks/useStableResource";
-import { DataTable, ErrorState, LoadingState, PageCard, PageShell, StatusBadge } from "../shared/ui";
-
-const integrationTone = (check: OwnerIntegrationHealthCheck) => {
-  if (check.severity === "success") return "success" as const;
-  if (check.severity === "danger") return "danger" as const;
-  if (check.severity === "secondary") return "neutral" as const;
-  return "warning" as const;
-};
+import { DataTable, ErrorState, LoadingState, PageCard, PageShell, StatusBadge, SystemCheckCard } from "../shared/ui";
 
 const statusTone = (status: string) => {
   if (["ok", "ready"].includes(status)) return "success" as const;
@@ -73,23 +66,15 @@ export function OwnerSystemPage() {
               <div className="row g-3">
                 {integrationsHealth.checks.map((check) => (
                   <div className="col-12 col-xl-6" key={check.key}>
-                    <div className="owner-system-page__check-card h-100">
-                      <div className="d-flex justify-content-between gap-3 align-items-start">
-                        <div className="owner-system-page__integration-copy">
-                          <h3 className="owner-system-page__integration-title mb-1">{check.label}</h3>
-                          <div className="owner-system-page__integration-meta">
-                            {check.system}
-                            {check.required === false ? " · opcional/futuro" : " · requerido"}
-                          </div>
-                        </div>
-                        <StatusBadge tone={integrationTone(check)} className="owner-system-page__status-pill">
-                          {check.status}
-                        </StatusBadge>
-                      </div>
-
-                      <p className="owner-system-page__integration-message">{check.message}</p>
-                      {check.nextAction ? <div className="owner-system-page__integration-action">Acción: {check.nextAction}</div> : null}
-                    </div>
+                    <SystemCheckCard
+                      title={check.label}
+                      system={check.system}
+                      required={check.required !== false}
+                      status={check.status}
+                      message={check.message}
+                      nextAction={check.nextAction}
+                      className="owner-system-page__check-card h-100"
+                    />
                   </div>
                 ))}
               </div>
