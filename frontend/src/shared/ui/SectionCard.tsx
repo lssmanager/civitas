@@ -14,20 +14,20 @@ export function SectionCard({ title, icon, badge, action, children, className }:
   const hasHeader = Boolean(title || icon || badge || action);
 
   return (
-    <Card className={`lss-section-card civitas-section-card border-0 ${className ?? ""}`.trim()}>
+    <Card className={`civitas-section-card border-0 ${className ?? ""}`.trim()}>
       {hasHeader ? (
-        <div className="lss-section-card-head">
-          <div className="lss-section-card-title">
+        <div className="civitas-section-card__head">
+          <div className="civitas-section-card__title">
             {icon}
             {title ? <span>{title}</span> : null}
           </div>
-          <div className="lss-section-card-meta">
+          <div className="civitas-section-card__meta">
             {badge}
             {action}
           </div>
         </div>
       ) : null}
-      <Card.Body className="lss-section-card-body">
+      <Card.Body className="civitas-section-card__body">
         {!hasHeader && title ? <h3 className="h6 mb-3">{title}</h3> : null}
         {children}
       </Card.Body>
