@@ -1,5 +1,6 @@
 import "./OwnerSystemPage.css";
 
+import type { ReactNode } from "react";
 import { Button } from "react-bootstrap";
 import { useOwnerApi, type OwnerIntegrationHealthCheck, type OwnerWorkerHealth } from "../api/owner";
 import { useStableResource } from "../shared/hooks/useStableResource";
@@ -7,11 +8,11 @@ import { DataTable, ErrorState, LoadingState, PageShell, StatusBadge } from "../
 
 type Tone = "success" | "warning" | "danger" | "neutral" | "info";
 
-type StatusPillProps = { children: React.ReactNode; tone?: Tone; className?: string };
+type StatusPillProps = { children: ReactNode; tone?: Tone; className?: string };
 
-type SystemCardProps = { title: string; eyebrow?: string; children: React.ReactNode; className?: string; action?: React.ReactNode };
+type SystemCardProps = { title: string; eyebrow?: string; children: ReactNode; className?: string; action?: ReactNode; icon?: string };
 
-type MiniKpiProps = { label: string; value: React.ReactNode; meta: string; tone?: Tone };
+type MiniKpiProps = { label: string; value: ReactNode; meta: string; tone?: Tone };
 
 type MetricBarProps = { label: string; value: number; text?: string; tone?: Tone };
 
@@ -49,13 +50,13 @@ function StatusPill({ children, tone = "neutral", className = "" }: StatusPillPr
   );
 }
 
-function SystemCard({ title, eyebrow, children, className = "", action }: SystemCardProps) {
+function SystemCard({ title, eyebrow, children, className = "", action, icon }: SystemCardProps) {
   return (
     <section className={`owner-system-card ${className}`}>
       <div className="owner-system-card__header">
         <div>
           {eyebrow ? <div className="owner-system-card__eyebrow">{eyebrow}</div> : null}
-          <h3>{title}</h3>
+          <h3>{icon ? <span className="owner-system-card__icon">{icon}</span> : null}{title}</h3>
         </div>
         {action}
       </div>
@@ -134,22 +135,22 @@ export function OwnerSystemPage() {
         </div></section>
 
         <section className="owner-system-section"><div className="owner-system-section__title"><h2>Integration checks & Redis config</h2><span>integraciones requeridas y opcionales</span></div><div className="grid-2">
-          <SystemCard title="Integration checks" eyebrow="real-time checks">
+          <SystemCard title="Integration checks" eyebrow="real-time checks" icon="✓">
             <div className="integration-list">{orderedChecks(integrationsHealth?.checks ?? []).map((check) => <article className="integration-row" key={check.key}><div><div className="integration-row__title"><strong>{check.label}</strong><StatusPill tone={integrationTone(check)}>{check.status}</StatusPill></div><p>{check.system} · {check.required === false ? "opcional / futuro" : "required"}</p><small>{check.message}</small>{check.nextAction ? <em>Next action: {check.nextAction}</em> : null}</div></article>)}</div>
           </SystemCard>
-          <div className="owner-system-stack"><SystemCard title="Redis 8.8.0 — configuración" eyebrow="prepared runtime contract"><div className="config-grid"><span>Connection Timeout</span><strong>1s</strong><span>Read Timeout</span><strong>1s</strong><span>Redis Version</span><strong>8.8.0</strong><span>Queue Driver</span><strong>BullMQ</strong><span>Estado real</span><StatusPill tone={statusTone(workerHealth?.redis.status)}>{workerHealth?.redis.status ?? "unknown"}</StatusPill></div></SystemCard>
-          <SystemCard title="BullMQ — estado de colas" eyebrow="workerHealth.queues"><DataTable rows={workerHealth?.queues ?? []} getRowKey={(row) => row.name} columns={[{ key: "name", header: "Cola", render: (row) => row.name },{ key: "waiting", header: "Waiting", render: (row) => row.waiting },{ key: "active", header: "Active", render: (row) => row.active },{ key: "delayed", header: "Delayed", render: (row) => row.delayed },{ key: "failed", header: "Failed", render: (row) => row.failed },{ key: "oldest", header: "Oldest", render: (row) => formatSeconds(row.oldestJobAgeSeconds) }]} /></SystemCard></div>
+          <div className="owner-system-stack"><SystemCard title="Redis 8.8.0 — configuración" eyebrow="prepared runtime contract" icon="⚡"><div className="config-grid"><span>Connection Timeout</span><strong>1s</strong><span>Read Timeout</span><strong>1s</strong><span>Redis Version</span><strong>8.8.0</strong><span>Queue Driver</span><strong>BullMQ</strong><span>Estado real</span><StatusPill tone={statusTone(workerHealth?.redis.status)}>{workerHealth?.redis.status ?? "unknown"}</StatusPill></div></SystemCard>
+          <SystemCard title="BullMQ — estado de colas" eyebrow="workerHealth.queues" icon="≡"><DataTable rows={workerHealth?.queues ?? []} getRowKey={(row) => row.name} columns={[{ key: "name", header: "Cola", render: (row) => row.name },{ key: "waiting", header: "Waiting", render: (row) => row.waiting },{ key: "active", header: "Active", render: (row) => row.active },{ key: "delayed", header: "Delayed", render: (row) => row.delayed },{ key: "failed", header: "Failed", render: (row) => row.failed },{ key: "oldest", header: "Oldest", render: (row) => formatSeconds(row.oldestJobAgeSeconds) }]} /></SystemCard></div>
         </div></section>
 
         <section className="owner-system-section"><div className="owner-system-section__title"><h2>Cache analytics — prefetching & performance</h2><span>preparado para instrumentación</span></div><div className="grid-3">
-          <SystemCard title="Hit / Miss ratio" action={<StatusPill tone="info">propuesto</StatusPill>}><div className="ring"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="44"/><path d="M60 16a44 44 0 1 1-38 22"/></svg><strong>not instrumented</strong></div><MetricBar label="Prefetch hit" value={68} tone="success" text="propuesto"/><MetricBar label="Cold miss" value={22} tone="warning" text="pendiente"/><MetricBar label="Stale" value={10} tone="danger" text="pendiente"/><p className="placeholder-note">Hits, Cold miss y Stale quedan visibles como contrato operativo, no como datos reales.</p></SystemCard>
-          <SystemCard title="Latencia & timing" action={<StatusPill tone="warning">pendiente</StatusPill>}><div className="latency-grid"><div><strong>avg</strong><span>not instrumented</span></div><div><strong>p95</strong><span>not instrumented</span></div><div><strong>p99</strong><span>not instrumented</span></div></div><MetricBar label="GET" value={54}/><MetricBar label="SET" value={42}/><MetricBar label="SCAN" value={24}/><MetricBar label="EXPIRE" value={34}/></SystemCard>
-          <SystemCard title="Bytes & serialización" action={<StatusPill tone="info">propuesto</StatusPill>}><div className="bytes-callout"><strong>Ratio</strong><span>not instrumented</span></div><div className="config-grid compact"><span>Avg key size</span><strong>pendiente</strong><span>Raw vs Compressed</span><strong>preparado</strong></div><p className="placeholder-note">Faster serialization and compression: bloque listo para métricas de payload.</p></SystemCard>
+          <SystemCard title="Hit / Miss ratio" icon="◑" action={<StatusPill tone="info">propuesto</StatusPill>}><div className="ring"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="44"/><path d="M60 16a44 44 0 1 1-38 22"/></svg><strong>not instrumented</strong></div><MetricBar label="Prefetch hit" value={68} tone="success" text="propuesto"/><MetricBar label="Cold miss" value={22} tone="warning" text="pendiente"/><MetricBar label="Stale" value={10} tone="danger" text="pendiente"/><p className="placeholder-note">Hits, Cold miss y Stale quedan visibles como contrato operativo, no como datos reales.</p></SystemCard>
+          <SystemCard title="Latencia & timing" icon="⏱" action={<StatusPill tone="warning">pendiente</StatusPill>}><div className="latency-grid"><div><strong>avg</strong><span>not instrumented</span></div><div><strong>p95</strong><span>not instrumented</span></div><div><strong>p99</strong><span>not instrumented</span></div></div><MetricBar label="GET" value={54}/><MetricBar label="SET" value={42}/><MetricBar label="SCAN" value={24}/><MetricBar label="EXPIRE" value={34}/></SystemCard>
+          <SystemCard title="Bytes & serialización" icon="⇅" action={<StatusPill tone="info">propuesto</StatusPill>}><div className="bytes-callout"><strong>Ratio</strong><span>not instrumented</span></div><div className="config-grid compact"><span>Avg key size</span><strong>pendiente</strong><span>Raw vs Compressed</span><strong>preparado</strong></div><p className="placeholder-note">Faster serialization and compression: bloque listo para métricas de payload.</p></SystemCard>
         </div></section>
 
         <section className="owner-system-section"><div className="owner-system-section__title"><h2>Calls & throughput — BullMQ + Redis</h2><span>métricas propuestas hasta exponer backend</span></div><div className="grid-2">
-          <SystemCard title="Calls / min — últimos 8 puntos" action={<StatusPill tone="info">not instrumented</StatusPill>}><div className="spark-bars">{[28, 46, 36, 62, 54, 78, 48, 66].map((v, i) => <span key={i} style={{ height: `${v}%` }} />)}</div><div className="throughput-table"><div><b>GET</b><span>propuesto</span></div><div><b>SET</b><span>propuesto</span></div><div><b>DEL</b><span>propuesto</span></div><div><b>EXPIRE</b><span>propuesto</span></div></div></SystemCard>
-          <SystemCard title="Debug & logging" action={<StatusPill tone="success">Easy debugging & logging</StatusPill>}><div className="debug-table">{[["Redis ops","DEBUG"],["BullMQ jobs","INFO"],["REDIS_STATUS",redisOk ? "INFO" : "WARN"],["Slow queries","WARN"],["Failed jobs",totals.failed > 0 ? "ERROR" : "INFO"]].map(([name, level]) => <div key={name}><span>{name}</span><StatusPill tone={level === "ERROR" ? "danger" : level === "WARN" ? "warning" : "neutral"}>{level}</StatusPill></div>)}</div></SystemCard>
+          <SystemCard title="Calls / min — últimos 8 puntos" icon="~" action={<StatusPill tone="info">not instrumented</StatusPill>}><div className="spark-bars">{[28, 46, 36, 62, 54, 78, 48, 66].map((v, i) => <span key={i} style={{ height: `${v}%` }} />)}</div><div className="throughput-table"><div><b>GET</b><span>propuesto</span></div><div><b>SET</b><span>propuesto</span></div><div><b>DEL</b><span>propuesto</span></div><div><b>EXPIRE</b><span>propuesto</span></div></div></SystemCard>
+          <SystemCard title="Debug & logging" icon="⚙" action={<StatusPill tone="success">Easy debugging & logging</StatusPill>}><div className="debug-table">{[["Redis ops","DEBUG"],["BullMQ jobs","INFO"],["REDIS_STATUS",redisOk ? "INFO" : "WARN"],["Slow queries","WARN"],["Failed jobs",totals.failed > 0 ? "ERROR" : "INFO"]].map(([name, level]) => <div key={name}><span>{name}</span><StatusPill tone={level === "ERROR" ? "danger" : level === "WARN" ? "warning" : "neutral"}>{level}</StatusPill></div>)}</div></SystemCard>
         </div></section>
 
         <section className="owner-system-section"><div className="owner-system-section__title"><h2>Expansión propuesta</h2><span>placeholders operativos claramente etiquetados</span></div><div className="expansion-grid">{["Redis memory","TTL distribution","Retry rate","Throughput 24h","Por organización","Alertas"].map((title) => <SystemCard key={title} title={title} action={<StatusPill tone="info">propuesto</StatusPill>}><p className="placeholder-note">Preparado para instrumentación: {title.toLowerCase()} con series históricas y umbrales owner.</p></SystemCard>)}</div></section>
