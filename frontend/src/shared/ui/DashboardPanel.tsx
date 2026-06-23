@@ -11,18 +11,18 @@ type DashboardPanelProps = {
 
 export function DashboardPanel({ title, icon, badge, action, children, className }: DashboardPanelProps) {
   return (
-    <section className={`lss-dashboard-panel ${className ?? ""}`.trim()}>
-      <div className="lss-dashboard-panel__head">
-        <div className="lss-dashboard-panel__title">
+    <section className={`civitas-dashboard-panel ${className ?? ""}`.trim()}>
+      <div className="civitas-dashboard-panel__head">
+        <div className="civitas-dashboard-panel__title">
           {icon}
           <span>{title}</span>
         </div>
-        <div className="lss-dashboard-panel__meta">
+        <div className="civitas-dashboard-panel__meta">
           {badge}
           {action}
         </div>
       </div>
-      <div className="lss-dashboard-panel__body">{children}</div>
+      <div className="civitas-dashboard-panel__body">{children}</div>
     </section>
   );
 }
