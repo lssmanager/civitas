@@ -7,18 +7,6 @@ const {
 } = require("./crmRoleMappings");
 const { FLUENTCRM_SYNC_STATUSES, markOrganizationProfileFluentCrmSync } = require("./organizationProfiles");
 
-class FluentCrmError extends Error {
-  constructor(message, { status, body, code, diagnostic, request } = {}) {
-    super(message);
-    this.name = "FluentCrmError";
-    this.status = status;
-    this.body = sanitizeForDiagnostics(body);
-    this.code = code;
-    this.diagnostic = diagnostic || null;
-    this.request = request ? sanitizeForDiagnostics(request) : null;
-  }
-}
-
 const SENSITIVE_KEY_PATTERN = /(authorization|password|app[_-]?password|secret|token|credential|cookie|api[_-]?key)/i;
 const PROHIBITED_ROLE_NAMES = new Set(["owner_global"]);
 const CRM_CLEANUP_STRATEGIES = Object.freeze({
@@ -41,6 +29,40 @@ function sanitizeForDiagnostics(value, depth = 0) {
   }
   if (typeof value === "string") return value.length > 1000 ? `${value.slice(0, 1000)}…` : value;
   return value;
+}
+
+function sanitizePublicRequest(request) {
+  if (!request || typeof request !== "object") return null;
+  return {
+    method: request.method || "GET",
+    path: request.path || null,
+  };
+}
+
+function sanitizePublicErrorBody(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return null;
+  const sanitized = {};
+  if (typeof body.message === "string" && body.message) sanitized.message = body.message.length > 300 ? `${body.message.slice(0, 300)}…` : body.message;
+  if (typeof body.status === "string" || Number.isInteger(body.status)) sanitized.status = body.status;
+  if (typeof body.code === "string" && body.code) sanitized.code = body.code;
+  if (Number.isInteger(body.timeoutMs)) sanitized.timeoutMs = body.timeoutMs;
+  if (Array.isArray(body.missing) && body.missing.length > 0) sanitized.missing = body.missing.slice(0, 20);
+  return Object.keys(sanitized).length ? sanitized : null;
+}
+
+class FluentCrmError extends Error {
+  constructor(message, { status, body, code, diagnostic, request } = {}) {
+    super(message);
+    this.name = "FluentCrmError";
+    this.status = status;
+    this.body = sanitizePublicErrorBody(body);
+    this.code = code;
+    this.diagnostic = null;
+    this.request = sanitizePublicRequest(request);
+    this.internalBody = sanitizeForDiagnostics(body);
+    this.internalDiagnostic = diagnostic ? sanitizeForDiagnostics(diagnostic) : null;
+    this.internalRequest = request ? sanitizeForDiagnostics(request) : null;
+  }
 }
 
 function normalizeBaseUrl(baseUrl) {
@@ -210,7 +232,6 @@ function flattenDiagnosticText(value) {
   if (typeof value === "object") return Object.values(value).map(flattenDiagnosticText).join(" ");
   return String(value);
 }
-
 
 function summarizeValidationErrors(parsed) {
   const errors = parsed && typeof parsed === "object" && parsed.errors && typeof parsed.errors === "object" ? parsed.errors : null;
