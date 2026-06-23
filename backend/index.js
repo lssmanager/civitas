@@ -176,15 +176,34 @@ const normalizeLogtoUserToClaims = (logtoUser = {}) => ({
   picture: logtoUser.avatar || logtoUser.profile?.picture,
 });
 
+const parsePositiveIntegerEnv = (name, fallback) => {
+  const parsed = Number.parseInt(process.env[name] || "", 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+const LOGTO_IDENTITY_ENRICHMENT_TIMEOUT_MS = parsePositiveIntegerEnv("LOGTO_IDENTITY_ENRICHMENT_TIMEOUT_MS", 1200);
+
 async function getLogtoIdentityClaimsBestEffort(logtoUserId) {
   if (!logtoUserId) return {};
 
-  try {
-    return normalizeLogtoUserToClaims(await getLogtoUserById(logtoUserId));
-  } catch (error) {
-    console.error("Failed to enrich identity from Logto Management API", { code: error?.code, status: error?.status, diagnostic: error?.diagnostic, message: error?.message });
-    return {};
-  }
+  const enrichment = getLogtoUserById(logtoUserId)
+    .then(normalizeLogtoUserToClaims)
+    .catch((error) => {
+      console.error("Failed to enrich identity from Logto Management API", { code: error?.code, status: error?.status, diagnostic: error?.diagnostic, message: error?.message });
+      return {};
+    });
+
+  let timeoutId;
+  const timeout = new Promise((resolve) => {
+    timeoutId = setTimeout(() => {
+      console.warn("Skipping slow Logto identity enrichment for /api/me", { timeoutMs: LOGTO_IDENTITY_ENRICHMENT_TIMEOUT_MS });
+      resolve({});
+    }, LOGTO_IDENTITY_ENRICHMENT_TIMEOUT_MS);
+  });
+
+  const claims = await Promise.race([enrichment, timeout]);
+  clearTimeout(timeoutId);
+  return claims;
 }
 
 const buildSessionTokenMetadata = (claims = {}) => ({
