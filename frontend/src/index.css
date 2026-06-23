@@ -86,7 +86,6 @@ a { color: var(--civitas-primary); }
 [data-bs-theme="dark"] .civitas-sidebar__brand, .theme-dark .civitas-sidebar__brand, body.theme-dark .civitas-sidebar__brand, [data-bs-theme="dark"] .civitas-sidebar__panel, .theme-dark .civitas-sidebar__panel, body.theme-dark .civitas-sidebar__panel { background: rgba(8,23,47,.5) !important; border-color: rgba(255,255,255,.1) !important; }
 [data-bs-theme="dark"] .civitas-sidebar-link:hover, .theme-dark .civitas-sidebar-link:hover, body.theme-dark .civitas-sidebar-link:hover { background: rgba(243,183,35,.14); }
 
-
 .btn-primary { --bs-btn-color:#fff; --bs-btn-bg:var(--civitas-primary); --bs-btn-border-color:var(--civitas-primary); --bs-btn-hover-color:#031c44; --bs-btn-hover-bg:var(--civitas-primary-hover); --bs-btn-hover-border-color:var(--civitas-primary-hover); --bs-btn-active-color:#031c44; --bs-btn-active-bg:var(--civitas-warning); --bs-btn-active-border-color:var(--civitas-warning); --bs-btn-focus-shadow-rgb:25,132,238; }
 .btn-outline-primary { --bs-btn-color:var(--civitas-primary); --bs-btn-border-color:rgba(25,132,238,.34); --bs-btn-hover-color:#031c44; --bs-btn-hover-bg:#f3b723; --bs-btn-hover-border-color:#f3b723; --bs-btn-active-color:#031c44; --bs-btn-active-bg:#f3b723; --bs-btn-active-border-color:#f3b723; }
 [data-bs-theme="dark"] .btn-primary, .theme-dark .btn-primary, body.theme-dark .btn-primary { --bs-btn-color:#031c44; --bs-btn-bg:#4b9ef1; --bs-btn-border-color:#4b9ef1; --bs-btn-hover-color:#031c44; --bs-btn-hover-bg:#f3b723; --bs-btn-hover-border-color:#f3b723; --bs-btn-active-color:#031c44; --bs-btn-active-bg:#ed9e1b; --bs-btn-active-border-color:#ed9e1b; }
@@ -99,7 +98,6 @@ a { color: var(--civitas-primary); }
 .civitas-breadcrumb .breadcrumb-item a:hover, .civitas-breadcrumb .breadcrumb-item a:focus { color: var(--civitas-primary); }
 .civitas-breadcrumb__item--brand a { display:inline-flex; align-items:center; min-height:2rem; padding:.28rem .7rem; border:1px solid rgba(25,132,238,.16); border-radius:999px; color:var(--civitas-primary) !important; background:linear-gradient(180deg,#fff 0%,#eef6ff 100%); font-weight:700; }
 .civitas-breadcrumb .breadcrumb-item.active, .civitas-breadcrumb__item--current.active { color: var(--civitas-text); font-weight:600; }
-
 
 .civitas-page-shell { display:flex; flex-direction:column; gap:1.25rem !important; }
 .civitas-page-shell__header { padding:1.35rem 1.45rem; border:1px solid var(--civitas-border); border-radius:1.4rem; background:linear-gradient(135deg,rgba(255,255,255,.96),rgba(234,243,255,.98)); box-shadow:var(--civitas-shadow); }
@@ -132,6 +130,80 @@ a { color: var(--civitas-primary); }
 .civitas-metric-card__value { color:var(--civitas-text); font-size:clamp(1.9rem,3vw,2.5rem); font-weight:700; line-height:1; }
 .civitas-metric-card__hint { margin-top:.55rem; color:var(--civitas-muted); font-size:.9rem; }
 
+.owner-system-page .civitas-page-shell__header {
+  padding: 1.1rem 1.35rem;
+  border-radius: 1.2rem;
+  box-shadow: 0 14px 36px rgba(3, 28, 68, 0.06);
+}
+.owner-system-page__grid {
+  align-items: stretch;
+}
+.owner-system-page__hero-card {
+  border-radius: 1.35rem;
+}
+.owner-system-page__hero-card .civitas-page-card__header {
+  padding: 1.2rem 1.35rem 0.95rem;
+}
+.owner-system-page__hero-card .civitas-page-card__body {
+  padding: 1.25rem;
+}
+.owner-system-page__check-card {
+  border: 1px solid var(--civitas-border);
+  border-radius: 1rem;
+  padding: 1rem 1rem 1.1rem;
+  background: #fff;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.75);
+}
+.owner-system-page__check-card h3 {
+  font-size: 1.28rem;
+  font-weight: 600;
+  color: var(--civitas-text);
+}
+.owner-system-page__check-card .small {
+  line-height: 1.45;
+}
+.owner-system-page__status-pill {
+  min-width: 5.5rem;
+  justify-content: center;
+}
+.owner-system-page__compact-card {
+  height: 100%;
+  border-radius: 1.25rem;
+}
+.owner-system-page__compact-card .civitas-page-card__header {
+  padding: 1.15rem 1.2rem 0.9rem;
+}
+.owner-system-page__compact-card .civitas-page-card__body {
+  padding: 1rem 1.2rem 1.15rem;
+}
+.owner-system-page__readiness-card {
+  min-height: 225px;
+}
+.owner-system-page__queue-card {
+  min-height: 225px;
+}
+.owner-system-page__readiness-list .list-group-item {
+  padding-top: 0.92rem;
+  padding-bottom: 0.92rem;
+  font-size: 1.02rem;
+}
+.owner-system-page .table thead th {
+  font-size: 0.76rem;
+  letter-spacing: 0.08em;
+}
+.owner-system-page .table tbody td {
+  padding-top: 0.95rem;
+  padding-bottom: 0.95rem;
+  font-size: 1rem;
+}
+.owner-system-page .civitas-status-badge,
+.owner-system-page .badge {
+  font-size: 0.76rem;
+  font-weight: 700;
+  border-radius: 0.55rem;
+  padding: 0.35rem 0.62rem;
+}
+
 .civitas-select-card, .civitas-organization-card { border-radius:1.25rem; transition:transform 160ms ease, box-shadow 160ms ease; border-color:rgba(25,132,238,.08) !important; }
 .civitas-select-card:hover { transform:translateY(-2px); box-shadow:0 1rem 2rem rgba(15,23,42,.08) !important; }
 .civitas-select-card__hero, .civitas-organization-card__hero { padding:1.25rem; color:var(--civitas-text) !important; background:linear-gradient(135deg,#fff 0%,#eaf3ff 100%) !important; border-bottom:1px solid var(--civitas-border); }
@@ -161,8 +233,14 @@ a { color: var(--civitas-primary); }
 [data-bs-theme="dark"] .civitas-breadcrumb__item--brand a { color:#dceaff; border-color:rgba(75,158,241,.22); background:linear-gradient(180deg,rgba(16,39,72,.96),rgba(19,49,89,.96)); }
 [data-bs-theme="dark"] .civitas-select-card__media { background:#0c1f3a; }
 [data-bs-theme="dark"] .civitas-select-card__logo { background:#fff; }
+[data-bs-theme="dark"] .owner-system-page__check-card { background:#102748; border-color:rgba(255,255,255,.12); }
 
 @media (max-width: 991.98px) { .civitas-page-shell__header { padding:1rem; } }
+@media (max-width: 991.98px) {
+  .owner-system-page__check-card h3 {
+    font-size: 1.12rem;
+  }
+}
 .civitas-organization-card--snapshot { max-width: none; }
 .civitas-organization-card--snapshot .civitas-organization-card__hero { padding: 1.5rem; }
 .civitas-organization-card--snapshot .civitas-select-card__body { background: var(--civitas-surface-contrast); }
