@@ -76,6 +76,7 @@ export type OwnerSystemMetricsResponse = {
   callsAndThroughput: { redisCommandsProcessed: OwnerSystemMetric; redisCommandsPerMinute: OwnerSystemMetric; bullmqJobsPerMinute: OwnerSystemMetric; totalBullmqCompleted: OwnerSystemMetric };
   debugAndLogging: { redisOps: OwnerSystemMetric; bullmqJobs: OwnerSystemMetric; failedJobs: OwnerSystemMetric; retryRate: OwnerSystemMetric; slowQueries: OwnerSystemMetric };
   expansion: { redisMemory: { usedMemory: OwnerSystemMetric; usedMemoryPeak: OwnerSystemMetric; evictedKeys: OwnerSystemMetric; expiredKeys: OwnerSystemMetric }; ttlDistribution: OwnerSystemMetric; retryRate: OwnerSystemMetric; throughput24h: OwnerSystemMetric; perOrganization: OwnerSystemMetric; alerts: OwnerSystemMetric };
+  series?: { last8?: Array<{ at: string; redisCommandsPerMinute: number | null; bullmqJobsPerMinute: number | null; sampleWindowMinutes: number }>; throughput24h?: Array<{ at: string; redisCommandsPerMinute: number | null; bullmqJobsPerMinute: number | null; sampleCount: number }>; rollup?: Record<string, unknown> | null };
 };
 
 export type OwnerPendingSync = { id: string; operationId: string; organizationId: string | null; organizationName: string | null; type: string; affectedSystem: string; status: string; retryable: boolean; lastError: string; suggestedAction: string; };

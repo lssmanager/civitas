@@ -1,4 +1,4 @@
-const { desc } = require("drizzle-orm");
+const { and, desc, eq, gt, lt } = require("drizzle-orm");
 const { db } = require("../db/client");
 const { operationalMetricSnapshots, organizationProfiles, syncOperations, syncOperationSteps } = require("../db/schema");
 const { QUEUE_NAMES, createQueue, createRedisConnection, getRedisUrl } = require("../queues/config");
@@ -12,6 +12,9 @@ const DOWNSTREAM_PENDING = new Set(["not_linked", "pending", "conflict", "error"
 const CANONICAL_OK = new Set(["bootstrapped", "synced", "reconciled"]);
 const QUEUE_JOB_TYPES = Object.freeze(["wait", "active", "delayed", "failed"]);
 const OWNER_SYSTEM_METRICS_WINDOW = "1m";
+const RAW_SNAPSHOT_RETENTION_MS = Number(process.env.OPERATIONAL_METRICS_RAW_RETENTION_MS || 2 * 60 * 60 * 1000);
+const HOURLY_SNAPSHOT_RETENTION_MS = Number(process.env.OPERATIONAL_METRICS_HOURLY_RETENTION_MS || 48 * 60 * 60 * 1000);
+const SLOW_OPERATION_THRESHOLD_MS = Number(process.env.OPERATIONAL_METRICS_SLOW_OPERATION_MS || 50);
 
 let workerHealthSnapshotCacheAt = 0;
 let workerHealthSnapshotCache = null;
@@ -339,10 +342,15 @@ function deriveHitMissRatio(stats = {}) {
 const toMinuteBucket = (date = new Date()) => new Date(Math.floor(date.getTime() / 60000) * 60000);
 const bytesToMb = (value) => Number.isFinite(Number(value)) ? Number((Number(value) / 1024 / 1024).toFixed(2)) : null;
 
-async function readRecentOperationalSnapshots(limit = 2) {
+async function readRecentOperationalSnapshots(limit = 2, { bucket = "minute", source = "redis_bullmq" } = {}) {
   if (!operationalMetricSnapshots) return [];
   try {
-    return await db.select().from(operationalMetricSnapshots).orderBy(desc(operationalMetricSnapshots.bucketStartedAt)).limit(limit);
+    return await db
+      .select()
+      .from(operationalMetricSnapshots)
+      .where(and(eq(operationalMetricSnapshots.bucket, bucket), eq(operationalMetricSnapshots.source, source)))
+      .orderBy(desc(operationalMetricSnapshots.bucketStartedAt))
+      .limit(limit);
   } catch (error) {
     console.warn("Operational metric snapshot history unavailable", { message: safeMessage(error) });
     return [];
@@ -360,6 +368,105 @@ async function persistOperationalSnapshot(snapshot) {
   }
 }
 
+
+const toHourBucket = (date = new Date()) => new Date(Math.floor(date.getTime() / 3600000) * 3600000);
+const readPath = (object, path) => path.reduce((value, key) => value?.[key], object);
+
+function aggregateSnapshotsToBucket(snapshots = [], bucketStartedAt = toHourBucket()) {
+  const sorted = [...snapshots].sort((a, b) => new Date(a.bucketStartedAt).getTime() - new Date(b.bucketStartedAt).getTime());
+  const first = sorted[0]?.metrics || {};
+  const last = sorted.at(-1)?.metrics || {};
+  const bucketWindowMinutes = sorted.length > 1
+    ? Math.max(1 / 60, (new Date(sorted.at(-1).bucketStartedAt).getTime() - new Date(sorted[0].bucketStartedAt).getTime()) / 60000)
+    : 60;
+  const redisCommandDelta = Math.max(0, Number(readPath(last, ["redis", "stats", "total_commands_processed"]) || 0) - Number(readPath(first, ["redis", "stats", "total_commands_processed"]) || 0));
+  const bullmqCompletedDelta = Math.max(0, Number(readPath(last, ["bullmq", "totals", "completed"]) || 0) - Number(readPath(first, ["bullmq", "totals", "completed"]) || 0));
+  const retrySamples = sorted.map((snapshot) => Number(readPath(snapshot.metrics || {}, ["bullmq", "totals", "retryCount"]) || 0));
+  const completedSamples = sorted.map((snapshot) => Number(readPath(snapshot.metrics || {}, ["bullmq", "totals", "recentCompleted"]) || 0));
+  const latencySamples = sorted.flatMap((snapshot) => snapshot.metrics?.redis?.latencySamples || []).filter((sample) => Number.isFinite(Number(sample?.latencyMs)));
+  return {
+    bucketStartedAt: bucketStartedAt.toISOString(),
+    sampleCount: sorted.length,
+    redis: {
+      commandsProcessedDelta: redisCommandDelta,
+      commandsPerMinute: Number((redisCommandDelta / bucketWindowMinutes).toFixed(2)),
+      usedMemory: readPath(last, ["redis", "memory", "used_memory"]) ?? null,
+      usedMemoryPeak: readPath(last, ["redis", "memory", "used_memory_peak"]) ?? null,
+      latencySamples,
+    },
+    bullmq: {
+      completedDelta: bullmqCompletedDelta,
+      jobsPerMinute: Number((bullmqCompletedDelta / bucketWindowMinutes).toFixed(2)),
+      retryNumerator: Math.max(0, ...retrySamples, 0),
+      retryDenominator: Math.max(0, ...completedSamples, 0),
+      failed: readPath(last, ["bullmq", "totals", "failed"]) ?? null,
+    },
+  };
+}
+
+function percentile(values = [], percentileValue = 95) {
+  const sorted = values.map(Number).filter(Number.isFinite).sort((a, b) => a - b);
+  if (!sorted.length) return null;
+  const index = Math.min(sorted.length - 1, Math.ceil((percentileValue / 100) * sorted.length) - 1);
+  return Number(sorted[index].toFixed(2));
+}
+
+function summarizeLatencySamples(samples = []) {
+  const values = samples.map((sample) => Number(sample.latencyMs)).filter(Number.isFinite);
+  if (!values.length) return { avg: null, p95: null, p99: null, slowCount: null, sampleCount: 0 };
+  const avg = Number((values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(2));
+  return { avg, p95: values.length >= 20 ? percentile(values, 95) : null, p99: values.length >= 100 ? percentile(values, 99) : null, slowCount: values.filter((value) => value >= SLOW_OPERATION_THRESHOLD_MS).length, sampleCount: values.length };
+}
+
+function buildThroughputSeriesFromSnapshots(snapshots = [], { points = 8 } = {}) {
+  const sorted = [...snapshots].sort((a, b) => new Date(a.bucketStartedAt).getTime() - new Date(b.bucketStartedAt).getTime());
+  const series = [];
+  for (let index = 1; index < sorted.length; index += 1) {
+    const previous = sorted[index - 1];
+    const current = sorted[index];
+    const minutes = Math.max(1 / 60, (new Date(current.bucketStartedAt).getTime() - new Date(previous.bucketStartedAt).getTime()) / 60000);
+    const redisDelta = Math.max(0, Number(readPath(current.metrics || {}, ["redis", "stats", "total_commands_processed"]) || 0) - Number(readPath(previous.metrics || {}, ["redis", "stats", "total_commands_processed"]) || 0));
+    const bullmqDelta = Math.max(0, Number(readPath(current.metrics || {}, ["bullmq", "totals", "completed"]) || 0) - Number(readPath(previous.metrics || {}, ["bullmq", "totals", "completed"]) || 0));
+    series.push({
+      at: current.bucketStartedAt?.toISOString?.() ?? current.bucketStartedAt,
+      redisCommandsPerMinute: Number((redisDelta / minutes).toFixed(2)),
+      bullmqJobsPerMinute: Number((bullmqDelta / minutes).toFixed(2)),
+      sampleWindowMinutes: Number(minutes.toFixed(2)),
+    });
+  }
+  return series.slice(-points);
+}
+
+async function runOperationalMetricsRollup({ now = new Date() } = {}) {
+  if (!operationalMetricSnapshots) return { status: "not_instrumented", rolledUpHours: 0, retained: false };
+  try {
+    const since = new Date(now.getTime() - 25 * 60 * 60 * 1000);
+    const minuteSnapshots = await db
+      .select()
+      .from(operationalMetricSnapshots)
+      .where(and(eq(operationalMetricSnapshots.bucket, "minute"), eq(operationalMetricSnapshots.source, "redis_bullmq"), gt(operationalMetricSnapshots.bucketStartedAt, since)))
+      .orderBy(desc(operationalMetricSnapshots.bucketStartedAt))
+      .limit(2000);
+    const byHour = new Map();
+    for (const snapshot of minuteSnapshots) {
+      const hour = toHourBucket(new Date(snapshot.bucketStartedAt)).toISOString();
+      byHour.set(hour, [...(byHour.get(hour) || []), snapshot]);
+    }
+    let rolledUpHours = 0;
+    for (const [hour, snapshots] of byHour.entries()) {
+      if (snapshots.length < 2) continue;
+      await persistOperationalSnapshot({ bucket: "hour", bucketStartedAt: new Date(hour), source: "redis_bullmq_rollup", metrics: aggregateSnapshotsToBucket(snapshots, new Date(hour)) });
+      rolledUpHours += 1;
+    }
+    await db.delete(operationalMetricSnapshots).where(and(eq(operationalMetricSnapshots.bucket, "minute"), lt(operationalMetricSnapshots.bucketStartedAt, new Date(now.getTime() - RAW_SNAPSHOT_RETENTION_MS)))).catch(() => null);
+    await db.delete(operationalMetricSnapshots).where(and(eq(operationalMetricSnapshots.bucket, "hour"), lt(operationalMetricSnapshots.bucketStartedAt, new Date(now.getTime() - HOURLY_SNAPSHOT_RETENTION_MS)))).catch(() => null);
+    return { status: "ok", rolledUpHours, retained: true };
+  } catch (error) {
+    console.warn("Operational metric rollup skipped", { message: safeMessage(error) });
+    return { status: "error", rolledUpHours: 0, retained: false, message: safeMessage(error) };
+  }
+}
+
 function deriveDeltaPerMinute(currentValue, previousSnapshot, path) {
   const previousMetrics = previousSnapshot?.metrics || {};
   const previousValue = path.reduce((value, key) => value?.[key], previousMetrics);
@@ -371,20 +478,29 @@ function deriveDeltaPerMinute(currentValue, previousSnapshot, path) {
 
 async function collectRedisMetrics(connection) {
   const updatedAt = new Date().toISOString();
-  const started = Date.now();
-  const ping = await connection.ping();
-  const pingLatencyMs = Date.now() - started;
+  const latencySamples = [];
+  const timed = async (operation, run) => {
+    const started = Date.now();
+    try {
+      return await run();
+    } finally {
+      latencySamples.push({ operation, latencyMs: Date.now() - started });
+    }
+  };
+  const ping = await timed("PING", () => connection.ping());
   const [statsRaw, memoryRaw] = await Promise.all([
-    connection.info("stats").catch((error) => ({ error })),
-    connection.info("memory").catch((error) => ({ error })),
+    timed("INFO stats", () => connection.info("stats")).catch((error) => ({ error })),
+    timed("INFO memory", () => connection.info("memory")).catch((error) => ({ error })),
   ]);
   const stats = typeof statsRaw === "string" ? parseRedisInfo(statsRaw) : null;
   const memory = typeof memoryRaw === "string" ? parseRedisInfo(memoryRaw) : null;
   return {
     updatedAt,
-    ping: { status: ping === "PONG" ? "live" : "not_instrumented", latencyMs: pingLatencyMs },
+    ping: { status: ping === "PONG" ? "live" : "not_instrumented", latencyMs: latencySamples.find((sample) => sample.operation === "PING")?.latencyMs ?? null },
     stats,
     memory,
+    latencySamples,
+    latencySummary: summarizeLatencySamples(latencySamples),
     errors: {
       stats: stats ? null : safeMessage(statsRaw.error, "Redis INFO stats no disponible."),
       memory: memory ? null : safeMessage(memoryRaw.error, "Redis INFO memory no disponible."),
@@ -428,13 +544,19 @@ async function collectBullMqMetrics(connection) {
   };
 }
 
-function buildMetricsResponse({ redis, bullmq, previousSnapshot, persisted }) {
+function buildMetricsResponse({ redis, bullmq, previousSnapshot, persisted, minuteSnapshots = [], hourlyRollups = [], rollup = null }) {
   const updatedAt = redis?.updatedAt || new Date().toISOString();
   const hitMiss = deriveHitMissRatio(redis?.stats || {});
-  const commandThroughput = deriveDeltaPerMinute(redis?.stats?.total_commands_processed, previousSnapshot, ["redis", "stats", "total_commands_processed"]);
-  const jobThroughput = deriveDeltaPerMinute(bullmq?.totals?.completed, previousSnapshot, ["bullmq", "totals", "completed"]);
+  const minuteSeries = buildThroughputSeriesFromSnapshots(minuteSnapshots);
+  const latestMinutePoint = minuteSeries.at(-1);
+  const commandThroughput = latestMinutePoint?.redisCommandsPerMinute ?? deriveDeltaPerMinute(redis?.stats?.total_commands_processed, previousSnapshot, ["redis", "stats", "total_commands_processed"]);
+  const jobThroughput = latestMinutePoint?.bullmqJobsPerMinute ?? deriveDeltaPerMinute(bullmq?.totals?.completed, previousSnapshot, ["bullmq", "totals", "completed"]);
+  const hourlySeries = [...hourlyRollups].sort((a, b) => new Date(a.bucketStartedAt).getTime() - new Date(b.bucketStartedAt).getTime()).map((snapshot) => ({ at: snapshot.bucketStartedAt?.toISOString?.() ?? snapshot.bucketStartedAt, redisCommandsPerMinute: snapshot.metrics?.redis?.commandsPerMinute ?? null, bullmqJobsPerMinute: snapshot.metrics?.bullmq?.jobsPerMinute ?? null, sampleCount: snapshot.metrics?.sampleCount ?? 0 }));
   const failedJobs = bullmq?.totals?.failed ?? null;
-  const retryCount = bullmq?.totals?.retryCount ?? null;
+  const retryNumerator = Math.max(Number(bullmq?.totals?.retryCount || 0), ...hourlyRollups.map((snapshot) => Number(snapshot.metrics?.bullmq?.retryNumerator || 0)), 0);
+  const retryDenominator = Math.max(Number(bullmq?.totals?.recentCompleted || 0), ...hourlyRollups.map((snapshot) => Number(snapshot.metrics?.bullmq?.retryDenominator || 0)), 0);
+  const retryRate = retryDenominator > 0 ? Number(((retryNumerator / retryDenominator) * 100).toFixed(2)) : null;
+  const latencySummary = summarizeLatencySamples([...(redis?.latencySamples || []), ...minuteSnapshots.flatMap((snapshot) => snapshot.metrics?.redis?.latencySamples || [])]);
   const usedMemoryMb = bytesToMb(redis?.memory?.used_memory);
   const usedMemoryPeakMb = bytesToMb(redis?.memory?.used_memory_peak);
 
@@ -455,9 +577,9 @@ function buildMetricsResponse({ redis, bullmq, previousSnapshot, persisted }) {
     },
     latencyAndTiming: {
       pingLatency: metric({ value: redis?.ping?.latencyMs ?? null, unit: "ms", instrumentationStatus: redis?.ping?.status || "not_instrumented", source: "redis.ping", updatedAt }),
-      avg: metric({ instrumentationStatus: "not_instrumented", unit: "ms", source: "redis.command_sampler", updatedAt, note: "No hay muestreo de latencia por comando en esta iteración." }),
-      p95: metric({ instrumentationStatus: "not_instrumented", unit: "ms", source: "redis.command_sampler", updatedAt, note: "Requiere histogramas o slowlog muestreado." }),
-      p99: metric({ instrumentationStatus: "not_instrumented", unit: "ms", source: "redis.command_sampler", updatedAt, note: "Requiere histogramas o slowlog muestreado." }),
+      avg: metric({ value: latencySummary.avg, instrumentationStatus: latencySummary.sampleCount ? "sampled" : "not_instrumented", unit: "ms", source: "redis.controlled_sampler(PING,INFO)", updatedAt, note: latencySummary.sampleCount ? `Muestra controlada de ${latencySummary.sampleCount} operaciones Redis internas al dashboard.` : "No hay muestras de latencia disponibles." }),
+      p95: metric({ value: latencySummary.p95, instrumentationStatus: latencySummary.p95 === null ? "sampled" : "derived", unit: "ms", source: "redis.controlled_sampler(PING,INFO)", updatedAt, note: latencySummary.p95 === null ? "Se requieren al menos 20 muestras para p95 confiable." : null }),
+      p99: metric({ value: latencySummary.p99, instrumentationStatus: latencySummary.p99 === null ? "sampled" : "derived", unit: "ms", source: "redis.controlled_sampler(PING,INFO)", updatedAt, note: latencySummary.p99 === null ? "Se requieren al menos 100 muestras para p99 confiable." : null }),
     },
     bytesAndSerialization: {
       avgKeySize: metric({ instrumentationStatus: "not_instrumented", unit: "bytes", source: "civitas.serialization", updatedAt, note: "Requiere instrumentar serialización/tamaño de payload por key." }),
@@ -466,16 +588,16 @@ function buildMetricsResponse({ redis, bullmq, previousSnapshot, persisted }) {
     },
     callsAndThroughput: {
       redisCommandsProcessed: metric({ value: redis?.stats?.total_commands_processed ?? null, unit: "count", instrumentationStatus: redis?.stats ? "live" : "not_instrumented", source: "redis.info.stats.total_commands_processed", updatedAt, note: redis?.errors?.stats }),
-      redisCommandsPerMinute: metric({ value: commandThroughput, unit: "ops/min", instrumentationStatus: commandThroughput === null ? "sampled" : "derived", source: "postgres.operational_metric_snapshots.delta(redis.info.stats.total_commands_processed)", updatedAt, note: commandThroughput === null ? "Se requiere al menos un snapshot previo para derivar throughput por ventana." : null }),
-      bullmqJobsPerMinute: metric({ value: jobThroughput, unit: "jobs/min", instrumentationStatus: jobThroughput === null ? "sampled" : "derived", source: "postgres.operational_metric_snapshots.delta(bullmq.completed)", updatedAt, note: jobThroughput === null ? "Se requiere al menos un snapshot previo para derivar throughput por ventana." : null }),
+      redisCommandsPerMinute: metric({ value: commandThroughput, unit: "ops/min", instrumentationStatus: commandThroughput === null ? "sampled" : "derived", source: "postgres.operational_metric_snapshots.series.delta(redis.info.stats.total_commands_processed)", updatedAt, note: commandThroughput === null ? "Se requiere más historia de snapshots para derivar throughput por ventana." : null }),
+      bullmqJobsPerMinute: metric({ value: jobThroughput, unit: "jobs/min", instrumentationStatus: jobThroughput === null ? "sampled" : "derived", source: "postgres.operational_metric_snapshots.series.delta(bullmq.completed)", updatedAt, note: jobThroughput === null ? "Se requiere más historia de snapshots para derivar throughput por ventana." : null }),
       totalBullmqCompleted: metric({ value: bullmq?.totals?.completed ?? null, unit: "jobs", instrumentationStatus: bullmq ? "live" : "not_instrumented", source: "bullmq.getJobCounts.completed", updatedAt }),
     },
     debugAndLogging: {
       redisOps: metric({ value: redis?.stats?.total_commands_processed ?? null, unit: "count", instrumentationStatus: redis?.stats ? "live" : "not_instrumented", source: "redis.info.stats", updatedAt }),
       bullmqJobs: metric({ value: bullmq?.totals?.completed ?? null, unit: "jobs", instrumentationStatus: bullmq ? "live" : "not_instrumented", source: "bullmq.getJobCounts", updatedAt }),
       failedJobs: metric({ value: failedJobs, unit: "jobs", instrumentationStatus: bullmq ? "live" : "not_instrumented", source: "bullmq.getJobCounts.failed", updatedAt }),
-      retryRate: metric({ value: retryCount, unit: "attempts", instrumentationStatus: bullmq ? "sampled" : "not_instrumented", source: "bullmq.recent_jobs.attemptsMade", window: "last 100 completed/failed jobs", updatedAt, note: "Agregado de attemptsMade sobre jobs recientes retenidos por BullMQ." }),
-      slowQueries: metric({ instrumentationStatus: "not_instrumented", unit: "count", source: "redis.slowlog", updatedAt, note: "No se consulta SLOWLOG todavía para evitar overhead y exposición accidental." }),
+      retryRate: metric({ value: retryRate, unit: "percent", instrumentationStatus: retryRate === null ? "sampled" : "derived", source: "postgres.operational_metric_snapshots.rollup(bullmq.retry_attempts/completed_jobs)", window: "rolling 24h when history exists", updatedAt, note: retryRate === null ? "No hay denominador suficiente para retry rate; se expone numerador/denominador en raw." : `Numerador ${retryNumerator}, denominador ${retryDenominator}. Cobertura limitada a jobs retenidos por BullMQ y snapshots disponibles.` }),
+      slowQueries: metric({ value: latencySummary.slowCount, instrumentationStatus: latencySummary.sampleCount ? "sampled" : "not_instrumented", unit: "operations", source: "redis.controlled_sampler.threshold", updatedAt, note: `Aproximación barata: operaciones muestreadas >= ${SLOW_OPERATION_THRESHOLD_MS}ms; no usa SLOWLOG para evitar payload/overhead.` }),
     },
     expansion: {
       redisMemory: {
@@ -485,14 +607,19 @@ function buildMetricsResponse({ redis, bullmq, previousSnapshot, persisted }) {
         expiredKeys: metric({ value: redis?.stats?.expired_keys ?? null, unit: "keys", instrumentationStatus: redis?.stats ? "live" : "not_instrumented", source: "redis.info.stats.expired_keys", updatedAt }),
       },
       ttlDistribution: metric({ instrumentationStatus: "not_instrumented", source: "redis.scan.ttl", updatedAt, note: "Requiere muestreo SCAN/TTL controlado por namespace." }),
-      retryRate: metric({ value: retryCount, unit: "attempts", instrumentationStatus: bullmq ? "sampled" : "not_instrumented", source: "bullmq.recent_jobs.attemptsMade", updatedAt }),
-      throughput24h: metric({ instrumentationStatus: "proposed", unit: "ops/hour", source: "postgres.operational_metric_snapshots.hour", window: "24h", updatedAt, note: "La tabla permite buckets horarios; falta job de rollup/retención." }),
+      retryRate: metric({ value: retryRate, unit: "percent", instrumentationStatus: retryRate === null ? "sampled" : "derived", source: "postgres.operational_metric_snapshots.rollup", updatedAt, note: `Numerador ${retryNumerator}; denominador ${retryDenominator}.` }),
+      throughput24h: metric({ value: hourlySeries.length ? hourlySeries.reduce((sum, point) => sum + Number(point.redisCommandsPerMinute || 0), 0) : null, instrumentationStatus: hourlySeries.length >= 2 ? "derived" : "sampled", unit: "ops/min cumulative", source: "postgres.operational_metric_snapshots.hour", window: "24h", updatedAt, note: hourlySeries.length >= 2 ? `${hourlySeries.length} buckets horarios disponibles.` : "Historia insuficiente tras deploy; se requieren buckets horarios para 24h real." }),
       perOrganization: metric({ instrumentationStatus: "not_instrumented", source: "logto_organization_id_attribution", updatedAt, note: "No hay atribución confiable por logto_organization_id para operaciones Redis/cache." }),
       alerts: metric({ instrumentationStatus: "proposed", source: "civitas.alert_rules", updatedAt, note: "Umbrales propuestos: miss > 20%, p99 > 10ms, failed jobs > 0." }),
     },
+    series: {
+      last8: minuteSeries,
+      throughput24h: hourlySeries.slice(-24),
+      rollup,
+    },
     raw: {
-      redis: { stats: redis?.stats || null, memory: redis?.memory || null },
-      bullmq,
+      redis: { stats: redis?.stats || null, memory: redis?.memory || null, latencySamples: redis?.latencySamples || [] },
+      bullmq: { ...bullmq, retryNumerator, retryDenominator },
     },
   };
 }
@@ -500,10 +627,11 @@ function buildMetricsResponse({ redis, bullmq, previousSnapshot, persisted }) {
 async function loadOwnerSystemMetrics() {
   const redisUrl = getRedisUrl({ required: false });
   const updatedAt = new Date();
-  const previousSnapshots = await readRecentOperationalSnapshots(1);
+  const previousSnapshots = await readRecentOperationalSnapshots(16);
+  const hourlyRollups = await readRecentOperationalSnapshots(24, { bucket: "hour", source: "redis_bullmq_rollup" });
 
   if (!redisUrl) {
-    const response = buildMetricsResponse({ redis: { updatedAt: updatedAt.toISOString(), errors: { stats: "REDIS_URL no configurado.", memory: "REDIS_URL no configurado." } }, bullmq: null, previousSnapshot: previousSnapshots[0], persisted: null });
+    const response = buildMetricsResponse({ redis: { updatedAt: updatedAt.toISOString(), errors: { stats: "REDIS_URL no configurado.", memory: "REDIS_URL no configurado." } }, bullmq: null, previousSnapshot: previousSnapshots[0], persisted: null, minuteSnapshots: previousSnapshots, hourlyRollups });
     response.status = "degraded";
     response.note = "REDIS_URL no está configurado; métricas Redis/BullMQ no disponibles.";
     return response;
@@ -518,16 +646,19 @@ async function loadOwnerSystemMetrics() {
       bucketStartedAt: toMinuteBucket(updatedAt),
       source: "redis_bullmq",
       metrics: {
-        redis: { stats: redis.stats || {}, memory: redis.memory || {}, pingLatencyMs: redis.ping.latencyMs },
+        redis: { stats: redis.stats || {}, memory: redis.memory || {}, pingLatencyMs: redis.ping.latencyMs, latencySamples: redis.latencySamples || [] },
         bullmq,
       },
     };
     const persisted = await persistOperationalSnapshot(snapshot);
-    const response = buildMetricsResponse({ redis, bullmq, previousSnapshot: previousSnapshots[0], persisted });
+    const rollup = await runOperationalMetricsRollup({ now: updatedAt });
+    const refreshedMinutes = persisted ? [persisted, ...previousSnapshots] : previousSnapshots;
+    const refreshedHours = await readRecentOperationalSnapshots(24, { bucket: "hour", source: "redis_bullmq_rollup" });
+    const response = buildMetricsResponse({ redis, bullmq, previousSnapshot: previousSnapshots[0], persisted, minuteSnapshots: refreshedMinutes, hourlyRollups: refreshedHours, rollup });
     response.status = "ok";
     return response;
   } catch (error) {
-    const response = buildMetricsResponse({ redis: { updatedAt: updatedAt.toISOString(), errors: { stats: safeMessage(error), memory: safeMessage(error) } }, bullmq: null, previousSnapshot: previousSnapshots[0], persisted: null });
+    const response = buildMetricsResponse({ redis: { updatedAt: updatedAt.toISOString(), errors: { stats: safeMessage(error), memory: safeMessage(error) } }, bullmq: null, previousSnapshot: previousSnapshots[0], persisted: null, minuteSnapshots: previousSnapshots, hourlyRollups });
     response.status = "degraded";
     response.note = safeMessage(error, "No se pudieron recolectar métricas Redis/BullMQ.");
     return response;
@@ -554,6 +685,10 @@ module.exports = {
   buildOperationsSummary,
   classifyTechnicalHealth,
   getWorkerHealthSnapshot,
+  aggregateSnapshotsToBucket,
+  buildThroughputSeriesFromSnapshots,
+  runOperationalMetricsRollup,
+  summarizeLatencySamples,
   buildMetricsResponse,
   deriveHitMissRatio,
   loadOperationsSummary,
