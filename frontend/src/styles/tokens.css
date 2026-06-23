@@ -4,17 +4,53 @@
   --lss-accent: #3cadf1;
   --lss-strong: #2259f2;
   --lss-yellow: #f3b723;
+  --lss-yellow-strong: #ed9e1b;
   --lss-yellow-text: #7a4a05;
 
   --lss-text: #031c44;
   --lss-text-muted: #556080;
+  --lss-text-soft: #5d7396;
   --lss-text-hint: #8b9ab8;
+  --lss-text-on-dark: #e8ebf4;
 
   --lss-bg: #f3f4f6;
   --lss-surface: #fafbfd;
+  --lss-surface-soft: #f8fbff;
+  --lss-surface-soft-2: #eef5ff;
   --lss-white: #ffffff;
   --lss-border: rgba(3, 28, 68, 0.08);
   --lss-border-mid: rgba(3, 28, 68, 0.14);
+  --lss-border-strong: #c9d7e8;
+
+  --lss-success-text: #12643a;
+  --lss-success-bg: rgba(25, 132, 238, 0.12);
+  --lss-success-border: rgba(25, 132, 238, 0.18);
+  --lss-danger-text: #8f2633;
+  --lss-danger-strong: #a3303f;
+  --lss-danger-bg: rgba(220, 53, 69, 0.1);
+  --lss-danger-border: rgba(220, 53, 69, 0.18);
+  --lss-neutral-text: #415574;
+  --lss-neutral-bg: rgba(85, 96, 128, 0.1);
+  --lss-neutral-border: rgba(85, 96, 128, 0.12);
+  --lss-info-bg: rgba(25, 132, 238, 0.1);
+  --lss-info-border: rgba(25, 132, 238, 0.18);
+
+  --lss-overlay-primary-08: rgba(25, 132, 238, 0.08);
+  --lss-overlay-primary-10: rgba(25, 132, 238, 0.1);
+  --lss-overlay-primary-12: rgba(25, 132, 238, 0.12);
+  --lss-overlay-primary-14: rgba(25, 132, 238, 0.14);
+  --lss-overlay-primary-16: rgba(25, 132, 238, 0.16);
+  --lss-overlay-warning-10: rgba(243, 183, 35, 0.1);
+  --lss-overlay-warning-18: rgba(243, 183, 35, 0.18);
+  --lss-overlay-warning-20: rgba(243, 183, 35, 0.2);
+  --lss-overlay-warning-28: rgba(243, 183, 35, 0.28);
+
+  --lss-shadow-sm: 0 10px 28px rgba(3, 28, 68, 0.05);
+  --lss-shadow-md: 0 12px 30px rgba(3, 28, 68, 0.05);
+  --lss-shadow-lg: 0 18px 45px rgba(3, 28, 68, 0.08);
+  --lss-shadow-dark: 0 20px 48px rgba(0, 0, 0, 0.28);
+  --lss-gradient-surface: linear-gradient(180deg, var(--lss-white) 0%, var(--lss-surface) 100%);
+  --lss-gradient-soft: linear-gradient(180deg, var(--lss-surface-soft) 0%, var(--lss-surface-soft-2) 100%);
 
   --sp-1: 4px;
   --sp-2: 8px;
@@ -26,23 +62,68 @@
   --r-sm: 6px;
   --r-md: 8px;
   --r-lg: 12px;
+  --r-xl: 20px;
 
-  --bs-primary: #1984ee;
-  --bs-body-color: #031c44;
-  --bs-body-bg: #f3f4f6;
-  --bs-border-radius: 8px;
+  --bs-primary: var(--lss-primary);
+  --bs-body-color: var(--lss-text);
+  --bs-body-bg: var(--lss-bg);
+  --bs-border-radius: var(--r-md);
+
+  --civitas-primary: var(--lss-primary);
+  --civitas-primary-mid: var(--lss-primary-hover);
+  --civitas-primary-soft: var(--lss-overlay-primary-16);
+  --civitas-primary-hover: var(--lss-yellow);
+  --civitas-accent-light: var(--lss-accent);
+  --civitas-accent-strong: var(--lss-strong);
+  --civitas-warning: var(--lss-yellow);
+  --civitas-warning-strong: var(--lss-yellow-strong);
+  --civitas-text: var(--lss-text);
+  --civitas-muted: var(--lss-text-soft);
+  --civitas-bg: var(--lss-bg);
+  --civitas-surface: var(--lss-surface);
+  --civitas-surface-contrast: var(--lss-white);
+  --civitas-border: #dbe5f0;
+  --civitas-border-strong: var(--lss-border-strong);
+  --civitas-shadow: var(--lss-shadow-lg);
+  --civitas-radius: var(--r-xl);
+  --civitas-sidebar-width: 292px;
+  --civitas-json-bg: var(--lss-gradient-soft);
+  --civitas-json-text: #17315c;
 }
 
 [data-theme="dark"],
 [data-bs-theme="dark"],
 .theme-dark,
 body.theme-dark {
+  --lss-primary: #4b9ef1;
+  --lss-primary-hover: #f3b723;
+  --lss-accent: #93c4f7;
   --lss-bg: #0a0f1e;
   --lss-surface: #141c33;
+  --lss-surface-soft: #102748;
+  --lss-surface-soft-2: #0d2240;
   --lss-white: #0f1628;
   --lss-text: #e8ebf4;
-  --lss-accent: #93c4f7;
+  --lss-text-muted: rgba(232, 239, 250, 0.72);
+  --lss-text-soft: rgba(232, 239, 250, 0.72);
   --lss-border: rgba(255, 255, 255, 0.06);
   --lss-border-mid: rgba(255, 255, 255, 0.12);
+  --lss-border-strong: rgba(255, 255, 255, 0.16);
   --lss-yellow-text: #fad97a;
+  --lss-gradient-surface: linear-gradient(180deg, rgba(16, 39, 72, 0.96) 0%, rgba(14, 33, 60, 0.96) 100%);
+  --lss-gradient-soft: linear-gradient(180deg, #102748 0%, #0d2240 100%);
+
+  --civitas-primary: var(--lss-primary);
+  --civitas-primary-soft: var(--lss-overlay-primary-16);
+  --civitas-primary-hover: var(--lss-yellow);
+  --civitas-text: var(--lss-text);
+  --civitas-muted: var(--lss-text-muted);
+  --civitas-bg: #08172f;
+  --civitas-surface: #102748;
+  --civitas-surface-contrast: #102748;
+  --civitas-border: rgba(255, 255, 255, 0.1);
+  --civitas-border-strong: var(--lss-border-strong);
+  --civitas-shadow: var(--lss-shadow-dark);
+  --civitas-json-bg: #071426;
+  --civitas-json-text: #d8e8ff;
 }
