@@ -1,10 +1,16 @@
-import { Badge, Button, ListGroup } from "react-bootstrap";
+import "./OwnerSystemPage.css";
+
+import { Button, ListGroup } from "react-bootstrap";
 import { useOwnerApi, type OwnerIntegrationHealthCheck } from "../api/owner";
 import { useStableResource } from "../shared/hooks/useStableResource";
 import { DataTable, ErrorState, LoadingState, PageCard, PageShell, StatusBadge } from "../shared/ui";
 
-const badgeVariant = (check: OwnerIntegrationHealthCheck) =>
-  check.severity === "success" ? "success" : check.severity === "danger" ? "danger" : check.severity === "secondary" ? "secondary" : "warning";
+const integrationTone = (check: OwnerIntegrationHealthCheck) => {
+  if (check.severity === "success") return "success" as const;
+  if (check.severity === "danger") return "danger" as const;
+  if (check.severity === "secondary") return "neutral" as const;
+  return "warning" as const;
+};
 
 const statusTone = (status: string) => {
   if (["ok", "ready"].includes(status)) return "success" as const;
@@ -41,14 +47,14 @@ export function OwnerSystemPage() {
       title="Salud técnica e integraciones"
       description="Checks permanentes para Logto, Redis/BullMQ, FluentCRM, WordPress y el camino preparado para Moodle. Estos checks viven fuera del wizard de crear organización."
       actions={
-        <>
-          <Button size="sm" variant="outline-primary" onClick={integrationsResource.retry}>
+        <div className="owner-system-page__toolbar">
+          <Button size="sm" variant="outline-primary" className="owner-system-page__toolbar-button" onClick={integrationsResource.retry}>
             Verificar conexión CRM
           </Button>
-          <Button size="sm" variant="outline-secondary" onClick={retryAll}>
+          <Button size="sm" variant="outline-secondary" className="owner-system-page__toolbar-button" onClick={retryAll}>
             Revisar todo
           </Button>
-        </>
+        </div>
       }
       className="owner-system-page"
     >
@@ -69,20 +75,20 @@ export function OwnerSystemPage() {
                   <div className="col-12 col-xl-6" key={check.key}>
                     <div className="owner-system-page__check-card h-100">
                       <div className="d-flex justify-content-between gap-3 align-items-start">
-                        <div>
-                          <h3 className="h6 mb-1">{check.label}</h3>
-                          <div className="small text-secondary">
+                        <div className="owner-system-page__integration-copy">
+                          <h3 className="owner-system-page__integration-title mb-1">{check.label}</h3>
+                          <div className="owner-system-page__integration-meta">
                             {check.system}
                             {check.required === false ? " · opcional/futuro" : " · requerido"}
                           </div>
                         </div>
-                        <Badge bg={badgeVariant(check)} className="text-lowercase owner-system-page__status-pill">
+                        <StatusBadge tone={integrationTone(check)} className="owner-system-page__status-pill">
                           {check.status}
-                        </Badge>
+                        </StatusBadge>
                       </div>
 
-                      <p className="small mb-0 mt-3">{check.message}</p>
-                      {check.nextAction ? <div className="small text-secondary mt-3">Acción: {check.nextAction}</div> : null}
+                      <p className="owner-system-page__integration-message">{check.message}</p>
+                      {check.nextAction ? <div className="owner-system-page__integration-action">Acción: {check.nextAction}</div> : null}
                     </div>
                   </div>
                 ))}
@@ -96,18 +102,18 @@ export function OwnerSystemPage() {
             <div className="col-12 col-xl-4">
               <PageCard title="Readiness operacional" className="owner-system-page__compact-card owner-system-page__readiness-card">
                 <ListGroup variant="flush" className="owner-system-page__readiness-list">
-                  <ListGroup.Item className="d-flex justify-content-between px-0 align-items-center">
-                    <span>Worker</span>
+                  <ListGroup.Item className="owner-system-page__readiness-row d-flex justify-content-between px-0 align-items-center">
+                    <span className="owner-system-page__readiness-label">Worker</span>
                     <StatusBadge tone={workerHealth.worker.heartbeatStale ? "warning" : "success"}>
                       {workerHealth.worker.heartbeatStale ? "heartbeat stale" : "heartbeat ok"}
                     </StatusBadge>
                   </ListGroup.Item>
-                  <ListGroup.Item className="d-flex justify-content-between px-0 align-items-center">
-                    <span>Redis</span>
+                  <ListGroup.Item className="owner-system-page__readiness-row d-flex justify-content-between px-0 align-items-center">
+                    <span className="owner-system-page__readiness-label">Redis</span>
                     <StatusBadge tone={statusTone(workerHealth.redis.status)}>{workerHealth.redis.status}</StatusBadge>
                   </ListGroup.Item>
-                  <ListGroup.Item className="d-flex justify-content-between px-0 align-items-center">
-                    <span>Readiness</span>
+                  <ListGroup.Item className="owner-system-page__readiness-row d-flex justify-content-between px-0 align-items-center">
+                    <span className="owner-system-page__readiness-label">Readiness</span>
                     <StatusBadge tone={statusTone(workerHealth.readiness)}>{workerHealth.readiness}</StatusBadge>
                   </ListGroup.Item>
                 </ListGroup>
@@ -120,12 +126,12 @@ export function OwnerSystemPage() {
                   rows={workerHealth.queues}
                   getRowKey={(row) => row.name}
                   columns={[
-                    { key: "name", header: "Cola", render: (row) => row.name },
-                    { key: "waiting", header: "Waiting", render: (row) => row.waiting },
-                    { key: "active", header: "Active", render: (row) => row.active },
-                    { key: "delayed", header: "Delayed", render: (row) => row.delayed },
-                    { key: "failed", header: "Failed", render: (row) => row.failed },
-                    { key: "oldest", header: "Oldest job age", render: (row) => `${row.oldestJobAgeSeconds}s` },
+                    { key: "name", header: "Cola", className: "owner-system-page__queue-col owner-system-page__queue-col--name", render: (row) => row.name },
+                    { key: "waiting", header: "Waiting", className: "owner-system-page__queue-col", render: (row) => row.waiting },
+                    { key: "active", header: "Active", className: "owner-system-page__queue-col", render: (row) => row.active },
+                    { key: "delayed", header: "Delayed", className: "owner-system-page__queue-col", render: (row) => row.delayed },
+                    { key: "failed", header: "Failed", className: "owner-system-page__queue-col", render: (row) => row.failed },
+                    { key: "oldest", header: "Oldest job age", className: "owner-system-page__queue-col owner-system-page__queue-col--age", render: (row) => `${row.oldestJobAgeSeconds}s` },
                   ]}
                 />
               </PageCard>
