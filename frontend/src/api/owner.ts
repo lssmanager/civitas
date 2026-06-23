@@ -63,6 +63,21 @@ export type OwnerWorkerHealth = {
 export type OwnerIntegrationHealthCheck = { key: string; label: string; system: string; required?: boolean; status: string; severity: string; message: string; checkedAt: string; details?: Record<string, unknown> | null; nextAction?: string | null };
 export type OwnerIntegrationsHealth = { checkedAt: string; status: string; checks: OwnerIntegrationHealthCheck[] };
 
+export type OwnerInstrumentationStatus = "live" | "sampled" | "derived" | "not_instrumented" | "proposed" | string;
+export type OwnerSystemMetric = { value: number | string | null; unit: string; instrumentationStatus: OwnerInstrumentationStatus; source: string; window: string; updatedAt: string; note?: string };
+export type OwnerSystemMetricsResponse = {
+  checkedAt: string;
+  status: string;
+  note?: string;
+  persistence: { status: string; source: string; note: string };
+  cacheAnalytics: { hitMissRatio: OwnerSystemMetric; hits: OwnerSystemMetric; misses: OwnerSystemMetric; prefetchHit: OwnerSystemMetric; coldMiss: OwnerSystemMetric; stale: OwnerSystemMetric };
+  latencyAndTiming: { pingLatency: OwnerSystemMetric; avg: OwnerSystemMetric; p95: OwnerSystemMetric; p99: OwnerSystemMetric };
+  bytesAndSerialization: { avgKeySize: OwnerSystemMetric; rawVsCompressed: OwnerSystemMetric; compressionRatio: OwnerSystemMetric };
+  callsAndThroughput: { redisCommandsProcessed: OwnerSystemMetric; redisCommandsPerMinute: OwnerSystemMetric; bullmqJobsPerMinute: OwnerSystemMetric; totalBullmqCompleted: OwnerSystemMetric };
+  debugAndLogging: { redisOps: OwnerSystemMetric; bullmqJobs: OwnerSystemMetric; failedJobs: OwnerSystemMetric; retryRate: OwnerSystemMetric; slowQueries: OwnerSystemMetric };
+  expansion: { redisMemory: { usedMemory: OwnerSystemMetric; usedMemoryPeak: OwnerSystemMetric; evictedKeys: OwnerSystemMetric; expiredKeys: OwnerSystemMetric }; ttlDistribution: OwnerSystemMetric; retryRate: OwnerSystemMetric; throughput24h: OwnerSystemMetric; perOrganization: OwnerSystemMetric; alerts: OwnerSystemMetric };
+};
+
 export type OwnerPendingSync = { id: string; operationId: string; organizationId: string | null; organizationName: string | null; type: string; affectedSystem: string; status: string; retryable: boolean; lastError: string; suggestedAction: string; };
 export type OwnerOrganizationEvent = { id: string; at: string | null; type: string; result: string; stage: string; message: string; requiresAction: boolean; retryOperationId: string | null };
 export type OwnerOrganizationProfileResponse = {
@@ -280,6 +295,7 @@ export const useOwnerApi = () => {
       getOperationsSummary: async (): Promise<OwnerOperationsSummary> => fetchWithToken("/owner/operations/summary"),
       getWorkerHealth: async (): Promise<OwnerWorkerHealth> => fetchWithToken("/owner/system/worker-health"),
       getIntegrationsHealth: async (): Promise<OwnerIntegrationsHealth> => fetchWithToken("/owner/system/integrations-health"),
+      getSystemMetrics: async (): Promise<OwnerSystemMetricsResponse> => fetchWithToken("/owner/system/metrics"),
       getOrganizationProfile: async (organizationId: string): Promise<OwnerOrganizationProfileResponse> =>
         fetchWithToken(`/owner/organizations/${encodeURIComponent(organizationId)}/profile`),
       updateOrganizationProfile: async (organizationId: string, data: Record<string, unknown>): Promise<{ status: string; organization: OwnerOrganization; syncOperation: Record<string, unknown> }> =>
