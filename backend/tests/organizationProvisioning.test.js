@@ -71,12 +71,16 @@ test("organization provisioning builds administrative contact name from first an
     ...basePayload,
     baseAdmin: { firstName: "Admin", lastName: "Demo", email: "admin@school.edu", initialOrganizationRole: "Admin-org" },
     administrativeContacts: [
-      { kind: "director", firstName: "Ana", lastName: "Directora", email: "ana@school.edu", organizationRoleName: "Admin-org" },
+      { kind: "director", firstName: "Ana", middleName: "María", firstSurname: "Pérez", secondSurname: "Gómez", email: "ana@school.edu", organizationRoleName: "Admin-org" },
     ],
   });
 
   assert.equal(result.errors.length, 0);
-  assert.equal(result.value.administrativeContacts[0].name, "Ana Directora");
+  assert.equal(result.value.administrativeContacts[0].name, "Ana María Pérez Gómez");
+  assert.equal(result.value.administrativeContacts[0].firstName, "Ana");
+  assert.equal(result.value.administrativeContacts[0].middleName, "María");
+  assert.equal(result.value.administrativeContacts[0].firstSurname, "Pérez");
+  assert.equal(result.value.administrativeContacts[0].secondSurname, "Gómez");
   assert.equal(result.value.administrativeContacts[0].username, "ana");
 });
 

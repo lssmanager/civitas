@@ -35,11 +35,25 @@ const normalizeAdministrativeContacts = (value, institutionalDomain = null) => {
     return normalized;
   };
   return value
-    .map((contact, index) => ({
+    .map((contact, index) => {
+      const primerNombre = emptyToNull(contact?.firstName) || emptyToNull(contact?.primerNombre);
+      const segundoNombre = emptyToNull(contact?.middleName) || emptyToNull(contact?.segundoNombre);
+      const primerApellido = emptyToNull(contact?.firstSurname) || emptyToNull(contact?.primerApellido) || emptyToNull(contact?.lastName);
+      const segundoApellido = emptyToNull(contact?.secondSurname) || emptyToNull(contact?.segundoApellido);
+      const firstName = [primerNombre, segundoNombre].filter(Boolean).join(" ") || null;
+      const lastName = [primerApellido, segundoApellido].filter(Boolean).join(" ") || null;
+      return {
       key: typeof (contact?.key ?? contact?.kind) === "string" && (contact.key ?? contact.kind).trim() ? (contact.key ?? contact.kind).trim() : `administrative_contact_${index + 1}`,
-      firstName: emptyToNull(contact?.firstName),
-      lastName: emptyToNull(contact?.lastName),
-      name: emptyToNull(contact?.name) || [emptyToNull(contact?.firstName), emptyToNull(contact?.lastName)].filter(Boolean).join(" ") || null,
+      primerNombre,
+      segundoNombre,
+      primerApellido,
+      segundoApellido,
+      firstName: primerNombre,
+      middleName: segundoNombre,
+      firstSurname: primerApellido,
+      secondSurname: segundoApellido,
+      lastName,
+      name: emptyToNull(contact?.name) || [primerNombre, segundoNombre, primerApellido, segundoApellido].filter(Boolean).join(" ") || [firstName, lastName].filter(Boolean).join(" ") || null,
       email: normalizeContactEmail(contact?.email),
       rawEmail: emptyToNull(contact?.email)?.toLowerCase() || null,
       phone: emptyToNull(contact?.phone),
@@ -48,7 +62,8 @@ const normalizeAdministrativeContacts = (value, institutionalDomain = null) => {
       position: emptyToNull(contact?.position ?? contact?.cargo),
       organizationRoleName: emptyToNull(contact?.organizationRoleName),
       username: emptyToNull(contact?.username) || buildLogtoUsername({ email: normalizeContactEmail(contact?.email) }),
-    }))
+    };
+    })
     .filter((contact) => contact.name || contact.email || contact.phone || contact.position);
 };
 const looksLikeRoleName = (value) => typeof value === "string" && value.trim().length > 0;

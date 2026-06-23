@@ -14,7 +14,14 @@ export function OwnerSystemPage() {
 
   return (
     <PageShell eyebrow="Owner / sistema" title="Salud técnica e integraciones" description="Checks permanentes para Logto, Redis/BullMQ, FluentCRM, WordPress y el camino preparado para Moodle. Estos checks viven fuera del wizard de crear organización.">
-      <div className="d-flex justify-content-end mb-3"><Button size="sm" variant="outline-primary" onClick={retryAll}>Revisar ahora</Button></div>
+      <div className="d-flex flex-wrap justify-content-end gap-2 mb-3">
+        <Button size="sm" variant="outline-primary" onClick={integrationsResource.retry}>
+          Verificar conexión CRM
+        </Button>
+        <Button size="sm" variant="outline-secondary" onClick={retryAll}>
+          Revisar todo
+        </Button>
+      </div>
       {workerResource.isLoading || integrationsResource.isLoading ? <LoadingState title="Cargando salud técnica" description="Consultando worker, colas e integraciones." /> : null}
       {workerResource.error ? <ErrorState title="No se pudo cargar worker health" message={workerResource.error} action={<Button onClick={workerResource.retry}>Reintentar worker</Button>} /> : null}
       {integrationsResource.error ? <ErrorState title="No se pudieron cargar integraciones" message={integrationsResource.error} action={<Button onClick={integrationsResource.retry}>Reintentar integraciones</Button>} /> : null}

@@ -18,8 +18,10 @@ type AdministrativeContactKey = `responsible${number}`;
 type AdministrativeContact = {
   key: AdministrativeContactKey;
   label: string;
-  firstName: string;
-  lastName: string;
+  primerNombre: string;
+  segundoNombre: string;
+  primerApellido: string;
+  segundoApellido: string;
   email: string;
   phoneCountryCode: string;
   phoneNationalNumber: string;
@@ -116,6 +118,41 @@ const FLUENTCRM_LIKELY_CAUSE_LABELS: Record<string, string> = {
     "La ruta /wp-json/fluent-crm/v2 no está respondiendo como debería.",
 };
 
+const createAdministrativeContact = (index: number, phoneCountryCode = ""): AdministrativeContact => ({
+  key: `responsible${index}` as AdministrativeContactKey,
+  label: `Usuario ${index}`,
+  primerNombre: "",
+  segundoNombre: "",
+  primerApellido: "",
+  segundoApellido: "",
+  email: "",
+  phoneCountryCode,
+  phoneNationalNumber: "",
+  phoneExtension: "",
+  position: "",
+  organizationRoleName: ORGANIZATION_BOOTSTRAP_ADMIN_ROLE,
+});
+
+const ensureMinimumAdministrativeContact = (
+  contacts: AdministrativeContact[],
+  phoneCountryCode = "",
+) => {
+  const source = contacts.length ? contacts : [createAdministrativeContact(1, phoneCountryCode)];
+  return source.map((contact, index) => {
+    const legacy = contact as unknown as { firstName?: string; lastName?: string };
+    return {
+      ...createAdministrativeContact(index + 1, phoneCountryCode),
+      ...contact,
+      key: `responsible${index + 1}` as AdministrativeContactKey,
+      label: `Usuario ${index + 1}`,
+      primerNombre: contact.primerNombre ?? legacy.firstName ?? "",
+      segundoNombre: contact.segundoNombre ?? "",
+      primerApellido: contact.primerApellido ?? legacy.lastName ?? "",
+      segundoApellido: contact.segundoApellido ?? "",
+    };
+  });
+};
+
 const initialFormData: OwnerOrganizationFormData = {
   name: "",
   slug: "",
@@ -153,7 +190,7 @@ const initialFormData: OwnerOrganizationFormData = {
     tags: [],
     lists: [],
   },
-  administrativeContacts: [],
+  administrativeContacts: [createAdministrativeContact(1)],
 };
 
 const initialDirty: DirtyState = {
@@ -328,8 +365,10 @@ export function OwnerOrganizationsPage() {
   const effectiveCompanyOwner =
     formData.crm.companyOwner.trim() ||
     [
-      formData.administrativeContacts[0]?.firstName,
-      formData.administrativeContacts[0]?.lastName,
+      formData.administrativeContacts[0]?.primerNombre,
+      formData.administrativeContacts[0]?.segundoNombre,
+      formData.administrativeContacts[0]?.primerApellido,
+      formData.administrativeContacts[0]?.segundoApellido,
     ]
       .map((value) => value?.trim() || "")
       .filter(Boolean)
@@ -407,7 +446,13 @@ export function OwnerOrganizationsPage() {
 
   const restoreDraft = () => {
     if (!draftSnapshot) return;
-    setFormData(draftSnapshot.formData);
+    setFormData({
+      ...draftSnapshot.formData,
+      administrativeContacts: ensureMinimumAdministrativeContact(
+        draftSnapshot.formData.administrativeContacts,
+        defaultCallingCode,
+      ),
+    });
     setDirty(draftSnapshot.dirty);
     setCurrentStep(draftSnapshot.currentStep);
     setDraftSnapshot(null);
@@ -499,8 +544,10 @@ export function OwnerOrganizationsPage() {
   const updateAdministrativeContact = (
     key: AdministrativeContactKey,
     field:
-      | "firstName"
-      | "lastName"
+      | "primerNombre"
+      | "segundoNombre"
+      | "primerApellido"
+      | "segundoApellido"
       | "email"
       | "phoneCountryCode"
       | "phoneNationalNumber"
@@ -526,21 +573,21 @@ export function OwnerOrganizationsPage() {
         ...current,
         administrativeContacts: [
           ...current.administrativeContacts,
-          {
-            key: `responsible${nextIndex}`,
-            label: `Usuario ${nextIndex}`,
-            firstName: "",
-            lastName: "",
-            email: "",
-            phoneCountryCode: defaultCallingCode,
-            phoneNationalNumber: "",
-            phoneExtension: "",
-            position: "",
-            organizationRoleName: ORGANIZATION_BOOTSTRAP_ADMIN_ROLE,
-          },
+          createAdministrativeContact(nextIndex, defaultCallingCode),
         ],
       };
     });
+  };
+
+  const removeAdministrativeContact = (key: AdministrativeContactKey) => {
+    setStepError(null);
+    setFormData((current) => ({
+      ...current,
+      administrativeContacts: ensureMinimumAdministrativeContact(
+        current.administrativeContacts.filter((contact) => contact.key !== key),
+        defaultCallingCode,
+      ),
+    }));
   };
 
   const addCollectionValue = (collection: "tags" | "lists", value: string) => {
@@ -607,23 +654,27 @@ export function OwnerOrganizationsPage() {
 
   const getAdministrativeContactValidationError = () => {
     const seen = new Map<string, { name: string; role: string; position: string }>();
+    let completeContacts = 0;
     for (const contact of formData.administrativeContacts) {
-      const fullName = [contact.firstName, contact.lastName]
+      const fullName = [contact.primerNombre, contact.segundoNombre, contact.primerApellido, contact.segundoApellido]
         .map((value) => value.trim())
         .filter(Boolean)
         .join(" ");
       const email = contact.email.trim().toLowerCase();
       const hasAnyInput = Boolean(
-        contact.firstName.trim() ||
-          contact.lastName.trim() ||
+        contact.primerNombre.trim() ||
+          contact.segundoNombre.trim() ||
+          contact.primerApellido.trim() ||
+          contact.segundoApellido.trim() ||
           contact.email.trim() ||
           contact.phoneNationalNumber.trim() ||
           contact.position.trim(),
       );
       if (!hasAnyInput) continue;
-      if (!fullName || !email || !contact.organizationRoleName.trim()) {
-        return `${contact.label}: completa nombres, apellidos, correo y rol Logto, o deja el bloque vacío.`;
+      if (!contact.primerNombre.trim() || !contact.primerApellido.trim() || !email || !contact.organizationRoleName.trim()) {
+        return `${contact.label}: completa Nombre 1, Apellido 1, correo y rol Logto.`;
       }
+      completeContacts += 1;
       if (
         contact.phoneNationalNumber.trim() &&
         !normalizePhoneForSubmission(
@@ -647,6 +698,9 @@ export function OwnerOrganizationsPage() {
           : `El correo ${contact.email} está repetido en contactos administrativos.`;
       }
       seen.set(email, current);
+    }
+    if (completeContacts === 0) {
+      return "Crea al menos 1 usuario con Nombre 1, Apellido 1, correo y rol Logto antes de continuar.";
     }
     return null;
   };
@@ -689,7 +743,7 @@ export function OwnerOrganizationsPage() {
   const getAdministrativeContactsPayload = () =>
     formData.administrativeContacts
       .map((contact) => {
-        const fullName = [contact.firstName, contact.lastName]
+        const fullName = [contact.primerNombre, contact.segundoNombre, contact.primerApellido, contact.segundoApellido]
           .map((value) => value.trim())
           .filter(Boolean)
           .join(" ");
@@ -700,8 +754,14 @@ export function OwnerOrganizationsPage() {
         if (!hasAnyInput) return null;
         return {
           kind: contact.key,
-          firstName: contact.firstName.trim() || undefined,
-          lastName: contact.lastName.trim() || undefined,
+          firstName: contact.primerNombre.trim() || undefined,
+          middleName: contact.segundoNombre.trim() || undefined,
+          firstSurname: contact.primerApellido.trim() || undefined,
+          secondSurname: contact.segundoApellido.trim() || undefined,
+          primerNombre: contact.primerNombre.trim() || undefined,
+          segundoNombre: contact.segundoNombre.trim() || undefined,
+          primerApellido: contact.primerApellido.trim() || undefined,
+          segundoApellido: contact.segundoApellido.trim() || undefined,
           name: fullName,
           email,
           phone:
@@ -1132,7 +1192,7 @@ export function OwnerOrganizationsPage() {
         <div className="d-flex flex-column gap-1">
           <h3 className="h5 mb-0">Roles y contactos</h3>
           <p className="text-secondary mb-0">
-            Contactos adicionales y settings globales. Los administradores se crean desde Añadir usuario.
+            Contactos adicionales y settings globales. El primer usuario es obligatorio; los demás se agregan al final del último card.
           </p>
         </div>
         <div className="small text-secondary text-xl-end">
@@ -1140,24 +1200,76 @@ export function OwnerOrganizationsPage() {
         </div>
       </div>
       <div className="border rounded-3 p-3 d-flex flex-column gap-3 bg-light bg-opacity-50">
-        <div className="d-flex justify-content-between align-items-center gap-3">
-          <h4 className="h6 mb-0">Roles y usuarios adicionales</h4>
-          <Button type="button" variant="outline-primary" size="sm" onClick={addAdministrativeContact}>
-            Añadir usuario
-          </Button>
+        <div>
+          <h4 className="h6 mb-0">Creación de usuarios</h4>
+          <div className="small text-secondary">Mínimo 1 usuario requerido; agrega los siguientes desde el último card y elimina cualquier adicional con la papelera.</div>
         </div>
         <div className="d-flex flex-column gap-3">
           {formData.administrativeContacts.length === 0 ? (
             <div className="small text-secondary">
-              Sin contactos adicionales. Crea administradores o miembros desde Añadir usuario.
+              Debes crear al menos 1 usuario. Usa el botón + para añadir más usuarios.
             </div>
           ) : null}
-          {formData.administrativeContacts.map((contact) => {
+          {formData.administrativeContacts.map((contact, index) => {
             const previewTag = deriveContactTag(contact.organizationRoleName);
+            const isLastContact = index === formData.administrativeContacts.length - 1;
+            const canRemoveContact = index > 0;
             return (
               <div key={contact.key} className="border rounded-3 p-3 bg-white d-flex flex-column gap-3">
                 <div className="d-flex flex-column flex-lg-row justify-content-between gap-2">
-                  <h5 className="h6 mb-0">{contact.label}</h5>
+                  <div className="d-flex align-items-center gap-2">
+                    <h5 className="h6 mb-0">{contact.label}</h5>
+                    {canRemoveContact ? (
+                      <button
+                        type="button"
+                        className="btn p-0 border-0 bg-transparent text-secondary d-inline-flex align-items-center justify-content-center"
+                        style={{ width: 18, height: 18 }}
+                        onClick={() => removeAdministrativeContact(contact.key)}
+                        aria-label={`Eliminar ${contact.label}`}
+                        title={`Eliminar ${contact.label}`}
+                      >
+                        <svg
+                          aria-hidden="true"
+                          viewBox="0 0 16 16"
+                          width="16"
+                          height="16"
+                          fill="none"
+                        >
+                          <path
+                            d="M2.5 4H13.5"
+                            stroke="currentColor"
+                            strokeWidth="1.25"
+                            strokeLinecap="round"
+                          />
+                          <path
+                            d="M6.5 2.5H9.5"
+                            stroke="currentColor"
+                            strokeWidth="1.25"
+                            strokeLinecap="round"
+                          />
+                          <path
+                            d="M4.5 4L5 12.5C5.03 13.05 5.49 13.5 6.04 13.5H9.96C10.51 13.5 10.97 13.05 11 12.5L11.5 4"
+                            stroke="currentColor"
+                            strokeWidth="1.25"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                          <path
+                            d="M6.5 6.5V11"
+                            stroke="currentColor"
+                            strokeWidth="1.25"
+                            strokeLinecap="round"
+                          />
+                          <path
+                            d="M9.5 6.5V11"
+                            stroke="currentColor"
+                            strokeWidth="1.25"
+                            strokeLinecap="round"
+                          />
+                        </svg>
+                      </button>
+                    ) : null}
+                  </div>
                   <div className="d-flex flex-wrap gap-3 small text-secondary">
                     <span>
                       Username Logto:
@@ -1179,20 +1291,38 @@ export function OwnerOrganizationsPage() {
                 </div>
                 <div className="row g-3">
                   <Form.Group className="col-12 col-xl-3">
-                    <Form.Label>Nombres</Form.Label>
+                    <Form.Label>Nombre 1</Form.Label>
                     <Form.Control
-                      value={contact.firstName}
+                      value={contact.primerNombre}
                       onChange={(event) =>
-                        updateAdministrativeContact(contact.key, "firstName", event.target.value)
+                        updateAdministrativeContact(contact.key, "primerNombre", event.target.value)
                       }
                     />
                   </Form.Group>
                   <Form.Group className="col-12 col-xl-3">
-                    <Form.Label>Apellidos</Form.Label>
+                    <Form.Label>Nombre 2</Form.Label>
                     <Form.Control
-                      value={contact.lastName}
+                      value={contact.segundoNombre}
                       onChange={(event) =>
-                        updateAdministrativeContact(contact.key, "lastName", event.target.value)
+                        updateAdministrativeContact(contact.key, "segundoNombre", event.target.value)
+                      }
+                    />
+                  </Form.Group>
+                  <Form.Group className="col-12 col-xl-3">
+                    <Form.Label>Apellido 1</Form.Label>
+                    <Form.Control
+                      value={contact.primerApellido}
+                      onChange={(event) =>
+                        updateAdministrativeContact(contact.key, "primerApellido", event.target.value)
+                      }
+                    />
+                  </Form.Group>
+                  <Form.Group className="col-12 col-xl-3">
+                    <Form.Label>Apellido 2</Form.Label>
+                    <Form.Control
+                      value={contact.segundoApellido}
+                      onChange={(event) =>
+                        updateAdministrativeContact(contact.key, "segundoApellido", event.target.value)
                       }
                     />
                   </Form.Group>
@@ -1275,6 +1405,22 @@ export function OwnerOrganizationsPage() {
                     </Form.Select>
                   </Form.Group>
                 </div>
+                {isLastContact ? (
+                  <div className="d-flex justify-content-end">
+                    <Button
+                      type="button"
+                      variant="outline-primary"
+                      size="sm"
+                      className="rounded-circle d-inline-flex align-items-center justify-content-center"
+                      style={{ width: 40, height: 40 }}
+                      onClick={addAdministrativeContact}
+                      aria-label="Añadir otro usuario"
+                      title="Añadir otro usuario"
+                    >
+                      +
+                    </Button>
+                  </div>
+                ) : null}
               </div>
             );
           })}
@@ -1384,7 +1530,7 @@ export function OwnerOrganizationsPage() {
                     <div className="fw-semibold">{contact.label}</div>
                     <div className="text-secondary">
                       {displayValue(
-                        [contact.firstName, contact.lastName]
+                        [contact.primerNombre, contact.segundoNombre, contact.primerApellido, contact.segundoApellido]
                           .map((value) => value.trim())
                           .filter(Boolean)
                           .join(" "),

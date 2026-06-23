@@ -409,11 +409,11 @@ async function runFluentCrmOrganizationStep({ logtoOrganization, logtoOrganizati
 }
 
 const getColombianNameFields = (user = {}) => {
-  const source = user.customData?.civitasProfile || user.customData?.civitas || user.profile?.civitas || {};
-  const primerNombre = source.primerNombre ?? user.profile?.primerNombre ?? null;
-  const segundoNombre = source.segundoNombre ?? user.profile?.segundoNombre ?? null;
-  const primerApellido = source.primerApellido ?? user.profile?.primerApellido ?? null;
-  const segundoApellido = source.segundoApellido ?? user.profile?.segundoApellido ?? null;
+  const legacy = user.customData?.civitasProfile || user.customData?.civitas || user.profile?.civitas || {};
+  const primerNombre = user.profile?.givenName ?? legacy.primerNombre ?? null;
+  const segundoNombre = user.profile?.middleName ?? legacy.segundoNombre ?? null;
+  const primerApellido = user.profile?.familyName ?? legacy.primerApellido ?? null;
+  const segundoApellido = user.customData?.secondFamilyName ?? legacy.segundoApellido ?? null;
   const derivedName = [primerNombre, segundoNombre, primerApellido, segundoApellido].filter(Boolean).join(" ") || null;
   return { primerNombre, segundoNombre, primerApellido, segundoApellido, derivedName };
 };
@@ -1203,10 +1203,10 @@ app.get("/owner/organizations/:organizationId/commercial-events/latest", require
 
 function normalizeMemberCreateInput(body = {}, organizationId) {
   const trim = (value) => (typeof value === "string" && value.trim() ? value.trim() : null);
-  const primerNombre = trim(body.primerNombre);
-  const segundoNombre = trim(body.segundoNombre);
-  const primerApellido = trim(body.primerApellido);
-  const segundoApellido = trim(body.segundoApellido);
+  const primerNombre = trim(body.firstName ?? body.primerNombre);
+  const segundoNombre = trim(body.middleName ?? body.segundoNombre);
+  const primerApellido = trim(body.firstSurname ?? body.primerApellido);
+  const segundoApellido = trim(body.secondSurname ?? body.segundoApellido);
   const email = trim(body.email)?.toLowerCase() || null;
   const phone = trim(body.phone);
   const phoneExtension = trim(body.phoneExtension);
@@ -1218,7 +1218,7 @@ function normalizeMemberCreateInput(body = {}, organizationId) {
   if (!primerApellido) errors.push({ field: "primerApellido", message: "Apellido 1 es requerido" });
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors.push({ field: "email", message: "Email válido es requerido" });
   if (!organizationRoleName) errors.push({ field: "organizationRoleName", message: "Rol de organización es requerido" });
-  return { errors, value: { primerNombre, segundoNombre, primerApellido, segundoApellido, email, phone, phoneExtension, position, organizationRoleName, organizationId, name, givenName: [primerNombre, segundoNombre].filter(Boolean).join(" "), familyName: [primerApellido, segundoApellido].filter(Boolean).join(" "), username: buildLogtoUsername({ email }) } };
+  return { errors, value: { primerNombre, segundoNombre, primerApellido, segundoApellido, email, phone, phoneExtension, position, organizationRoleName, organizationId, name, username: buildLogtoUsername({ email }) } };
 }
 
 
@@ -1233,8 +1233,8 @@ app.post("/owner/organizations/:organizationId/members", requireAuth(API_RESOURC
     const role = await findOrganizationRoleByName(payload.organizationRoleName);
     const roleId = role?.id || role?.organizationRoleId || role?.roleId;
     if (!roleId) throw Object.assign(new Error(`Organization role ${payload.organizationRoleName} does not exist`), { status: 409, hitl: "rol seleccionado no existe en la plantilla" });
-    const userPayload = buildLogtoUserCreatePayload({ email: payload.email, phone: payload.phone, username: payload.username, name: payload.name, firstName: payload.givenName, lastName: payload.familyName, position: payload.position, phoneExtension: payload.phoneExtension });
-    userPayload.customData = { ...(userPayload.customData || {}), civitasProfile: { ...(userPayload.customData?.civitasProfile || {}), primerNombre: payload.primerNombre, segundoNombre: payload.segundoNombre, primerApellido: payload.primerApellido, segundoApellido: payload.segundoApellido, position: payload.position, phoneExtension: payload.phoneExtension, source: "owner_add_user" } };
+    const userPayload = buildLogtoUserCreatePayload({ email: payload.email, phone: payload.phone, username: payload.username, name: payload.name, firstName: payload.primerNombre, middleName: payload.segundoNombre, firstSurname: payload.primerApellido, secondSurname: payload.segundoApellido, position: payload.position, phoneExtension: payload.phoneExtension });
+    userPayload.customData = { ...(userPayload.customData || {}), civitasProfile: { ...(userPayload.customData?.civitasProfile || {}), position: payload.position, phoneExtension: payload.phoneExtension, source: "owner_add_user" } };
     const resolved = await createOrResolveLogtoUserByEmail(userPayload);
     const logtoUserId = resolved.user?.id || resolved.user?.userId || resolved.user?.logtoUserId;
     if (!logtoUserId) throw new Error("Logto user upsert did not return an id");
@@ -1273,12 +1273,23 @@ app.patch("/owner/organizations/:organizationId/members/:logtoUserId", requireAu
   let internalUser = null;
   try {
     internalUser = await getOrCreateInternalUser(req.user);
-    const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : null;
-    const name = typeof req.body?.name === "string" ? req.body.name.trim() : null;
-    const phone = typeof req.body?.phone === "string" ? req.body.phone.trim() : null;
-    const previousEmail = typeof req.body?.previousEmail === "string" ? req.body.previousEmail.trim().toLowerCase() : email;
-    const logtoUser = await updateLogtoUser({ userId: req.params.logtoUserId, email, name, phone });
-    const operation = await createSyncOperation({ organizationId: req.params.organizationId, operationType: "member_identity_downstream_sync", stepName: "fluentcrm_contact_identity_sync", metadata: { logtoUserId: req.params.logtoUserId, previousEmail, email, name, phone, sourceOfTruth: "logto" } });
+    const trim = (value) => (typeof value === "string" && value.trim() ? value.trim() : null);
+    const email = trim(req.body?.email)?.toLowerCase() || null;
+    const phone = trim(req.body?.phone);
+    const previousEmail = trim(req.body?.previousEmail)?.toLowerCase() || email;
+    const primerNombre = trim(req.body?.firstName ?? req.body?.primerNombre);
+    const segundoNombre = trim(req.body?.middleName ?? req.body?.segundoNombre);
+    const primerApellido = trim(req.body?.firstSurname ?? req.body?.primerApellido);
+    const segundoApellido = trim(req.body?.secondSurname ?? req.body?.segundoApellido);
+    const name = trim(req.body?.name) || [primerNombre, segundoNombre, primerApellido, segundoApellido].filter(Boolean).join(" ") || null;
+    if (!primerNombre || !primerApellido || !email) return res.status(400).json({ error: "Bad Request", message: "Nombre 1, Apellido 1 y email son requeridos" });
+    const previousUser = await getLogtoUserById(req.params.logtoUserId).catch(() => null);
+    const previousCustomData = previousUser?.customData && typeof previousUser.customData === "object" ? previousUser.customData : {};
+    const previousProfile = previousUser?.profile && typeof previousUser.profile === "object" ? previousUser.profile : {};
+    const customData = { ...previousCustomData, secondFamilyName: segundoApellido || undefined };
+    const profile = { ...previousProfile, givenName: primerNombre, middleName: segundoNombre || undefined, familyName: primerApellido };
+    const logtoUser = await updateLogtoUser({ userId: req.params.logtoUserId, email, name, phone, profile, customData });
+    const operation = await createSyncOperation({ organizationId: req.params.organizationId, operationType: "member_identity_downstream_sync", stepName: "fluentcrm_contact_identity_sync", metadata: { logtoUserId: req.params.logtoUserId, previousEmail, email, name, phone, primerNombre, segundoNombre, primerApellido, segundoApellido, sourceOfTruth: "logto" } });
     await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: req.params.organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "member_identity_updated", syncOperationId: operation.id } });
     return res.json({ status: "logto_updated_sync_queued", logtoUser, syncOperation: operation });
   } catch (error) {
