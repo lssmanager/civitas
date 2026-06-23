@@ -68,7 +68,7 @@ const {
 const { db } = require("./db/client");
 const { crmRoleMappings, organizationProfiles, syncOperations, wordpressRoleMappings } = require("./db/schema");
 const { getCommercialStatusForOrganization, getLatestCommercialEventsForOrganization, processCommercialEvent, verifyCommercialWebhookSignature } = require("./services/commercialEvents");
-const { getWorkerHealthSnapshot, loadOperationsSummary } = require("./services/operationalObservability");
+const { getWorkerHealthSnapshot, loadOperationsSummary, loadOwnerSystemMetrics } = require("./services/operationalObservability");
 const {
   createSyncOperation,
   listOrganizationEvents,
@@ -747,6 +747,15 @@ app.get("/owner/system/worker-health", requireAuth(API_RESOURCE), requireOwner, 
   }
 });
 
+
+app.get("/owner/system/metrics", requireAuth(API_RESOURCE), requireOwner, async (_req, res) => {
+  try {
+    return res.json(await loadOwnerSystemMetrics());
+  } catch (error) {
+    console.error("Failed to load owner system metrics", { message: getSafeErrorMessage(error) });
+    return res.status(500).json({ error: "Owner system metrics unavailable", message: "No se pudieron cargar las métricas operativas Redis/BullMQ." });
+  }
+});
 
 app.get("/owner/system/integrations-health", requireAuth(API_RESOURCE), requireOwner, async (_req, res) => {
   try {

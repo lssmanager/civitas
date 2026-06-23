@@ -255,6 +255,23 @@ const organizationBootstrapMicroRequests = pgTable(
   })
 );
 
+const operationalMetricSnapshots = pgTable(
+  "operational_metric_snapshots",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    bucket: varchar("bucket", { length: 16 }).notNull().default("minute"),
+    bucketStartedAt: timestamp("bucket_started_at", { withTimezone: true }).notNull(),
+    source: varchar("source", { length: 64 }).notNull().default("redis_bullmq"),
+    metrics: jsonb("metrics").notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    bucketTimeIdx: index("operational_metric_snapshots_bucket_time_idx").on(table.bucket, table.bucketStartedAt),
+    sourceIdx: index("operational_metric_snapshots_source_idx").on(table.source),
+    createdAtIdx: index("operational_metric_snapshots_created_at_idx").on(table.createdAt),
+  })
+);
+
 const auditLogs = pgTable(
   "audit_logs",
   {
@@ -281,6 +298,7 @@ module.exports = {
   healthChecks,
   organizationBootstrapMicroRequests,
   organizationBootstrapOperations,
+  operationalMetricSnapshots,
   organizationProfiles,
   syncOperationSteps,
   syncOperations,

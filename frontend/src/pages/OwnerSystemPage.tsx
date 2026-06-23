@@ -2,7 +2,7 @@ import "./OwnerSystemPage.css";
 
 import type { ReactNode } from "react";
 import { Button } from "react-bootstrap";
-import { useOwnerApi, type OwnerIntegrationHealthCheck, type OwnerWorkerHealth } from "../api/owner";
+import { useOwnerApi, type OwnerIntegrationHealthCheck, type OwnerSystemMetric, type OwnerWorkerHealth } from "../api/owner";
 import { useStableResource } from "../shared/hooks/useStableResource";
 import { DataTable, ErrorState, LoadingState, PageShell, StatusBadge } from "../shared/ui";
 
@@ -92,6 +92,30 @@ const orderedChecks = (checks: OwnerIntegrationHealthCheck[]) =>
     return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
   });
 
+
+const metricTone = (metric?: OwnerSystemMetric): Tone => {
+  if (!metric) return "neutral";
+  if (["live", "derived"].includes(metric.instrumentationStatus)) return "success";
+  if (["sampled", "proposed"].includes(metric.instrumentationStatus)) return "info";
+  return "warning";
+};
+
+const formatMetricValue = (metric?: OwnerSystemMetric) => {
+  if (!metric || metric.value === null || metric.value === undefined || metric.value === "") return metric?.instrumentationStatus ?? "sin dato";
+  const suffix = metric.unit && metric.unit !== "count" ? ` ${metric.unit}` : "";
+  return `${metric.value}${suffix}`;
+};
+
+const metricPercent = (metric?: OwnerSystemMetric) => typeof metric?.value === "number" && Number.isFinite(metric.value) ? safePercent(metric.value) : 0;
+
+function MetricStatus({ metric }: { metric?: OwnerSystemMetric }) {
+  return <StatusPill tone={metricTone(metric)}>{metric?.instrumentationStatus ?? "unknown"}</StatusPill>;
+}
+
+function MetricNote({ metric }: { metric?: OwnerSystemMetric }) {
+  return metric?.note ? <p className="placeholder-note">{metric.note}</p> : null;
+}
+
 const queueTotals = (workerHealth?: OwnerWorkerHealth) =>
   workerHealth?.queues.reduce(
     (total, queue) => ({ activeBacklog: total.activeBacklog + queue.waiting + queue.active + queue.delayed, failed: total.failed + queue.failed }),
@@ -102,10 +126,12 @@ export function OwnerSystemPage() {
   const ownerApi = useOwnerApi();
   const workerResource = useStableResource({ load: ownerApi.getWorkerHealth, getKey: () => "owner-worker-health", initialParams: undefined });
   const integrationsResource = useStableResource({ load: ownerApi.getIntegrationsHealth, getKey: () => "owner-integrations-health", initialParams: undefined });
-  const retryAll = () => { workerResource.retry(); integrationsResource.retry(); };
+  const metricsResource = useStableResource({ load: ownerApi.getSystemMetrics, getKey: () => "owner-system-metrics", initialParams: undefined });
+  const retryAll = () => { workerResource.retry(); integrationsResource.retry(); metricsResource.retry(); };
 
   const workerHealth = workerResource.data;
   const integrationsHealth = integrationsResource.data;
+  const systemMetrics = metricsResource.data;
   const requiredChecks = integrationsHealth?.checks.filter((check) => check.required !== false).length ?? 0;
   const okRequiredChecks = integrationsHealth?.checks.filter((check) => check.required !== false && ["ok", "ready", "configured"].includes(check.status)).length ?? 0;
   const generalStatus = buildGeneralStatus(integrationsHealth?.status, workerHealth?.readiness);
@@ -115,9 +141,10 @@ export function OwnerSystemPage() {
 
   return (
     <PageShell eyebrow="Owner / sistema" title="System KPI" description="Dashboard operativo compacto para Redis, BullMQ, worker e integraciones críticas." className="owner-system-page">
-      {workerResource.isLoading || integrationsResource.isLoading ? <LoadingState title="Cargando salud técnica" description="Consultando worker, colas e integraciones." /> : null}
+      {workerResource.isLoading || integrationsResource.isLoading || metricsResource.isLoading ? <LoadingState title="Cargando salud técnica" description="Consultando worker, colas, integraciones y métricas Redis/BullMQ." /> : null}
       {workerResource.error ? <ErrorState title="No se pudo cargar worker health" message={workerResource.error} action={<Button onClick={workerResource.retry}>Reintentar worker</Button>} /> : null}
       {integrationsResource.error ? <ErrorState title="No se pudieron cargar integraciones" message={integrationsResource.error} action={<Button onClick={integrationsResource.retry}>Reintentar integraciones</Button>} /> : null}
+      {metricsResource.error ? <ErrorState title="No se pudieron cargar métricas Redis/BullMQ" message={metricsResource.error} action={<Button onClick={metricsResource.retry}>Reintentar métricas</Button>} /> : null}
 
       <div className="owner-system-dashboard">
         <div className="owner-system-topbar">
@@ -142,18 +169,18 @@ export function OwnerSystemPage() {
           <SystemCard title="BullMQ — estado de colas" eyebrow="workerHealth.queues" icon="≡"><DataTable rows={workerHealth?.queues ?? []} getRowKey={(row) => row.name} columns={[{ key: "name", header: "Cola", render: (row) => row.name },{ key: "waiting", header: "Waiting", render: (row) => row.waiting },{ key: "active", header: "Active", render: (row) => row.active },{ key: "delayed", header: "Delayed", render: (row) => row.delayed },{ key: "failed", header: "Failed", render: (row) => row.failed },{ key: "oldest", header: "Oldest", render: (row) => formatSeconds(row.oldestJobAgeSeconds) }]} /></SystemCard></div>
         </div></section>
 
-        <section className="owner-system-section"><div className="owner-system-section__title"><h2>Cache analytics — prefetching & performance</h2><span>preparado para instrumentación</span></div><div className="grid-3">
-          <SystemCard title="Hit / Miss ratio" icon="◑" action={<StatusPill tone="info">propuesto</StatusPill>}><div className="ring"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="44"/><path d="M60 16a44 44 0 1 1-38 22"/></svg><strong>not instrumented</strong></div><MetricBar label="Prefetch hit" value={68} tone="success" text="propuesto"/><MetricBar label="Cold miss" value={22} tone="warning" text="pendiente"/><MetricBar label="Stale" value={10} tone="danger" text="pendiente"/><p className="placeholder-note">Hits, Cold miss y Stale quedan visibles como contrato operativo, no como datos reales.</p></SystemCard>
-          <SystemCard title="Latencia & timing" icon="⏱" action={<StatusPill tone="warning">pendiente</StatusPill>}><div className="latency-grid"><div><strong>avg</strong><span>not instrumented</span></div><div><strong>p95</strong><span>not instrumented</span></div><div><strong>p99</strong><span>not instrumented</span></div></div><MetricBar label="GET" value={54}/><MetricBar label="SET" value={42}/><MetricBar label="SCAN" value={24}/><MetricBar label="EXPIRE" value={34}/></SystemCard>
-          <SystemCard title="Bytes & serialización" icon="⇅" action={<StatusPill tone="info">propuesto</StatusPill>}><div className="bytes-callout"><strong>Ratio</strong><span>not instrumented</span></div><div className="config-grid compact"><span>Avg key size</span><strong>pendiente</strong><span>Raw vs Compressed</span><strong>preparado</strong></div><p className="placeholder-note">Faster serialization and compression: bloque listo para métricas de payload.</p></SystemCard>
+        <section className="owner-system-section"><div className="owner-system-section__title"><h2>Cache analytics — prefetching & performance</h2><span>métricas reales y estado de instrumentación</span></div><div className="grid-3">
+          <SystemCard title="Hit / Miss ratio" icon="◑" action={<MetricStatus metric={systemMetrics?.cacheAnalytics.hitMissRatio} />}><div className="ring"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="44"/><path d="M60 16a44 44 0 1 1-38 22" style={{ strokeDasharray: `${metricPercent(systemMetrics?.cacheAnalytics.hitMissRatio) * 2.76} 276` }}/></svg><strong>{formatMetricValue(systemMetrics?.cacheAnalytics.hitMissRatio)}</strong></div><MetricBar label="Hits" value={metricPercent(systemMetrics?.cacheAnalytics.hitMissRatio)} tone="success" text={formatMetricValue(systemMetrics?.cacheAnalytics.hits)}/><MetricBar label="Misses" value={metricPercent(systemMetrics?.cacheAnalytics.hitMissRatio) ? 100 - metricPercent(systemMetrics?.cacheAnalytics.hitMissRatio) : 0} tone="warning" text={formatMetricValue(systemMetrics?.cacheAnalytics.misses)}/><MetricBar label="Prefetch hit" value={0} tone="warning" text={systemMetrics?.cacheAnalytics.prefetchHit.instrumentationStatus ?? "not_instrumented"}/><MetricNote metric={systemMetrics?.cacheAnalytics.hitMissRatio}/><MetricNote metric={systemMetrics?.cacheAnalytics.prefetchHit}/></SystemCard>
+          <SystemCard title="Latencia & timing" icon="⏱" action={<MetricStatus metric={systemMetrics?.latencyAndTiming.pingLatency} />}><div className="latency-grid"><div><strong>ping</strong><span>{formatMetricValue(systemMetrics?.latencyAndTiming.pingLatency)}</span></div><div><strong>p95</strong><span>{formatMetricValue(systemMetrics?.latencyAndTiming.p95)}</span></div><div><strong>p99</strong><span>{formatMetricValue(systemMetrics?.latencyAndTiming.p99)}</span></div></div><MetricBar label="PING" value={systemMetrics?.latencyAndTiming.pingLatency.value && typeof systemMetrics.latencyAndTiming.pingLatency.value === "number" ? Math.min(systemMetrics.latencyAndTiming.pingLatency.value * 5, 100) : 0} text={formatMetricValue(systemMetrics?.latencyAndTiming.pingLatency)}/><MetricBar label="AVG" value={0} text={systemMetrics?.latencyAndTiming.avg.instrumentationStatus ?? "not_instrumented"}/><MetricBar label="P95" value={0} text={systemMetrics?.latencyAndTiming.p95.instrumentationStatus ?? "not_instrumented"}/><MetricNote metric={systemMetrics?.latencyAndTiming.avg}/></SystemCard>
+          <SystemCard title="Bytes & serialización" icon="⇅" action={<MetricStatus metric={systemMetrics?.bytesAndSerialization.compressionRatio} />}><div className="bytes-callout"><strong>Ratio</strong><span>{formatMetricValue(systemMetrics?.bytesAndSerialization.compressionRatio)}</span></div><div className="config-grid compact"><span>Avg key size</span><strong>{formatMetricValue(systemMetrics?.bytesAndSerialization.avgKeySize)}</strong><span>Raw vs Compressed</span><strong>{formatMetricValue(systemMetrics?.bytesAndSerialization.rawVsCompressed)}</strong></div><MetricNote metric={systemMetrics?.bytesAndSerialization.avgKeySize}/></SystemCard>
         </div></section>
 
-        <section className="owner-system-section"><div className="owner-system-section__title"><h2>Calls & throughput — BullMQ + Redis</h2><span>métricas propuestas hasta exponer backend</span></div><div className="grid-2">
-          <SystemCard title="Calls / min — últimos 8 puntos" icon="~" action={<StatusPill tone="info">not instrumented</StatusPill>}><div className="spark-bars">{[28, 46, 36, 62, 54, 78, 48, 66].map((v, i) => <span key={i} style={{ height: `${v}%` }} />)}</div><div className="throughput-table"><div><b>GET</b><span>propuesto</span></div><div><b>SET</b><span>propuesto</span></div><div><b>DEL</b><span>propuesto</span></div><div><b>EXPIRE</b><span>propuesto</span></div></div></SystemCard>
-          <SystemCard title="Debug & logging" icon="⚙" action={<StatusPill tone="success">Easy debugging & logging</StatusPill>}><div className="debug-table">{[["Redis ops","DEBUG"],["BullMQ jobs","INFO"],["REDIS_STATUS",redisOk ? "INFO" : "WARN"],["Slow queries","WARN"],["Failed jobs",totals.failed > 0 ? "ERROR" : "INFO"]].map(([name, level]) => <div key={name}><span>{name}</span><StatusPill tone={level === "ERROR" ? "danger" : level === "WARN" ? "warning" : "neutral"}>{level}</StatusPill></div>)}</div></SystemCard>
+        <section className="owner-system-section"><div className="owner-system-section__title"><h2>Calls & throughput — BullMQ + Redis</h2><span>derivado desde snapshots operativos cuando hay ventana previa</span></div><div className="grid-2">
+          <SystemCard title="Calls / min — últimos 8 puntos" icon="~" action={<MetricStatus metric={systemMetrics?.callsAndThroughput.redisCommandsPerMinute} />}><div className="spark-bars"><span style={{ height: `${metricPercent(systemMetrics?.callsAndThroughput.redisCommandsPerMinute)}%` }} /></div><div className="throughput-table"><div><b>Redis total commands</b><span>{formatMetricValue(systemMetrics?.callsAndThroughput.redisCommandsProcessed)}</span></div><div><b>Redis ops/min</b><span>{formatMetricValue(systemMetrics?.callsAndThroughput.redisCommandsPerMinute)}</span></div><div><b>BullMQ jobs/min</b><span>{formatMetricValue(systemMetrics?.callsAndThroughput.bullmqJobsPerMinute)}</span></div><div><b>BullMQ completed</b><span>{formatMetricValue(systemMetrics?.callsAndThroughput.totalBullmqCompleted)}</span></div></div><MetricNote metric={systemMetrics?.callsAndThroughput.redisCommandsPerMinute}/></SystemCard>
+          <SystemCard title="Debug & logging" icon="⚙" action={<StatusPill tone="success">Easy debugging & logging</StatusPill>}><div className="debug-table"><div><span>Redis ops</span><MetricStatus metric={systemMetrics?.debugAndLogging.redisOps}/></div><div><span>BullMQ jobs</span><MetricStatus metric={systemMetrics?.debugAndLogging.bullmqJobs}/></div><div><span>REDIS_STATUS</span><StatusPill tone={redisOk ? "success" : "warning"}>{redisOk ? "INFO" : "WARN"}</StatusPill></div><div><span>Slow queries</span><MetricStatus metric={systemMetrics?.debugAndLogging.slowQueries}/></div><div><span>Failed jobs: {formatMetricValue(systemMetrics?.debugAndLogging.failedJobs)}</span><MetricStatus metric={systemMetrics?.debugAndLogging.failedJobs}/></div><div><span>Retry rate: {formatMetricValue(systemMetrics?.debugAndLogging.retryRate)}</span><MetricStatus metric={systemMetrics?.debugAndLogging.retryRate}/></div></div></SystemCard>
         </div></section>
 
-        <section className="owner-system-section"><div className="owner-system-section__title"><h2>Expansión propuesta</h2><span>placeholders operativos claramente etiquetados</span></div><div className="expansion-grid">{["Redis memory","TTL distribution","Retry rate","Throughput 24h","Por organización","Alertas"].map((title) => <SystemCard key={title} title={title} action={<StatusPill tone="info">propuesto</StatusPill>}><p className="placeholder-note">Preparado para instrumentación: {title.toLowerCase()} con series históricas y umbrales owner.</p></SystemCard>)}</div></section>
+        <section className="owner-system-section"><div className="owner-system-section__title"><h2>Expansión propuesta</h2><span>memory live; resto con estados honestos</span></div><div className="expansion-grid"><SystemCard title="Redis memory" action={<MetricStatus metric={systemMetrics?.expansion.redisMemory.usedMemory} />}><p className="placeholder-note">Used: {formatMetricValue(systemMetrics?.expansion.redisMemory.usedMemory)} · Peak: {formatMetricValue(systemMetrics?.expansion.redisMemory.usedMemoryPeak)}</p></SystemCard><SystemCard title="TTL distribution" action={<MetricStatus metric={systemMetrics?.expansion.ttlDistribution} />}><MetricNote metric={systemMetrics?.expansion.ttlDistribution}/></SystemCard><SystemCard title="Retry rate" action={<MetricStatus metric={systemMetrics?.expansion.retryRate} />}><p className="placeholder-note">{formatMetricValue(systemMetrics?.expansion.retryRate)}</p></SystemCard><SystemCard title="Throughput 24h" action={<MetricStatus metric={systemMetrics?.expansion.throughput24h} />}><MetricNote metric={systemMetrics?.expansion.throughput24h}/></SystemCard><SystemCard title="Por organización" action={<MetricStatus metric={systemMetrics?.expansion.perOrganization} />}><MetricNote metric={systemMetrics?.expansion.perOrganization}/></SystemCard><SystemCard title="Alertas" action={<MetricStatus metric={systemMetrics?.expansion.alerts} />}><MetricNote metric={systemMetrics?.expansion.alerts}/></SystemCard></div></section>
       </div>
     </PageShell>
   );
