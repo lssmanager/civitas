@@ -33,5 +33,5 @@ const statusToVariant: Record<string, string> = {
 
 export function StatusPill({ status, label, className }: StatusPillProps) {
   const variant = statusToVariant[status] ?? "neutral";
-  return <span className={`lss-pill lss-pill-${variant} ${className ?? ""}`.trim()}>{label ?? status}</span>;
+  return <span className={`civitas-pill civitas-pill-${variant} ${className ?? ""}`.trim()}>{label ?? status}</span>;
 }
