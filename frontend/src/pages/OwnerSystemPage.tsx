@@ -50,22 +50,24 @@ export function OwnerSystemPage() {
           </Button>
         </>
       }
+      className="owner-system-page"
     >
       {workerResource.isLoading || integrationsResource.isLoading ? <LoadingState title="Cargando salud técnica" description="Consultando worker, colas e integraciones." /> : null}
       {workerResource.error ? <ErrorState title="No se pudo cargar worker health" message={workerResource.error} action={<Button onClick={workerResource.retry}>Reintentar worker</Button>} /> : null}
       {integrationsResource.error ? <ErrorState title="No se pudieron cargar integraciones" message={integrationsResource.error} action={<Button onClick={integrationsResource.retry}>Reintentar integraciones</Button>} /> : null}
 
-      <div className="row g-4">
+      <div className="row g-4 owner-system-page__grid">
         {integrationsHealth ? (
           <div className="col-12">
             <PageCard
               title="Checks permanentes de integración"
               subtitle={`Estado general: ${generalStatus}. Última revisión: ${formatCheckedAt(integrationsHealth.checkedAt)}.`}
+              className="owner-system-page__hero-card"
             >
               <div className="row g-3">
                 {integrationsHealth.checks.map((check) => (
                   <div className="col-12 col-xl-6" key={check.key}>
-                    <div className="border rounded-3 p-3 h-100 bg-white">
+                    <div className="owner-system-page__check-card h-100">
                       <div className="d-flex justify-content-between gap-3 align-items-start">
                         <div>
                           <h3 className="h6 mb-1">{check.label}</h3>
@@ -74,7 +76,7 @@ export function OwnerSystemPage() {
                             {check.required === false ? " · opcional/futuro" : " · requerido"}
                           </div>
                         </div>
-                        <Badge bg={badgeVariant(check)} className="text-lowercase">
+                        <Badge bg={badgeVariant(check)} className="text-lowercase owner-system-page__status-pill">
                           {check.status}
                         </Badge>
                       </div>
@@ -92,8 +94,8 @@ export function OwnerSystemPage() {
         {workerHealth ? (
           <>
             <div className="col-12 col-xl-4">
-              <PageCard title="Readiness operacional">
-                <ListGroup variant="flush">
+              <PageCard title="Readiness operacional" className="owner-system-page__compact-card owner-system-page__readiness-card">
+                <ListGroup variant="flush" className="owner-system-page__readiness-list">
                   <ListGroup.Item className="d-flex justify-content-between px-0 align-items-center">
                     <span>Worker</span>
                     <StatusBadge tone={workerHealth.worker.heartbeatStale ? "warning" : "success"}>
@@ -113,7 +115,7 @@ export function OwnerSystemPage() {
             </div>
 
             <div className="col-12 col-xl-8">
-              <PageCard title="Colas">
+              <PageCard title="Colas" className="owner-system-page__compact-card owner-system-page__queue-card">
                 <DataTable
                   rows={workerHealth.queues}
                   getRowKey={(row) => row.name}
