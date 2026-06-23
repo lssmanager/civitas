@@ -1,10 +1,10 @@
-.lss-kpi-grid {
+.civitas-kpi-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: var(--sp-4);
 }
 
-.lss-metric-card {
+.civitas-kpi-card {
   min-height: 100%;
   padding: var(--sp-4);
   border: 1px solid var(--civitas-border);
@@ -13,7 +13,7 @@
   box-shadow: var(--civitas-shadow-md);
 }
 
-.lss-metric-label {
+.civitas-kpi-card__label {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
@@ -25,25 +25,25 @@
   text-transform: uppercase;
 }
 
-.lss-metric-value {
+.civitas-kpi-card__value {
   color: var(--civitas-text);
   font-size: clamp(1.9rem, 3vw, 2.5rem);
   font-weight: 700;
   line-height: 1;
 }
 
-.lss-metric-delta,
-.lss-metric-hint {
+.civitas-kpi-card__delta,
+.civitas-kpi-card__hint {
   margin-top: var(--sp-2);
   font-size: 0.9rem;
 }
 
-.lss-delta-success { color: var(--civitas-success-text); }
-.lss-delta-warning { color: var(--civitas-warning-text); }
-.lss-delta-danger { color: var(--civitas-danger-strong); }
-.lss-delta-neutral { color: var(--civitas-text-muted); }
+.civitas-kpi-card__delta--success { color: var(--civitas-success-text); }
+.civitas-kpi-card__delta--warning { color: var(--civitas-warning-text); }
+.civitas-kpi-card__delta--danger { color: var(--civitas-danger-strong); }
+.civitas-kpi-card__delta--neutral { color: var(--civitas-text-muted); }
 
-.lss-pill {
+.civitas-pill {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -58,23 +58,23 @@
   white-space: nowrap;
 }
 
-.lss-pill-success { background: var(--civitas-success-bg); border-color: var(--civitas-success-border); color: var(--civitas-success-text); }
-.lss-pill-warning { background: var(--civitas-overlay-warning-18); border-color: var(--civitas-overlay-warning-28); color: var(--civitas-warning-text); }
-.lss-pill-danger { background: var(--civitas-danger-bg); border-color: var(--civitas-danger-border); color: var(--civitas-danger-text); }
-.lss-pill-info, .lss-pill-primary { background: var(--civitas-info-bg); border-color: var(--civitas-info-border); color: var(--civitas-primary); }
-.lss-pill-neutral { background: var(--civitas-neutral-bg); border-color: var(--civitas-neutral-border); color: var(--civitas-text-muted); }
+.civitas-pill-success { background: var(--civitas-success-bg); border-color: var(--civitas-success-border); color: var(--civitas-success-text); }
+.civitas-pill-warning { background: var(--civitas-overlay-warning-18); border-color: var(--civitas-overlay-warning-28); color: var(--civitas-warning-text); }
+.civitas-pill-danger { background: var(--civitas-danger-bg); border-color: var(--civitas-danger-border); color: var(--civitas-danger-text); }
+.civitas-pill-info, .civitas-pill-primary { background: var(--civitas-info-bg); border-color: var(--civitas-info-border); color: var(--civitas-primary); }
+.civitas-pill-neutral { background: var(--civitas-neutral-bg); border-color: var(--civitas-neutral-border); color: var(--civitas-text-muted); }
 
-.lss-section-card,
-.lss-dashboard-panel,
-.lss-system-check-card {
+.civitas-section-card,
+.civitas-dashboard-panel,
+.civitas-system-check-card {
   border: 1px solid var(--civitas-border);
   border-radius: var(--r-lg);
   background: var(--civitas-gradient-surface);
   box-shadow: var(--civitas-shadow-sm);
 }
 
-.lss-section-card-head,
-.lss-dashboard-panel__head {
+.civitas-section-card__head,
+.civitas-dashboard-panel__head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -83,8 +83,8 @@
   border-bottom: 1px solid var(--civitas-border);
 }
 
-.lss-section-card-title,
-.lss-dashboard-panel__title {
+.civitas-section-card__title,
+.civitas-dashboard-panel__title {
   display: inline-flex;
   align-items: center;
   gap: var(--sp-2);
@@ -93,8 +93,8 @@
   font-weight: 650;
 }
 
-.lss-section-card-meta,
-.lss-dashboard-panel__meta {
+.civitas-section-card__meta,
+.civitas-dashboard-panel__meta {
   display: flex;
   gap: var(--sp-2);
   align-items: center;
@@ -102,12 +102,12 @@
   justify-content: flex-end;
 }
 
-.lss-section-card-body,
-.lss-dashboard-panel__body {
+.civitas-section-card__body,
+.civitas-dashboard-panel__body {
   padding: var(--sp-4);
 }
 
-.lss-empty-metric-state {
+.civitas-empty-metric-state {
   display: flex;
   flex-direction: column;
   gap: var(--sp-2);
@@ -117,64 +117,64 @@
   background: color-mix(in srgb, var(--civitas-surface-contrast) 45%, transparent);
 }
 
-.lss-empty-metric-state__title {
+.civitas-empty-metric-state__title {
   color: var(--civitas-text);
   font-size: 0.95rem;
   font-weight: 600;
 }
 
-.lss-empty-metric-state__description,
-.lss-empty-metric-state__note {
+.civitas-empty-metric-state__description,
+.civitas-empty-metric-state__note {
   color: var(--civitas-text-muted);
   font-size: 0.88rem;
   line-height: 1.45;
 }
 
-.lss-system-check-card {
+.civitas-system-check-card {
   display: flex;
   flex-direction: column;
   gap: var(--sp-3);
   padding: var(--sp-4);
 }
 
-.lss-system-check-card__head {
+.civitas-system-check-card__head {
   display: flex;
   justify-content: space-between;
   gap: var(--sp-3);
   align-items: flex-start;
 }
 
-.lss-system-check-card__title {
+.civitas-system-check-card__title {
   color: var(--civitas-text);
   font-size: 0.98rem;
   font-weight: 600;
   line-height: 1.2;
 }
 
-.lss-system-check-card__meta {
+.civitas-system-check-card__meta {
   color: var(--civitas-text-muted);
   font-size: 0.82rem;
 }
 
-.lss-system-check-card__message,
-.lss-system-check-card__action {
+.civitas-system-check-card__message,
+.civitas-system-check-card__action {
   margin: 0;
   color: var(--civitas-text);
   font-size: 0.95rem;
   line-height: 1.45;
 }
 
-.lss-system-check-card__action {
+.civitas-system-check-card__action {
   color: var(--civitas-text-muted);
 }
 
-[data-theme="dark"] .lss-metric-card,
-[data-theme="dark"] .lss-section-card,
-[data-theme="dark"] .lss-dashboard-panel,
-[data-theme="dark"] .lss-system-check-card,
-[data-bs-theme="dark"] .lss-metric-card,
-[data-bs-theme="dark"] .lss-section-card,
-[data-bs-theme="dark"] .lss-dashboard-panel,
-[data-bs-theme="dark"] .lss-system-check-card {
+[data-theme="dark"] .civitas-kpi-card,
+[data-theme="dark"] .civitas-section-card,
+[data-theme="dark"] .civitas-dashboard-panel,
+[data-theme="dark"] .civitas-system-check-card,
+[data-bs-theme="dark"] .civitas-kpi-card,
+[data-bs-theme="dark"] .civitas-section-card,
+[data-bs-theme="dark"] .civitas-dashboard-panel,
+[data-bs-theme="dark"] .civitas-system-check-card {
   background: var(--civitas-gradient-surface);
 }
