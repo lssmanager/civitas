@@ -12,6 +12,10 @@ const DOWNSTREAM_PENDING = new Set(["not_linked", "pending", "conflict", "error"
 const CANONICAL_OK = new Set(["bootstrapped", "synced", "reconciled"]);
 const QUEUE_JOB_TYPES = Object.freeze(["wait", "active", "delayed", "failed"]);
 
+let workerHealthSnapshotCacheAt = 0;
+let workerHealthSnapshotCache = null;
+let workerHealthSnapshotPromise = null;
+
 const safeMessage = (value, fallback = null) => {
   if (!value) return fallback;
   const message = typeof value === "string" ? value : value.message || value.error || JSON.stringify(value);
@@ -122,7 +126,7 @@ async function loadQueueSnapshot(queueName, connection) {
   };
 }
 
-async function getWorkerHealthSnapshot() {
+async function loadRealWorkerHealthSnapshot() {
   const fallback = buildFallbackWorkerHealthSnapshot();
   const redisUrl = getRedisUrl({ required: false });
 
@@ -176,6 +180,53 @@ async function getWorkerHealthSnapshot() {
       });
     }
   }
+}
+
+function refreshWorkerHealthSnapshot({ force = false } = {}) {
+  if (workerHealthSnapshotPromise && !force) return workerHealthSnapshotPromise;
+
+  workerHealthSnapshotPromise = loadRealWorkerHealthSnapshot()
+    .then((snapshot) => {
+      workerHealthSnapshotCache = snapshot;
+      workerHealthSnapshotCacheAt = Date.now();
+      return snapshot;
+    })
+    .catch((error) => {
+      const fallback = buildFallbackWorkerHealthSnapshot();
+      workerHealthSnapshotCache = {
+        ...fallback,
+        readiness: "degraded",
+        redis: {
+          status: "error",
+          message: safeMessage(error, "Redis no disponible para colas operativas."),
+          source: "redis_ping_and_bullmq_queue_stats",
+          urlConfigured: Boolean(getRedisUrl({ required: false })),
+        },
+      };
+      workerHealthSnapshotCacheAt = Date.now();
+      return workerHealthSnapshotCache;
+    })
+    .finally(() => {
+      workerHealthSnapshotPromise = null;
+    });
+
+  return workerHealthSnapshotPromise;
+}
+
+function getWorkerHealthSnapshot() {
+  const cacheTtlMs = Number(process.env.SYNC_WORKER_HEALTH_CACHE_MS || 15000);
+  const fallback = workerHealthSnapshotCache || buildFallbackWorkerHealthSnapshot();
+  const cacheExpired = !workerHealthSnapshotCacheAt || Date.now() - workerHealthSnapshotCacheAt > cacheTtlMs;
+
+  if (cacheExpired) {
+    void refreshWorkerHealthSnapshot().catch(() => null);
+  }
+
+  return fallback;
+}
+
+async function loadWorkerHealthSnapshot() {
+  return refreshWorkerHealthSnapshot({ force: true });
 }
 
 function summarizeOrganization(profile) {
@@ -253,15 +304,18 @@ async function loadOperationsSummary() {
     db.select().from(organizationProfiles),
     syncOperations ? db.select().from(syncOperations).orderBy(desc(syncOperations.updatedAt)).limit(100).catch(() => []) : [],
     syncOperationSteps ? db.select().from(syncOperationSteps).orderBy(desc(syncOperationSteps.updatedAt)).limit(100).catch(() => []) : [],
-    getWorkerHealthSnapshot(),
+    loadWorkerHealthSnapshot(),
   ]);
   return buildOperationsSummary({ profiles, operations, steps, technicalHealth });
 }
+
+void refreshWorkerHealthSnapshot().catch(() => null);
 
 module.exports = {
   buildOperationsSummary,
   classifyTechnicalHealth,
   getWorkerHealthSnapshot,
   loadOperationsSummary,
+  loadWorkerHealthSnapshot,
   summarizeOrganization,
 };
