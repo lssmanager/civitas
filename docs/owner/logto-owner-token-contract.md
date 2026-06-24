@@ -30,49 +30,80 @@ The preferred namespaced claim avoids collision with built-in or third-party `ro
 
 ## Recommended Logto Custom JWT script
 
-Create or update the Logto custom access token claims script for the Civitas API resource so it emits the preferred claim only for global API tokens. The script shape below is intentionally defensive because Logto custom JWT test payloads and Management API payloads can expose roles under different property names depending on version and configuration.
+Create or update the **User access token** Custom JWT script for the Civitas API resource so it emits the preferred claim only for global API tokens. Logto's current Custom JWT runtime calls `getCustomJwtClaims` with a single object argument (`{ token, context, environmentVariables, api }`). For user access tokens, the real context sample exposes global role assignments at `context.user.roles`, where each role has `id`, `name`, `description`, and `scopes`; organization-scoped roles are exposed separately at `context.user.organizationRoles` and must not be used for owner authorization.
+
+The script below is executable in Logto's Custom JWT editor and in the editor's test runner when the test context includes `context.user.roles` with a role named `owner_global`.
 
 ```js
 const CIVITAS_API_AUDIENCE = 'https://civitas.socialstudies.cloud/api';
 const GLOBAL_ROLES_CLAIM = 'https://civitas.socialstudies.cloud/claims/global_roles';
+const ORGANIZATION_AUDIENCE_PREFIX = 'urn:logto:organization:';
 
-const asList = (value) => {
-  if (Array.isArray(value)) return value;
-  if (typeof value === 'string') return value.split(/[\s,]+/).filter(Boolean);
-  return [];
-};
+const asArray = (value) => Array.isArray(value) ? value : [];
 
 const roleName = (role) => {
   if (typeof role === 'string') return role;
-  return role?.name ?? role?.roleName ?? role?.key ?? null;
+  return typeof role?.name === 'string' ? role.name : null;
 };
 
-const extractGlobalRoleNames = (data) => [
-  ...asList(data?.user?.roles),
-  ...asList(data?.user?.role_names),
-  ...asList(data?.user?.global_roles),
-  ...asList(data?.roles),
-  ...asList(data?.role_names),
-  ...asList(data?.global_roles),
-]
-  .map(roleName)
-  .filter(Boolean);
+const getAudienceValues = (audience) => Array.isArray(audience) ? audience : [audience].filter(Boolean);
 
-async function getCustomJwtClaims(token, data, envVariables) {
-  const audience = Array.isArray(token?.aud) ? token.aud : [token?.aud];
+const getCustomJwtClaims = async ({ token, context, environmentVariables, api }) => {
+  const audience = getAudienceValues(token?.aud);
   const organizationAudience = audience.some((value) =>
-    typeof value === 'string' && value.startsWith('urn:logto:organization:')
+    typeof value === 'string' && value.startsWith(ORGANIZATION_AUDIENCE_PREFIX)
   );
 
   if (!audience.includes(CIVITAS_API_AUDIENCE) || organizationAudience) {
     return {};
   }
 
+  const globalRoles = asArray(context?.user?.roles)
+    .map(roleName)
+    .filter(Boolean);
+
   return {
-    [GLOBAL_ROLES_CLAIM]: [...new Set(extractGlobalRoleNames(data))],
+    [GLOBAL_ROLES_CLAIM]: [...new Set(globalRoles)],
   };
+};
+```
+
+Minimal Logto Custom JWT test data:
+
+```json
+{
+  "token": {
+    "aud": "https://civitas.socialstudies.cloud/api",
+    "scope": "owner:read organizations:read organizations:create",
+    "kind": "AccessToken"
+  },
+  "context": {
+    "user": {
+      "id": "user_owner",
+      "roles": [
+        {
+          "id": "role_owner",
+          "name": "owner_global",
+          "description": "Global Civitas owner",
+          "scopes": []
+        }
+      ],
+      "organizationRoles": []
+    }
+  },
+  "environmentVariables": {}
 }
 ```
+
+Expected test result:
+
+```json
+{
+  "https://civitas.socialstudies.cloud/claims/global_roles": ["owner_global"]
+}
+```
+
+If the same script is tested with `token.aud` set to `urn:logto:organization:<organization-id>`, it must return `{}` so organization tokens cannot satisfy `/owner/*`.
 
 After changing roles or the custom token script, force the browser to obtain a new access token: sign out/sign in, clear the SDK token cache, or wait for the current access token to expire and refresh. Existing JWTs do not change after issuance.
 
