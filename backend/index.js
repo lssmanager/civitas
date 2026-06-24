@@ -182,7 +182,7 @@ async function getLogtoIdentityClaimsBestEffort(logtoUserId) {
   try {
     return normalizeLogtoUserToClaims(await getLogtoUserById(logtoUserId));
   } catch (error) {
-    console.error("Failed to enrich identity from Logto Management API", { code: error?.code, status: error?.status, diagnostic: error?.diagnostic, message: error?.message });
+    console.error("Failed to enrich identity from Logto Management API", { code: error?.code, status: error?.status, diagnostic: error?.internalDiagnostic || error?.diagnostic, message: error?.message });
     return {};
   }
 }
@@ -384,7 +384,7 @@ async function runFluentCrmOrganizationStep({ logtoOrganization, logtoOrganizati
         extraLists: organizationLists,
       });
     } catch (error) {
-      contactSync = { status: "error", message: getSafeErrorMessage(error), code: error.code || null, diagnostic: error.diagnostic || null, body: error.body || null };
+      contactSync = { status: "error", message: getSafeErrorMessage(error), code: error.code || null };
     }
     administrativeContacts.push({
       key: assignment.key,
@@ -553,6 +553,11 @@ const getSafeErrorMessage = (error) => {
   return `${error.message || "Logto synchronization failed"}${status}${requestPath}`;
 };
 
+const buildPublicErrorContext = (error = {}) => ({
+  ...(error.code ? { code: error.code } : {}),
+  ...(Array.isArray(error.missingRoleNames) && error.missingRoleNames.length > 0 ? { missingRoleNames: error.missingRoleNames } : {}),
+});
+
 const buildPendingReconciliationSettings = (profile, { failedStep, error, retryRecommended = true }) => ({
   ...(profile?.settings || {}),
   pendingReconciliation: {
@@ -636,7 +641,7 @@ app.get("/me", requireAuth(API_RESOURCE), async (req, res) => {
       message: error?.message,
       code: error?.code,
       status: error?.status,
-      diagnostic: error?.diagnostic,
+      diagnostic: error?.internalDiagnostic || error?.diagnostic,
       cause: error?.cause
         ? {
             code: error.cause.code,
@@ -649,7 +654,7 @@ app.get("/me", requireAuth(API_RESOURCE), async (req, res) => {
         : undefined,
       stack: process.env.NODE_ENV === "production" ? undefined : error?.stack,
     });
-    return res.status(error?.status || status).json({ error: error?.code === "DATABASE_SCHEMA_DRIFT" ? "Service Unavailable" : status === 504 ? "Gateway Timeout" : "Internal Server Error", message: error?.code === "DATABASE_SCHEMA_DRIFT" ? "Database schema is not compatible with the running backend. Run migrations before retrying." : "Failed to resolve internal user", diagnostic: error?.diagnostic || undefined });
+    return res.status(error?.status || status).json({ error: error?.code === "DATABASE_SCHEMA_DRIFT" ? "Service Unavailable" : status === 504 ? "Gateway Timeout" : "Internal Server Error", message: error?.code === "DATABASE_SCHEMA_DRIFT" ? "Database schema is not compatible with the running backend. Run migrations before retrying." : "Failed to resolve internal user", ...buildPublicErrorContext(error) });
   }
 });
 
@@ -693,25 +698,24 @@ app.get("/owner/operations/summary", requireAuth(API_RESOURCE), requireOwner, as
   }
 });
 
-
 async function checkOwnerIntegrationHealth() {
   const checkedAt = new Date().toISOString();
   const makeCheck = async ({ key, label, system, required = true, run, notConfiguredMessage = "No configurado" }) => {
     try {
       const result = await run();
-      return { key, label, system, required, status: result.status || "ok", severity: result.severity || "success", message: result.message || "Conexión verificada", checkedAt, details: result.details || null, nextAction: result.nextAction || null };
+      return { key, label, system, required, status: result.status || "ok", severity: result.severity || "success", message: result.message || "Conexión verificada", checkedAt, nextAction: result.nextAction || null };
     } catch (error) {
       const missingConfig = error.code?.includes?.("CONFIG_MISSING") || /required|missing|not configured|no configur/i.test(error.message || "");
-      return { key, label, system, required, status: missingConfig ? "not_configured" : "error", severity: required ? "danger" : "warning", message: missingConfig ? notConfiguredMessage : getSafeErrorMessage(error), checkedAt, details: error.diagnostic || error.body || null, nextAction: missingConfig ? "Configurar credenciales/URL en variables de entorno." : "Revisar credenciales, permisos y conectividad desde soporte." };
+      return { key, label, system, required, status: missingConfig ? "not_configured" : "error", severity: required ? "danger" : "warning", message: missingConfig ? notConfiguredMessage : getSafeErrorMessage(error), checkedAt, nextAction: missingConfig ? "Configurar credenciales/URL en variables de entorno." : "Revisar credenciales, permisos y conectividad desde soporte." };
     }
   };
   const workerHealth = getWorkerHealthSnapshot();
   const checks = await Promise.all([
-    makeCheck({ key: "redis", label: "Redis / BullMQ", system: "redis", run: async () => ({ status: workerHealth.redis.status === "error" ? "error" : workerHealth.redis.status === "unknown" ? "unknown" : "ok", severity: workerHealth.redis.status === "error" ? "danger" : workerHealth.redis.status === "unknown" ? "warning" : "success", message: workerHealth.redis.status === "error" ? "Redis no disponible para colas operativas." : workerHealth.redis.status === "unknown" ? "Redis no reporta estado activo; configura REDIS_STATUS/monitor real." : "Redis operativo para colas.", details: { readiness: workerHealth.readiness, redisUrlConfigured: Boolean(process.env.REDIS_URL), queues: workerHealth.queues } }) }),
-    makeCheck({ key: "logto", label: "Logto Management API", system: "logto", run: async () => { const roles = await listLogtoOrganizationRoles(); return { status: "ok", message: "Logto responde y expone roles de organización.", details: { roleCount: roles.length } }; } }),
+    makeCheck({ key: "redis", label: "Redis / BullMQ", system: "redis", run: async () => ({ status: workerHealth.redis.status === "error" ? "error" : workerHealth.redis.status === "unknown" ? "unknown" : "ok", severity: workerHealth.redis.status === "error" ? "danger" : workerHealth.redis.status === "unknown" ? "warning" : "success", message: workerHealth.redis.status === "error" ? "Redis no disponible para colas operativas." : workerHealth.redis.status === "unknown" ? "Redis no reporta estado activo; configura REDIS_STATUS/monitor real." : "Redis operativo para colas." }) }),
+    makeCheck({ key: "logto", label: "Logto Management API", system: "logto", run: async () => { const roles = await listLogtoOrganizationRoles(); return { status: "ok", message: `Logto responde y expone roles de organización (${roles.length} roles).` }; } }),
     makeCheck({ key: "fluentcrm", label: "FluentCRM", system: "fluentcrm", run: async () => ({ ...(await validateFluentCrmConfiguration()), message: "FluentCRM configurado y alcanzable." }), notConfiguredMessage: "FluentCRM no está configurado para sincronización downstream." }),
-    makeCheck({ key: "wordpress", label: "WordPress", system: "wordpress", run: async () => { const roles = await listWordPressRoles(); return { status: "ok", message: "WordPress responde con catálogo de roles.", details: { roleCount: roles.length } }; }, notConfiguredMessage: "WordPress no está configurado para sincronización de roles/downstream." }),
-    Promise.resolve({ key: "moodle", label: "Moodle", system: "moodle", required: false, status: process.env.MOODLE_BASE_URL ? "pending_integration" : "not_configured", severity: "secondary", message: process.env.MOODLE_BASE_URL ? "Moodle tiene URL configurada; falta activar el conector operacional." : "Preparado para integración futura de Moodle; aún no es requerido.", checkedAt, details: { baseUrlConfigured: Boolean(process.env.MOODLE_BASE_URL), roadmap: "future_lms_downstream_sync" }, nextAction: "Cuando se integre Moodle, conectar este check a su health endpoint y mappings." }),
+    makeCheck({ key: "wordpress", label: "WordPress", system: "wordpress", run: async () => { const roles = await listWordPressRoles(); return { status: "ok", message: `WordPress responde con catálogo de roles (${roles.length} roles).` }; }, notConfiguredMessage: "WordPress no está configurado para sincronización de roles/downstream." }),
+    Promise.resolve({ key: "moodle", label: "Moodle", system: "moodle", required: false, status: process.env.MOODLE_BASE_URL ? "pending_integration" : "not_configured", severity: "secondary", message: process.env.MOODLE_BASE_URL ? "Moodle tiene URL configurada; falta activar el conector operacional." : "Preparado para integración futura de Moodle; aún no es requerido.", checkedAt, nextAction: "Cuando se integre Moodle, conectar este check a su health endpoint y mappings." }),
   ]);
   const requiredChecks = checks.filter((check) => check.required !== false);
   const hasError = requiredChecks.some((check) => ["error"].includes(check.status));
@@ -727,7 +731,6 @@ app.get("/owner/system/worker-health", requireAuth(API_RESOURCE), requireOwner, 
     return res.status(500).json({ error: "Worker health unavailable", message: "No se pudo cargar la salud técnica del worker." });
   }
 });
-
 
 app.get("/owner/system/integrations-health", requireAuth(API_RESOURCE), requireOwner, async (_req, res) => {
   try {
@@ -754,14 +757,13 @@ app.get("/owner/organization-template", requireAuth(API_RESOURCE), requireOwner,
   }
 });
 
-
 app.get("/owner/integrations/wordpress/roles", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
   try {
     const roles = await listWordPressRoles();
     return res.json({ roles, note: "WordPress roles are a supplemental synchronization catalog only; Logto remains canonical for Civitas authorization." });
   } catch (error) {
     console.error("Failed to load WordPress role catalog", error);
-    return res.status(error.status || 502).json({ error: "WordPress roles unavailable", message: getSafeErrorMessage(error), diagnostic: error.diagnostic || null });
+    return res.status(error.status || 502).json({ error: "WordPress roles unavailable", message: getSafeErrorMessage(error), ...buildPublicErrorContext(error) });
   }
 });
 
@@ -771,7 +773,7 @@ app.get("/owner/integrations/wordpress/role-mappings", requireAuth(API_RESOURCE)
     return res.json(response);
   } catch (error) {
     console.error("Failed to load WordPress role mappings", error);
-    return res.status(500).json({ error: "WordPress role mappings unavailable", message: "Unable to load WordPress role mappings", details: process.env.NODE_ENV === "production" ? undefined : error.message });
+    return res.status(500).json({ error: "WordPress role mappings unavailable", message: "Unable to load WordPress role mappings", ...buildPublicErrorContext(error) });
   }
 });
 
@@ -795,7 +797,7 @@ app.put("/owner/integrations/wordpress/role-mappings", requireAuth(API_RESOURCE)
     return res.json(response);
   } catch (error) {
     await recordAuditLogBestEffort({ actorUserId: internalUser?.id ?? null, action: AUDIT_ACTIONS.OWNER_WORDPRESS_ROLE_MAPPING_UPDATE, result: AUDIT_RESULTS.ERROR, metadata: { error } });
-    return res.status(error.status || 400).json({ error: "Bad Request", message: getSafeErrorMessage(error) });
+    return res.status(error.status || 400).json({ error: "Bad Request", message: getSafeErrorMessage(error), ...buildPublicErrorContext(error) });
   }
 });
 
@@ -810,7 +812,7 @@ app.post("/owner/integrations/wordpress/role-mappings/reset", requireAuth(API_RE
     return res.json(response);
   } catch (error) {
     await recordAuditLogBestEffort({ actorUserId: internalUser?.id ?? null, action: AUDIT_ACTIONS.OWNER_WORDPRESS_ROLE_MAPPING_RESET, result: AUDIT_RESULTS.ERROR, metadata: { error } });
-    return res.status(error.status || 400).json({ error: "Bad Request", message: getSafeErrorMessage(error) });
+    return res.status(error.status || 400).json({ error: "Bad Request", message: getSafeErrorMessage(error), ...buildPublicErrorContext(error) });
   }
 });
 
@@ -823,7 +825,7 @@ app.get("/owner/integrations/fluentcrm/role-mappings", requireAuth(API_RESOURCE)
     return res.status(500).json({
       error: "Role mappings unavailable",
       message: "Unable to load FluentCRM role mappings",
-      details: process.env.NODE_ENV === "production" ? undefined : error.message,
+      ...buildPublicErrorContext(error),
     });
   }
 });
@@ -842,7 +844,7 @@ app.put("/owner/integrations/fluentcrm/role-mappings", requireAuth(API_RESOURCE)
     return res.json(buildRoleMappingResponse({ logtoRoles, persistedRows, effective }));
   } catch (error) {
     await recordAuditLogBestEffort({ actorUserId: internalUser?.id ?? null, action: AUDIT_ACTIONS.OWNER_FLUENTCRM_ROLE_MAPPING_UPDATE, result: AUDIT_RESULTS.ERROR, metadata: { error } });
-    return res.status(error.status || 400).json({ error: "Bad Request", message: getSafeErrorMessage(error) });
+    return res.status(error.status || 400).json({ error: "Bad Request", message: getSafeErrorMessage(error), ...buildPublicErrorContext(error) });
   }
 });
 
@@ -857,7 +859,7 @@ app.post("/owner/integrations/fluentcrm/role-mappings/reset", requireAuth(API_RE
     return res.json(buildRoleMappingResponse({ logtoRoles, persistedRows, effective }));
   } catch (error) {
     await recordAuditLogBestEffort({ actorUserId: internalUser?.id ?? null, action: AUDIT_ACTIONS.OWNER_FLUENTCRM_ROLE_MAPPING_RESET, result: AUDIT_RESULTS.ERROR, metadata: { error } });
-    return res.status(error.status || 400).json({ error: "Bad Request", message: getSafeErrorMessage(error) });
+    return res.status(error.status || 400).json({ error: "Bad Request", message: getSafeErrorMessage(error), ...buildPublicErrorContext(error) });
   }
 });
 
@@ -874,13 +876,12 @@ app.get("/owner/organizations", requireAuth(API_RESOURCE), requireOwner, async (
   }
 });
 
-
 app.get("/owner/bootstrap/micro-requests", requireAuth(API_RESOURCE), requireOwner, async (_req, res) => {
   try {
     const microRequests = await listOpenMicroRequests({ limit: 100 });
     return res.json({ microRequests });
   } catch (error) {
-    return res.status(500).json({ error: "Internal Server Error", message: getSafeErrorMessage(error) });
+    return res.status(500).json({ error: "Internal Server Error", message: getSafeErrorMessage(error), ...buildPublicErrorContext(error) });
   }
 });
 
@@ -890,7 +891,7 @@ app.post("/owner/bootstrap/micro-requests/:microRequestId/retry", requireAuth(AP
     if (!microRequest) return res.status(404).json({ error: "Not Found", message: "Micro-request not found" });
     return res.json({ microRequest, status: "queued", note: "Micro-request queued for the next orchestration worker pass; no full organization resubmit is required." });
   } catch (error) {
-    return res.status(500).json({ error: "Internal Server Error", message: getSafeErrorMessage(error) });
+    return res.status(500).json({ error: "Internal Server Error", message: getSafeErrorMessage(error), ...buildPublicErrorContext(error) });
   }
 });
 
@@ -930,7 +931,7 @@ app.get("/owner/operations/:operationId", requireAuth(API_RESOURCE), requireOwne
     if (!operation) return res.status(404).json({ error: "Not Found", message: "Operation not found" });
     return res.json({ operation: serializeSyncOperationStatus(operation) });
   } catch (error) {
-    return res.status(500).json({ error: "Internal Server Error", message: getSafeErrorMessage(error) });
+    return res.status(500).json({ error: "Internal Server Error", message: getSafeErrorMessage(error), ...buildPublicErrorContext(error) });
   }
 });
 
@@ -943,7 +944,7 @@ app.get("/owner/organizations/:organizationId/provisioning-status", requireAuth(
       operation: serializeSyncOperationStatus(operation),
     });
   } catch (error) {
-    return res.status(500).json({ error: "Internal Server Error", message: getSafeErrorMessage(error) });
+    return res.status(500).json({ error: "Internal Server Error", message: getSafeErrorMessage(error), ...buildPublicErrorContext(error) });
   }
 });
 
@@ -964,10 +965,10 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireOwner, async 
         message: "Organization bootstrap was queued. Logto canonical provisioning will run in the worker before downstream FluentCRM propagation.",
       });
     } catch (error) {
-      if (error.status === 400) return res.status(400).json({ error: "Bad Request", message: error.message, details: error.details || [] });
+      if (error.status === 400) return res.status(400).json({ error: "Bad Request", message: error.message, validationErrors: error.details || [] });
       if (/REDIS_URL/.test(error.message)) return res.status(503).json({ error: "Service Unavailable", message: error.message });
       console.error("Failed to enqueue organization bootstrap", error);
-      return res.status(500).json({ error: "Internal Server Error", message: getSafeErrorMessage(error) });
+      return res.status(500).json({ error: "Internal Server Error", message: getSafeErrorMessage(error), ...buildPublicErrorContext(error) });
     }
   }
 
@@ -988,7 +989,7 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireOwner, async 
 
     if (errors.length > 0) {
       await recordAuditLogBestEffort({ actorUserId: internalUser.id, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROFILE_CREATE, result: AUDIT_RESULTS.ERROR, metadata: { stage: "input_validation", reason: "validation_error", errors } });
-      return res.status(400).json({ error: "Bad Request", message: errors[0].message, details: errors });
+      return res.status(400).json({ error: "Bad Request", message: errors[0].message, validationErrors: errors });
     }
 
     try {
@@ -1026,7 +1027,7 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireOwner, async 
       const crmMessage = getSafeErrorMessage(crmError);
       crmWarning = `Organization was created in Logto, but FluentCRM sync failed: ${crmMessage}`;
       const pendingProfile = await persistPendingReconciliation({ logtoOrganizationId, profile: fluentCrmStep.profile, failedStep: "fluentcrm_company_or_contacts_sync", error: crmError });
-      fluentCrmStep = { status: "error", message: crmMessage, code: crmError.code || null, diagnostic: crmError.diagnostic || null, statusCode: crmError.status || null, body: crmError.body || null, profile: pendingProfile || fluentCrmStep.profile || null, pendingReconciliation: pendingProfile?.settings?.pendingReconciliation || null };
+      fluentCrmStep = { status: "error", message: crmMessage, code: crmError.code || null, statusCode: crmError.status || null, profile: pendingProfile || fluentCrmStep.profile || null, pendingReconciliation: pendingProfile?.settings?.pendingReconciliation || null };
     }
 
     if (bootstrapOperation?.id) {
@@ -1114,7 +1115,7 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireOwner, async 
         error: errorMessage,
         logtoRequest: error.request,
         logtoErrorBody: error.body,
-        diagnostic: error.diagnostic,
+        diagnostic: error.internalDiagnostic || error.diagnostic,
       },
     });
 
@@ -1128,7 +1129,7 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireOwner, async 
         sourceOfTruth: "logto",
         warning: `Organization was created canonically in Logto, but a non-canonical follow-up step failed: ${errorMessage}`,
         failedStep,
-        followUpError: { message: errorMessage, status: error.status || null, request: error.request || null, body: error.body || null },
+        followUpError: { message: errorMessage, status: error.status || null, ...buildPublicErrorContext(error) },
       });
     }
 
@@ -1138,10 +1139,7 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireOwner, async 
       message: errorMessage,
       sourceOfTruth: "logto",
       integration: logtoFailure ? "logto_management_api" : "unknown",
-      diagnostic: error.diagnostic || null,
-      logtoRequest: error.request || null,
-      logtoErrorBody: error.body || null,
-      missingRoleNames: error.missingRoleNames,
+      ...buildPublicErrorContext(error),
     });
   }
 });
@@ -1163,7 +1161,7 @@ app.patch("/owner/organizations/:organizationId/fluentcrm", requireAuth(API_RESO
     return res.json({ status: result.status, fluentcrm: { ...result, taxonomy } });
   } catch (error) {
     const status = error instanceof FluentCrmError ? (error.status || 502) : error.status || 500;
-    return res.status(status).json({ error: status === 409 ? "Conflict" : status >= 500 ? "Bad Gateway" : "Bad Request", message: getSafeErrorMessage(error), integration: "fluentcrm", code: error.code || null, diagnostic: error.diagnostic || null, fluentcrmBody: error.body || null });
+    return res.status(status).json({ error: status === 409 ? "Conflict" : status >= 500 ? "Bad Gateway" : "Bad Request", message: getSafeErrorMessage(error), integration: "fluentcrm", ...buildPublicErrorContext(error) });
   }
 });
 
@@ -1180,7 +1178,7 @@ app.post(["/webhooks/fluentcrm/commercial-events", "/webhooks/wordpress/commerci
   }
 
   const result = await processCommercialEvent(req.body || {});
-  if (result.status === "invalid") return res.status(400).json({ error: "Bad Request", message: result.errors[0]?.message || "Invalid commercial event payload", details: result.errors });
+  if (result.status === "invalid") return res.status(400).json({ error: "Bad Request", message: result.errors[0]?.message || "Invalid commercial event payload", validationErrors: result.errors });
   if (result.status === "ignored") {
     await recordAuditLogBestEffort({ action: AUDIT_ACTIONS.COMMERCIAL_EVENT_IGNORED, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "idempotency_duplicate", previousStatus: result.previousStatus } });
     return res.status(200).json({ status: "ignored", idempotent: true, previousStatus: result.previousStatus });
@@ -1199,7 +1197,6 @@ app.get("/owner/organizations/:organizationId/commercial-events/latest", require
   const events = await getLatestCommercialEventsForOrganization(req.params.organizationId);
   return res.json({ events });
 });
-
 
 function normalizeMemberCreateInput(body = {}, organizationId) {
   const trim = (value) => (typeof value === "string" && value.trim() ? value.trim() : null);
@@ -1221,13 +1218,12 @@ function normalizeMemberCreateInput(body = {}, organizationId) {
   return { errors, value: { primerNombre, segundoNombre, primerApellido, segundoApellido, email, phone, phoneExtension, position, organizationRoleName, organizationId, name, username: buildLogtoUsername({ email }) } };
 }
 
-
 app.post("/owner/organizations/:organizationId/members", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
   let operation = null;
   try {
     const internalUser = await getOrCreateInternalUser(req.user);
     const normalized = normalizeMemberCreateInput(req.body || {}, req.params.organizationId);
-    if (normalized.errors.length) return res.status(400).json({ error: "Bad Request", details: normalized.errors });
+    if (normalized.errors.length) return res.status(400).json({ error: "Bad Request", validationErrors: normalized.errors });
     const payload = normalized.value;
     operation = await createSyncOperation({ operationType: "organization_member_create", entityType: "organization_member", entityId: req.params.organizationId, logtoOrganizationId: req.params.organizationId, idempotencyKey: req.body?.idempotencyKey || `organization_member_create:${req.params.organizationId}:${payload.email}`, payloadSnapshotJson: { ...payload, hitlStatuses: ["pending", "queued", "processing", "hitl_required", "resolved", "failed", "retryable"] } });
     const role = await findOrganizationRoleByName(payload.organizationRoleName);
@@ -1245,7 +1241,7 @@ app.post("/owner/organizations/:organizationId/members", requireAuth(API_RESOURC
     return res.status(202).json({ status: "queued", operationType: "organization_member_create", syncOperation: operation, logtoUserId, roleName: payload.organizationRoleName, message: "Miembro creado/vinculado en Logto; downstream queda registrado para worker/reintento si aplica." });
   } catch (error) {
     if (operation?.id) await db.update(syncOperations).set({ status: "hitl_required", canonicalStatus: "failed", downstreamStatus: "pending", lastErrorJson: { message: getSafeErrorMessage(error), retryable: false, hitl: error.hitl || "conflicto requiere revisión humana" }, updatedAt: new Date() }).where(eq(syncOperations.id, operation.id)).catch(() => {});
-    return res.status(error.status || 502).json({ error: "Member create requires review", message: safeFunctionalMessage(getSafeErrorMessage(error), "No se pudo completar la creación del miembro; quedó como tarea HITL/reintento."), status: "hitl_required", syncOperationId: operation?.id || null });
+    return res.status(error.status || 502).json({ error: "Member create requires review", message: safeFunctionalMessage(getSafeErrorMessage(error), "No se pudo completar la creación del miembro; quedó como tarea HITL/reintento."), status: "hitl_required", syncOperationId: operation?.id || null, ...buildPublicErrorContext(error) });
   }
 });
 
@@ -1265,7 +1261,7 @@ app.patch("/owner/organizations/:organizationId/members/:logtoUserId/identity", 
     await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: req.params.organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_FLUENTCRM_SYNC, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "fluentcrm_contact_identity_sync_queued", logtoUserId: req.params.logtoUserId, syncOperationId: operation.id } });
     return res.json({ status: "logto_updated_sync_queued", logtoUser, syncOperation: operation, futureSelfServiceRoute: "PATCH /me/identity" });
   } catch (error) {
-    return res.status(error.status || 502).json({ error: "Bad Gateway", message: getSafeErrorMessage(error), integration: "logto_management_api", logtoRequest: error.request || null, logtoErrorBody: error.body || null });
+    return res.status(error.status || 502).json({ error: "Bad Gateway", message: getSafeErrorMessage(error), integration: "logto_management_api", ...buildPublicErrorContext(error) });
   }
 });
 
@@ -1293,7 +1289,7 @@ app.patch("/owner/organizations/:organizationId/members/:logtoUserId", requireAu
     await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: req.params.organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "member_identity_updated", syncOperationId: operation.id } });
     return res.json({ status: "logto_updated_sync_queued", logtoUser, syncOperation: operation });
   } catch (error) {
-    return res.status(error.status || 502).json({ error: "Member update failed", message: safeFunctionalMessage(getSafeErrorMessage(error), "No se pudo actualizar el miembro en Logto.") });
+    return res.status(error.status || 502).json({ error: "Member update failed", message: safeFunctionalMessage(getSafeErrorMessage(error), "No se pudo actualizar el miembro en Logto."), ...buildPublicErrorContext(error) });
   }
 });
 
@@ -1305,7 +1301,7 @@ app.post("/owner/organizations/:organizationId/members/:logtoUserId/reset-passwo
     await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: req.params.organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "member_password_reset_queued", logtoUserId: req.params.logtoUserId, syncOperationId: operation.id } });
     return res.json({ status: "queued", provider: "logto", syncOperation: operation, message: "Reset password encolado para que el worker use solo capacidades reales de Logto; no se creará reset local." });
   } catch (error) {
-    return res.status(error.status || 502).json({ error: "Password reset unavailable", message: safeFunctionalMessage(getSafeErrorMessage(error), "No se pudo iniciar el reset password en Logto.") });
+    return res.status(error.status || 502).json({ error: "Password reset unavailable", message: safeFunctionalMessage(getSafeErrorMessage(error), "No se pudo iniciar el reset password en Logto."), ...buildPublicErrorContext(error) });
   }
 });
 
@@ -1400,7 +1396,7 @@ app.post("/owner/organizations/:organizationId/members/:logtoUserId/deprovision"
       result: AUDIT_RESULTS.ERROR,
       metadata: { stage: "member_deprovision_failed", logtoUserId: req.params.logtoUserId, error },
     });
-    return res.status(error.status || 502).json({ error: "Bad Gateway", message: getSafeErrorMessage(error), integration: error instanceof FluentCrmError ? "fluentcrm" : "logto_management_api", logtoRequest: error.request || null, logtoErrorBody: error.body || null });
+    return res.status(error.status || 502).json({ error: "Bad Gateway", message: getSafeErrorMessage(error), integration: error instanceof FluentCrmError ? "fluentcrm" : "logto_management_api", ...buildPublicErrorContext(error) });
   }
 });
 
@@ -1525,7 +1521,7 @@ app.patch("/owner/organizations/:organizationId/profile", requireAuth(API_RESOUR
     return res.json({ status: "updated_sync_queued", organization: serializeOwnerOrganization(profile, updated), syncOperation: operation });
   } catch (error) {
     await recordAuditLogBestEffort({ actorUserId: internalUser?.id ?? null, organizationId: req.params.organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.ERROR, metadata: { stage: "organization_profile_custom_data_update_failed", error } });
-    return res.status(error.status || 502).json({ error: "Profile update failed", message: safeFunctionalMessage(getSafeErrorMessage(error), "No se pudo guardar el perfil en Logto.") });
+    return res.status(error.status || 502).json({ error: "Profile update failed", message: safeFunctionalMessage(getSafeErrorMessage(error), "No se pudo guardar el perfil en Logto."), ...buildPublicErrorContext(error) });
   }
 });
 
@@ -1583,7 +1579,7 @@ app.post("/owner/organizations/:organizationId/fluentcrm/sync-contacts", require
     return res.json({ organizationId: profile.logtoOrganizationId, fluentcrmCompanyId: profile.fluentcrmCompanyId, contactSync: summary });
   } catch (error) {
     await recordAuditLogBestEffort({ actorUserId: internalUser?.id ?? null, organizationId: req.params.organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_FLUENTCRM_CONTACT_SYNC, result: AUDIT_RESULTS.ERROR, metadata: { stage: "fluentcrm_contact_sync_failed", error } });
-    return res.status(error.status || 502).json({ error: "Bad Gateway", message: getSafeErrorMessage(error), integration: "fluentcrm" });
+    return res.status(error.status || 502).json({ error: "Bad Gateway", message: getSafeErrorMessage(error), integration: "fluentcrm", ...buildPublicErrorContext(error) });
   }
 });
 
@@ -1598,7 +1594,7 @@ app.get("/owner/integrations/fluentcrm/health", requireAuth(API_RESOURCE), requi
     return res.json({ integration: "fluentcrm", ...(await validateFluentCrmConfiguration()) });
   } catch (error) {
     const status = error.status || (error.code === "FLUENTCRM_CONFIG_MISSING" || error.code === "FLUENTCRM_CONFIG_INVALID" ? 400 : 502);
-    return res.status(status).json({ integration: "fluentcrm", status: "error", message: getSafeErrorMessage(error), code: error.code || null, diagnostic: error.diagnostic || null, details: error.body || null });
+    return res.status(status).json({ integration: "fluentcrm", status: "error", message: getSafeErrorMessage(error), ...buildPublicErrorContext(error) });
   }
 });
 
@@ -1609,7 +1605,7 @@ app.get("/owner/organizations/:organizationId/directory", requireAuth(API_RESOUR
     return res.json(result);
   } catch (error) {
     console.error("Failed to build owner organization directory", error);
-    return res.status(error.status || 502).json({ error: "Bad Gateway", message: getSafeErrorMessage(error), sourcePolicy: "logto_first_directory" });
+    return res.status(error.status || 502).json({ error: "Bad Gateway", message: getSafeErrorMessage(error), sourcePolicy: "logto_first_directory", ...buildPublicErrorContext(error) });
   }
 });
 
@@ -1620,7 +1616,7 @@ app.get("/organizations/:organizationId/directory", requireOrganizationAccess({ 
     return res.json(result);
   } catch (error) {
     console.error("Failed to build organization directory", error);
-    return res.status(error.status || 502).json({ error: "Bad Gateway", message: getSafeErrorMessage(error), sourcePolicy: "logto_first_directory" });
+    return res.status(error.status || 502).json({ error: "Bad Gateway", message: getSafeErrorMessage(error), sourcePolicy: "logto_first_directory", ...buildPublicErrorContext(error) });
   }
 });
 
@@ -1640,7 +1636,7 @@ app.get("/owner/audit", requireAuth(API_RESOURCE), requireOwner, async (req, res
     if (error.status === 401) return res.status(401).json({ error: "Unauthorized", message: error.message });
     if (error.status === 403) return res.status(403).json({ error: "Forbidden", message: error.message });
     console.error("Failed to list audit logs", error);
-    return res.status(500).json({ error: "Internal Server Error", message: "Failed to list audit logs" });
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to list audit logs", ...buildPublicErrorContext(error) });
   }
 });
 
