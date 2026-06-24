@@ -1,58 +1,49 @@
+/* ============================================================
+   Civitas Design System — tokens.css
+   Única fuente de verdad visual.
+   Regla: ningún archivo de página declara colores, radii
+   ni spacing que no estén definidos aquí primero.
+   ============================================================ */
+
 :root {
-  --civitas-primary: #1984ee;
-  --civitas-primary-mid: #4b9ef1;
-  --civitas-primary-hover: #f3b723;
-  --civitas-accent-light: #3cadf1;
-  --civitas-accent-strong: #2259f2;
-  --civitas-warning: #f3b723;
-  --civitas-warning-strong: #ed9e1b;
-  --civitas-warning-text: #7a4a05;
 
-  --civitas-text: #031c44;
-  --civitas-text-muted: #556080;
-  --civitas-text-soft: #5d7396;
-  --civitas-text-hint: #8b9ab8;
-  --civitas-text-on-dark: #e8ebf4;
+  /* ── Brand azul ─────────────────────────────────────────── */
+  --lss-primary:         #1984EE;
+  --lss-primary-hover:   #4B9EF1;
+  --lss-accent:          #3CADF1;
+  --lss-strong:          #2259F2;
+  --lss-primary-dark:    #052490;
 
-  --civitas-bg: #f3f4f6;
-  --civitas-surface: #fafbfd;
-  --civitas-surface-soft: #f8fbff;
-  --civitas-surface-soft-2: #eef5ff;
-  --civitas-surface-contrast: #ffffff;
-  --civitas-border: rgba(3, 28, 68, 0.08);
-  --civitas-border-mid: rgba(3, 28, 68, 0.14);
-  --civitas-border-strong: #c9d7e8;
+  /* ── Amarillo (warning / renovación / CTA secundario) ───── */
+  --lss-yellow:          #F3B723;   /* base y hover — mismo valor */
+  --lss-yellow-icon:     #ED9E1B;   /* íconos sobre fondo amarillo */
+  --lss-yellow-text:     #7A4A05;   /* texto sobre fondo amarillo */
+  --lss-yellow-bg:       #FEF8E7;   /* fondo badge warning light */
+  --lss-yellow-bg-dark:  #633806;   /* fondo badge warning dark  */
 
-  --civitas-success-text: #12643a;
-  --civitas-success-bg: rgba(25, 132, 238, 0.12);
-  --civitas-success-border: rgba(25, 132, 238, 0.18);
-  --civitas-danger-text: #8f2633;
-  --civitas-danger-strong: #a3303f;
-  --civitas-danger-bg: rgba(220, 53, 69, 0.1);
-  --civitas-danger-border: rgba(220, 53, 69, 0.18);
-  --civitas-neutral-text: #415574;
-  --civitas-neutral-bg: rgba(85, 96, 128, 0.1);
-  --civitas-neutral-border: rgba(85, 96, 128, 0.12);
-  --civitas-info-bg: rgba(25, 132, 238, 0.1);
-  --civitas-info-border: rgba(25, 132, 238, 0.18);
+  /* ── Texto ──────────────────────────────────────────────── */
+  --lss-text:            #031C44;
+  --lss-text-muted:      #556080;
+  --lss-text-hint:       #8B9AB8;
 
-  --civitas-overlay-primary-08: rgba(25, 132, 238, 0.08);
-  --civitas-overlay-primary-10: rgba(25, 132, 238, 0.1);
-  --civitas-overlay-primary-12: rgba(25, 132, 238, 0.12);
-  --civitas-overlay-primary-14: rgba(25, 132, 238, 0.14);
-  --civitas-overlay-primary-16: rgba(25, 132, 238, 0.16);
-  --civitas-overlay-warning-10: rgba(243, 183, 35, 0.1);
-  --civitas-overlay-warning-18: rgba(243, 183, 35, 0.18);
-  --civitas-overlay-warning-20: rgba(243, 183, 35, 0.2);
-  --civitas-overlay-warning-28: rgba(243, 183, 35, 0.28);
+  /* ── Superficies — light ────────────────────────────────── */
+  --lss-bg:              #F3F4F6;   /* fondo de página           */
+  --lss-surface:         #FAFBFD;   /* cards, bullet, forms      */
+  --lss-white:           #FFFFFF;   /* contraste máximo          */
+  --lss-border:          rgba(3, 28, 68, 0.08);
+  --lss-border-mid:      rgba(3, 28, 68, 0.14);
+  --lss-border-hi:       rgba(3, 28, 68, 0.22);
 
-  --civitas-shadow-sm: 0 10px 28px rgba(3, 28, 68, 0.05);
-  --civitas-shadow-md: 0 12px 30px rgba(3, 28, 68, 0.05);
-  --civitas-shadow-lg: 0 18px 45px rgba(3, 28, 68, 0.08);
-  --civitas-shadow-dark: 0 20px 48px rgba(0, 0, 0, 0.28);
-  --civitas-gradient-surface: linear-gradient(180deg, var(--civitas-surface-contrast) 0%, var(--civitas-surface) 100%);
-  --civitas-gradient-soft: linear-gradient(180deg, var(--civitas-surface-soft) 0%, var(--civitas-surface-soft-2) 100%);
+  /* ── Semánticos ─────────────────────────────────────────── */
+  --lss-success:         #22c55e;
+  --lss-success-bg:      #dcfce7;
+  --lss-success-text:    #15803d;
+  --lss-danger:          #dc2626;
+  --lss-danger-soft:     #f87171;
+  --lss-danger-bg:       #fee2e2;
+  --lss-danger-text:     #991b1b;
 
+  /* ── Spacing ────────────────────────────────────────────── */
   --sp-1: 4px;
   --sp-2: 8px;
   --sp-3: 12px;
@@ -60,48 +51,62 @@
   --sp-5: 24px;
   --sp-6: 32px;
 
+  /* ── Radii ──────────────────────────────────────────────── */
   --r-sm: 6px;
   --r-md: 8px;
   --r-lg: 12px;
-  --r-xl: 20px;
+  --r-xl: 16px;
+  --r-pill: 999px;
 
-  --bs-primary: var(--civitas-primary);
-  --bs-body-color: var(--civitas-text);
-  --bs-body-bg: var(--civitas-bg);
-  --bs-border-radius: var(--r-md);
+  /* ── Tipografía ─────────────────────────────────────────── */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+  --font-mono: 'SF Mono', 'Fira Code', Consolas, monospace;
+  --text-xs:   11px;
+  --text-sm:   12px;
+  --text-base: 13px;
+  --text-md:   14px;
+  --text-lg:   16px;
+  --text-xl:   18px;
+  --text-2xl:  22px;
 
-  --civitas-primary-soft: var(--civitas-overlay-primary-16);
-  --civitas-muted: var(--civitas-text-soft);
-  --civitas-radius: var(--r-xl);
-  --civitas-shadow: var(--civitas-shadow-lg);
-  --civitas-sidebar-width: 292px;
-  --civitas-json-bg: var(--civitas-gradient-soft);
-  --civitas-json-text: #17315c;
+  /* ── Sombras ────────────────────────────────────────────── */
+  --shadow-card: 0 1px 3px rgba(3, 28, 68, 0.07), 0 0 0 0.5px rgba(3, 28, 68, 0.10);
+
+  /* ── Bootstrap overrides ────────────────────────────────── */
+  --bs-primary:          #1984EE;
+  --bs-primary-rgb:      25, 132, 238;
+  --bs-body-font-family: var(--font-sans);
+  --bs-body-color:       #031C44;
+  --bs-body-bg:          #F3F4F6;
+  --bs-border-radius:    8px;
+  --bs-border-radius-lg: 12px;
+  --bs-border-radius-sm: 6px;
+  --bs-border-color:     rgba(3, 28, 68, 0.14);
 }
 
-[data-theme="dark"],
-[data-bs-theme="dark"],
-.theme-dark,
-body.theme-dark {
-  --civitas-primary: #4b9ef1;
-  --civitas-primary-mid: #4b9ef1;
-  --civitas-primary-hover: #f3b723;
-  --civitas-accent-light: #93c4f7;
-  --civitas-bg: #08172f;
-  --civitas-surface: #102748;
-  --civitas-surface-soft: #102748;
-  --civitas-surface-soft-2: #0d2240;
-  --civitas-surface-contrast: #102748;
-  --civitas-text: #e8ebf4;
-  --civitas-text-muted: rgba(232, 239, 250, 0.72);
-  --civitas-text-soft: rgba(232, 239, 250, 0.72);
-  --civitas-border: rgba(255, 255, 255, 0.1);
-  --civitas-border-mid: rgba(255, 255, 255, 0.12);
-  --civitas-border-strong: rgba(255, 255, 255, 0.16);
-  --civitas-warning-text: #fad97a;
-  --civitas-gradient-surface: linear-gradient(180deg, rgba(16, 39, 72, 0.96) 0%, rgba(14, 33, 60, 0.96) 100%);
-  --civitas-gradient-soft: linear-gradient(180deg, #102748 0%, #0d2240 100%);
-  --civitas-shadow: var(--civitas-shadow-dark);
-  --civitas-json-bg: #071426;
-  --civitas-json-text: #d8e8ff;
+/* ── Dark theme ─────────────────────────────────────────────── */
+[data-theme="dark"] {
+  --lss-bg:              #0A0F1E;
+  --lss-surface:         #141C33;
+  --lss-white:           #0F1628;
+  --lss-border:          rgba(255, 255, 255, 0.06);
+  --lss-border-mid:      rgba(255, 255, 255, 0.12);
+  --lss-border-hi:       rgba(255, 255, 255, 0.20);
+
+  --lss-text:            #E8EBF4;
+  --lss-text-muted:      #8B9AB8;
+  --lss-text-hint:       #556080;
+
+  --lss-accent:          #93C4F7;
+  --lss-yellow-text:     #FAD97A;
+  --lss-yellow-bg:       #633806;
+
+  --lss-success-bg:      rgba(34, 197, 94, 0.15);
+  --lss-success-text:    #4ade80;
+  --lss-danger-bg:       rgba(248, 113, 113, 0.15);
+  --lss-danger-text:     #f87171;
+
+  --bs-body-color:       #E8EBF4;
+  --bs-body-bg:          #0A0F1E;
+  --bs-border-color:     rgba(255, 255, 255, 0.12);
 }
