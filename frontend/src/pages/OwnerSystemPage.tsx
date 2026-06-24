@@ -92,7 +92,6 @@ const orderedChecks = (checks: OwnerIntegrationHealthCheck[]) =>
     return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
   });
 
-
 const metricTone = (metric?: OwnerSystemMetric): Tone => {
   if (!metric) return "neutral";
   if (["live", "derived"].includes(metric.instrumentationStatus)) return "success";
@@ -180,7 +179,37 @@ export function OwnerSystemPage() {
           <SystemCard title="Debug & logging" icon="⚙" action={<StatusPill tone="success">Easy debugging & logging</StatusPill>}><div className="debug-table"><div><span>Redis ops</span><MetricStatus metric={systemMetrics?.debugAndLogging.redisOps}/></div><div><span>BullMQ jobs</span><MetricStatus metric={systemMetrics?.debugAndLogging.bullmqJobs}/></div><div><span>REDIS_STATUS</span><StatusPill tone={redisOk ? "success" : "warning"}>{redisOk ? "INFO" : "WARN"}</StatusPill></div><div><span>Slow queries</span><MetricStatus metric={systemMetrics?.debugAndLogging.slowQueries}/></div><div><span>Failed jobs: {formatMetricValue(systemMetrics?.debugAndLogging.failedJobs)}</span><MetricStatus metric={systemMetrics?.debugAndLogging.failedJobs}/></div><div><span>Retry rate: {formatMetricValue(systemMetrics?.debugAndLogging.retryRate)}</span><MetricStatus metric={systemMetrics?.debugAndLogging.retryRate}/></div></div></SystemCard>
         </div></section>
 
-        <section className="owner-system-section"><div className="owner-system-section__title"><h2>Expansión propuesta</h2><span>memory live; resto con estados honestos</span></div><div className="expansion-grid"><SystemCard title="Redis memory" action={<MetricStatus metric={systemMetrics?.expansion.redisMemory.usedMemory} />}><p className="placeholder-note">Used: {formatMetricValue(systemMetrics?.expansion.redisMemory.usedMemory)} · Peak: {formatMetricValue(systemMetrics?.expansion.redisMemory.usedMemoryPeak)}</p></SystemCard><SystemCard title="TTL distribution" action={<MetricStatus metric={systemMetrics?.expansion.ttlDistribution} />}><MetricNote metric={systemMetrics?.expansion.ttlDistribution}/></SystemCard><SystemCard title="Retry rate" action={<MetricStatus metric={systemMetrics?.expansion.retryRate} />}><p className="placeholder-note">{formatMetricValue(systemMetrics?.expansion.retryRate)}</p></SystemCard><SystemCard title="Throughput 24h" action={<MetricStatus metric={systemMetrics?.expansion.throughput24h} />}><p className="placeholder-note">Buckets: {systemMetrics?.series?.throughput24h?.length ?? 0} · {formatMetricValue(systemMetrics?.expansion.throughput24h)}</p><MetricNote metric={systemMetrics?.expansion.throughput24h}/></SystemCard><SystemCard title="Por organización" action={<MetricStatus metric={systemMetrics?.expansion.perOrganization} />}><MetricNote metric={systemMetrics?.expansion.perOrganization}/></SystemCard><SystemCard title="Alertas" action={<MetricStatus metric={systemMetrics?.expansion.alerts} />}><MetricNote metric={systemMetrics?.expansion.alerts}/></SystemCard></div></section>
+        <section className="owner-system-section">
+          <div className="owner-system-section__title">
+            <h2>Expansión propuesta</h2>
+            <span>memory live; resto con estados honestos</span>
+          </div>
+          <div className="expansion-grid">
+            <SystemCard title="Redis memory" action={<MetricStatus metric={systemMetrics?.expansion.redisMemory.usedMemory} />}>
+              <p className="placeholder-note">
+                Used: {formatMetricValue(systemMetrics?.expansion.redisMemory.usedMemory)} · Peak: {formatMetricValue(systemMetrics?.expansion.redisMemory.usedMemoryPeak)}
+              </p>
+            </SystemCard>
+            <SystemCard title="TTL distribution" action={<MetricStatus metric={systemMetrics?.expansion.ttlDistribution} />}>
+              <MetricNote metric={systemMetrics?.expansion.ttlDistribution} />
+            </SystemCard>
+            <SystemCard title="Retry rate" action={<MetricStatus metric={systemMetrics?.expansion.retryRate} />}>
+              <p className="placeholder-note">{formatMetricValue(systemMetrics?.expansion.retryRate)}</p>
+            </SystemCard>
+            <SystemCard title="Throughput 24h" action={<MetricStatus metric={systemMetrics?.expansion.throughput24h} />}>
+              <p className="placeholder-note">
+                Buckets: {systemMetrics?.series?.throughput24h?.length ?? 0} · {formatMetricValue(systemMetrics?.expansion.throughput24h)}
+              </p>
+              <MetricNote metric={systemMetrics?.expansion.throughput24h} />
+            </SystemCard>
+            <SystemCard title="Por organización" action={<MetricStatus metric={systemMetrics?.expansion.perOrganization} />}>
+              <MetricNote metric={systemMetrics?.expansion.perOrganization} />
+            </SystemCard>
+            <SystemCard title="Alertas" action={<MetricStatus metric={systemMetrics?.expansion.alerts} />}>
+              <MetricNote metric={systemMetrics?.expansion.alerts} />
+            </SystemCard>
+          </div>
+        </section>
       </div>
     </PageShell>
   );
