@@ -1,47 +1,46 @@
 /* ============================================================
    Civitas Design System — tokens.css
-   Única fuente de verdad visual.
-   Regla: ningún archivo de página declara colores, radii
-   ni spacing que no estén definidos aquí primero.
+   Unica fuente de verdad visual.
+   Regla: ningun archivo de pagina declara colores, radii
+   ni spacing que no esten definidos aqui primero.
    ============================================================ */
 
 :root {
-
   /* ── Brand azul ─────────────────────────────────────────── */
-  --lss-primary:         #1984EE;
-  --lss-primary-hover:   #4B9EF1;
-  --lss-accent:          #3CADF1;
-  --lss-strong:          #2259F2;
-  --lss-primary-dark:    #052490;
+  --civitas-primary: #1984ee;
+  --civitas-primary-hover: #4b9ef1;
+  --civitas-accent: #3cadf1;
+  --civitas-strong: #2259f2;
+  --civitas-primary-dark: #052490;
 
-  /* ── Amarillo (warning / renovación / CTA secundario) ───── */
-  --lss-yellow:          #F3B723;   /* base y hover — mismo valor */
-  --lss-yellow-icon:     #ED9E1B;   /* íconos sobre fondo amarillo */
-  --lss-yellow-text:     #7A4A05;   /* texto sobre fondo amarillo */
-  --lss-yellow-bg:       #FEF8E7;   /* fondo badge warning light */
-  --lss-yellow-bg-dark:  #633806;   /* fondo badge warning dark  */
+  /* ── Amarillo (warning / renovacion / CTA secundario) ───── */
+  --civitas-yellow: #f3b723;
+  --civitas-yellow-icon: #ed9e1b;
+  --civitas-yellow-text: #7a4a05;
+  --civitas-yellow-bg: #fef8e7;
+  --civitas-yellow-bg-dark: #633806;
 
   /* ── Texto ──────────────────────────────────────────────── */
-  --lss-text:            #031C44;
-  --lss-text-muted:      #556080;
-  --lss-text-hint:       #8B9AB8;
+  --civitas-text: #031c44;
+  --civitas-text-muted: #556080;
+  --civitas-text-hint: #8b9ab8;
 
   /* ── Superficies — light ────────────────────────────────── */
-  --lss-bg:              #F3F4F6;   /* fondo de página           */
-  --lss-surface:         #FAFBFD;   /* cards, bullet, forms      */
-  --lss-white:           #FFFFFF;   /* contraste máximo          */
-  --lss-border:          rgba(3, 28, 68, 0.08);
-  --lss-border-mid:      rgba(3, 28, 68, 0.14);
-  --lss-border-hi:       rgba(3, 28, 68, 0.22);
+  --civitas-bg: #f3f4f6;
+  --civitas-surface: #fafbfd;
+  --civitas-white: #ffffff;
+  --civitas-border: rgba(3, 28, 68, 0.08);
+  --civitas-border-mid: rgba(3, 28, 68, 0.14);
+  --civitas-border-hi: rgba(3, 28, 68, 0.22);
 
-  /* ── Semánticos ─────────────────────────────────────────── */
-  --lss-success:         #22c55e;
-  --lss-success-bg:      #dcfce7;
-  --lss-success-text:    #15803d;
-  --lss-danger:          #dc2626;
-  --lss-danger-soft:     #f87171;
-  --lss-danger-bg:       #fee2e2;
-  --lss-danger-text:     #991b1b;
+  /* ── Semanticos ─────────────────────────────────────────── */
+  --civitas-success: #22c55e;
+  --civitas-success-bg: #dcfce7;
+  --civitas-success-text: #15803d;
+  --civitas-danger: #dc2626;
+  --civitas-danger-soft: #f87171;
+  --civitas-danger-bg: #fee2e2;
+  --civitas-danger-text: #991b1b;
 
   /* ── Spacing ────────────────────────────────────────────── */
   --sp-1: 4px;
@@ -58,55 +57,145 @@
   --r-xl: 16px;
   --r-pill: 999px;
 
-  /* ── Tipografía ─────────────────────────────────────────── */
+  /* ── Tipografia ─────────────────────────────────────────── */
   --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
   --font-mono: 'SF Mono', 'Fira Code', Consolas, monospace;
-  --text-xs:   11px;
-  --text-sm:   12px;
+  --text-xs: 11px;
+  --text-sm: 12px;
   --text-base: 13px;
-  --text-md:   14px;
-  --text-lg:   16px;
-  --text-xl:   18px;
-  --text-2xl:  22px;
+  --text-md: 14px;
+  --text-lg: 16px;
+  --text-xl: 18px;
+  --text-2xl: 22px;
 
   /* ── Sombras ────────────────────────────────────────────── */
   --shadow-card: 0 1px 3px rgba(3, 28, 68, 0.07), 0 0 0 0.5px rgba(3, 28, 68, 0.10);
 
   /* ── Bootstrap overrides ────────────────────────────────── */
-  --bs-primary:          #1984EE;
-  --bs-primary-rgb:      25, 132, 238;
+  --bs-primary: #1984ee;
+  --bs-primary-rgb: 25, 132, 238;
   --bs-body-font-family: var(--font-sans);
-  --bs-body-color:       #031C44;
-  --bs-body-bg:          #F3F4F6;
-  --bs-border-radius:    8px;
+  --bs-body-color: #031c44;
+  --bs-body-bg: #f3f4f6;
+  --bs-border-radius: 8px;
   --bs-border-radius-lg: 12px;
   --bs-border-radius-sm: 6px;
-  --bs-border-color:     rgba(3, 28, 68, 0.14);
+  --bs-border-color: rgba(3, 28, 68, 0.14);
+
+  /* ── Aliases de compatibilidad para estilos actuales ────── */
+  --civitas-primary-mid: var(--civitas-primary-hover);
+  --civitas-accent-light: var(--civitas-accent);
+  --civitas-accent-strong: var(--civitas-strong);
+  --civitas-warning: var(--civitas-yellow);
+  --civitas-warning-strong: var(--civitas-yellow-icon);
+  --civitas-warning-text: var(--civitas-yellow-text);
+  --civitas-surface-contrast: var(--civitas-white);
+  --civitas-text-soft: var(--civitas-text-muted);
+  --civitas-primary-soft: rgba(25, 132, 238, 0.16);
+  --civitas-muted: var(--civitas-text-muted);
+  --civitas-radius: var(--r-xl);
+  --civitas-shadow: var(--shadow-card);
+  --civitas-sidebar-width: 292px;
+  --civitas-json-bg: linear-gradient(180deg, #f8fbff 0%, #eef5ff 100%);
+  --civitas-json-text: #17315c;
+  --civitas-neutral-text: #415574;
+  --civitas-neutral-bg: rgba(85, 96, 128, 0.1);
+  --civitas-neutral-border: rgba(85, 96, 128, 0.12);
+  --civitas-info-bg: rgba(25, 132, 238, 0.1);
+  --civitas-info-border: rgba(25, 132, 238, 0.18);
+  --civitas-overlay-primary-08: rgba(25, 132, 238, 0.08);
+  --civitas-overlay-primary-10: rgba(25, 132, 238, 0.1);
+  --civitas-overlay-primary-12: rgba(25, 132, 238, 0.12);
+  --civitas-overlay-primary-14: rgba(25, 132, 238, 0.14);
+  --civitas-overlay-primary-16: rgba(25, 132, 238, 0.16);
+  --civitas-overlay-warning-10: rgba(243, 183, 35, 0.1);
+  --civitas-overlay-warning-18: rgba(243, 183, 35, 0.18);
+  --civitas-overlay-warning-20: rgba(243, 183, 35, 0.2);
+  --civitas-overlay-warning-28: rgba(243, 183, 35, 0.28);
+  --civitas-shadow-sm: 0 10px 28px rgba(3, 28, 68, 0.05);
+  --civitas-shadow-md: 0 12px 30px rgba(3, 28, 68, 0.05);
+  --civitas-shadow-lg: 0 18px 45px rgba(3, 28, 68, 0.08);
+  --civitas-shadow-dark: 0 20px 48px rgba(0, 0, 0, 0.28);
+  --civitas-gradient-surface: linear-gradient(180deg, var(--civitas-white) 0%, var(--civitas-surface) 100%);
+  --civitas-gradient-soft: linear-gradient(180deg, #f8fbff 0%, #eef5ff 100%);
+
+  /* ── Aliases legacy temporales ──────────────────────────── */
+  --lss-primary: var(--civitas-primary);
+  --lss-primary-hover: var(--civitas-primary-hover);
+  --lss-accent: var(--civitas-accent);
+  --lss-strong: var(--civitas-strong);
+  --lss-primary-dark: var(--civitas-primary-dark);
+  --lss-yellow: var(--civitas-yellow);
+  --lss-yellow-icon: var(--civitas-yellow-icon);
+  --lss-yellow-text: var(--civitas-yellow-text);
+  --lss-yellow-bg: var(--civitas-yellow-bg);
+  --lss-yellow-bg-dark: var(--civitas-yellow-bg-dark);
+  --lss-text: var(--civitas-text);
+  --lss-text-muted: var(--civitas-text-muted);
+  --lss-text-hint: var(--civitas-text-hint);
+  --lss-bg: var(--civitas-bg);
+  --lss-surface: var(--civitas-surface);
+  --lss-white: var(--civitas-white);
+  --lss-border: var(--civitas-border);
+  --lss-border-mid: var(--civitas-border-mid);
+  --lss-border-hi: var(--civitas-border-hi);
+  --lss-success: var(--civitas-success);
+  --lss-success-bg: var(--civitas-success-bg);
+  --lss-success-text: var(--civitas-success-text);
+  --lss-danger: var(--civitas-danger);
+  --lss-danger-soft: var(--civitas-danger-soft);
+  --lss-danger-bg: var(--civitas-danger-bg);
+  --lss-danger-text: var(--civitas-danger-text);
 }
 
-/* ── Dark theme ─────────────────────────────────────────────── */
-[data-theme="dark"] {
-  --lss-bg:              #0A0F1E;
-  --lss-surface:         #141C33;
-  --lss-white:           #0F1628;
-  --lss-border:          rgba(255, 255, 255, 0.06);
-  --lss-border-mid:      rgba(255, 255, 255, 0.12);
-  --lss-border-hi:       rgba(255, 255, 255, 0.20);
+[data-theme="dark"],
+[data-bs-theme="dark"],
+.theme-dark,
+body.theme-dark {
+  --civitas-bg: #0a0f1e;
+  --civitas-surface: #141c33;
+  --civitas-white: #0f1628;
+  --civitas-border: rgba(255, 255, 255, 0.06);
+  --civitas-border-mid: rgba(255, 255, 255, 0.12);
+  --civitas-border-hi: rgba(255, 255, 255, 0.2);
 
-  --lss-text:            #E8EBF4;
-  --lss-text-muted:      #8B9AB8;
-  --lss-text-hint:       #556080;
+  --civitas-text: #e8ebf4;
+  --civitas-text-muted: #8b9ab8;
+  --civitas-text-hint: #556080;
 
-  --lss-accent:          #93C4F7;
-  --lss-yellow-text:     #FAD97A;
-  --lss-yellow-bg:       #633806;
+  --civitas-accent: #93c4f7;
+  --civitas-yellow-text: #fad97a;
+  --civitas-yellow-bg: #633806;
 
-  --lss-success-bg:      rgba(34, 197, 94, 0.15);
-  --lss-success-text:    #4ade80;
-  --lss-danger-bg:       rgba(248, 113, 113, 0.15);
-  --lss-danger-text:     #f87171;
+  --civitas-success-bg: rgba(34, 197, 94, 0.15);
+  --civitas-success-text: #4ade80;
+  --civitas-danger-bg: rgba(248, 113, 113, 0.15);
+  --civitas-danger-text: #f87171;
 
-  --bs-body-color:       #E8EBF4;
-  --bs-body-bg:          #0A0F1E;
-  --bs-border-color:     rgba(255, 255, 255, 0.12);
+  --bs-body-color: #e8ebf4;
+  --bs-body-bg: #0a0f1e;
+  --bs-border-color: rgba(255, 255, 255, 0.12);
+
+  --civitas-primary-soft: rgba(75, 158, 241, 0.16);
+  --civitas-json-bg: #071426;
+  --civitas-json-text: #d8e8ff;
+  --civitas-gradient-surface: linear-gradient(180deg, #102748 0%, #0d2240 100%);
+  --civitas-gradient-soft: linear-gradient(180deg, #102748 0%, #0d2240 100%);
+
+  --lss-bg: var(--civitas-bg);
+  --lss-surface: var(--civitas-surface);
+  --lss-white: var(--civitas-white);
+  --lss-border: var(--civitas-border);
+  --lss-border-mid: var(--civitas-border-mid);
+  --lss-border-hi: var(--civitas-border-hi);
+  --lss-text: var(--civitas-text);
+  --lss-text-muted: var(--civitas-text-muted);
+  --lss-text-hint: var(--civitas-text-hint);
+  --lss-accent: var(--civitas-accent);
+  --lss-yellow-text: var(--civitas-yellow-text);
+  --lss-yellow-bg: var(--civitas-yellow-bg);
+  --lss-success-bg: var(--civitas-success-bg);
+  --lss-success-text: var(--civitas-success-text);
+  --lss-danger-bg: var(--civitas-danger-bg);
+  --lss-danger-text: var(--civitas-danger-text);
 }
