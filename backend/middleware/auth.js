@@ -87,8 +87,26 @@ const parseClaimList = (value) => {
   return [];
 };
 
+const getClaimValue = (payload = {}, claimNames = []) => {
+  for (const claimName of claimNames) {
+    if (Object.hasOwn(payload, claimName)) {
+      return payload[claimName];
+    }
+  }
+  return undefined;
+};
+
+const GLOBAL_ROLE_CLAIMS = [
+  ["global_roles"],
+  ["role_names"],
+  ["roles"],
+  ["globalRoles"],
+  ["https://civitas.socialstudies.cloud/claims/global_roles", "https://civitas.socialstudies.cloud/global_roles"],
+  ["https://civitas.socialstudies.cloud/claims/role_names", "https://civitas.socialstudies.cloud/role_names"],
+];
+
 const extractGlobalRoleNames = (payload = {}) => {
-  const candidates = [payload.roles, payload.role_names, payload.global_roles];
+  const candidates = GLOBAL_ROLE_CLAIMS.map((claimNames) => getClaimValue(payload, claimNames));
   return [...new Set(candidates.flatMap(parseClaimList))];
 };
 
