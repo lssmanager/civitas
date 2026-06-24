@@ -38,6 +38,26 @@ test("LogtoManagementApiError exposes only a public-safe body and request shape"
   assert.equal(error.diagnostic, null);
 });
 
+test("LogtoManagementApiError strips query strings from the public request path", () => {
+  const error = new LogtoManagementApiError("Logto request failed", {
+    status: 502,
+    request: {
+      method: "GET",
+      path: "/users?search=person@example.com",
+      payload: {
+        ignored: true,
+      },
+    },
+    diagnostic: "search lookup failed upstream",
+  });
+
+  assert.deepEqual(error.request, {
+    method: "GET",
+    path: "/users",
+  });
+  assert.equal(error.internalRequest.path, "/users?search=person@example.com");
+});
+
 test("LogtoManagementApiError keeps redacted internal diagnostics for logs only", () => {
   const error = new LogtoManagementApiError("Logto request failed", {
     status: 502,

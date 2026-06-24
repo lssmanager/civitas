@@ -25,11 +25,20 @@ function sanitizeForDiagnostics(value, depth = 0) {
   return value;
 }
 
+function sanitizePublicPath(path) {
+  if (typeof path !== "string" || !path) return null;
+  try {
+    return new URL(path, "https://civitas.invalid").pathname || "/";
+  } catch (error) {
+    return path.split("?")[0] || null;
+  }
+}
+
 function sanitizePublicRequest(request) {
   if (!request || typeof request !== "object") return null;
   return {
     method: request.method || "GET",
-    path: request.path || null,
+    path: sanitizePublicPath(request.path || null),
   };
 }
 
