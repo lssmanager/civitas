@@ -13,8 +13,7 @@
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "migrate": "node scripts/migrate.js",
-    "start:api": "node scripts/start-production.js",
-    "start:worker": "node worker.js"
+    "start:api": "node scripts/start-production.js"
   },
   "keywords": [],
   "author": "",
@@ -31,5 +30,11 @@
   },
   "devDependencies": {
     "drizzle-kit": "^0.31.7"
+  },
+  "overrides": {
+    "esbuild": "0.25.12",
+    "tsx": {
+      "esbuild": "0.28.1"
+    }
   }
 }
