@@ -1,0 +1,117 @@
+name: Security audit
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+concurrency:
+  group: security-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  dependency-audit:
+    name: Dependency audit (${{ matrix.project.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        project:
+          - name: backend
+            path: backend
+          - name: frontend
+            path: frontend
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: ${{ matrix.project.path }}/package-lock.json
+
+      - name: Install locked dependencies
+        working-directory: ${{ matrix.project.path }}
+        run: npm ci --ignore-scripts
+
+      - name: Generate npm audit report
+        id: npm-audit
+        working-directory: ${{ matrix.project.path }}
+        run: |
+          set +e
+          npm audit --audit-level=moderate --json > npm-audit-${{ matrix.project.name }}.json
+          audit_status=$?
+          set -e
+
+          if [[ ! -s npm-audit-${{ matrix.project.name }}.json ]]; then
+            echo "Required report npm-audit-${{ matrix.project.name }}.json was not generated or is empty." >&2
+            exit 1
+          fi
+
+          node -e "const fs=require('fs'); JSON.parse(fs.readFileSync('npm-audit-${{ matrix.project.name }}.json','utf8'));"
+          echo "audit_status=${audit_status}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload npm audit report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: npm-audit-${{ matrix.project.name }}
+          path: ${{ matrix.project.path }}/npm-audit-${{ matrix.project.name }}.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Fail on npm audit findings
+        if: steps.npm-audit.outputs.audit_status != '0'
+        run: |
+          echo "npm audit found vulnerabilities at or above the configured moderate threshold for ${{ matrix.project.name }}." >&2
+          exit 1
+
+  codeql:
+    name: CodeQL JavaScript/TypeScript
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@dd903d2e4f5405488e5ef1422510ee31c8b32357 # v3.36.2
+        with:
+          languages: javascript-typescript
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@dd903d2e4f5405488e5ef1422510ee31c8b32357 # v3.36.2
+        with:
+          category: /language:javascript-typescript
+          output: codeql-results
+
+      - name: Validate CodeQL SARIF output
+        run: |
+          sarif_count=$(find codeql-results -type f -name '*.sarif' | wc -l | tr -d ' ')
+          if [[ "${sarif_count}" -eq 0 ]]; then
+            echo "CodeQL did not generate a SARIF report in codeql-results." >&2
+            exit 1
+          fi
+
+      - name: Upload CodeQL SARIF artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: codeql-sarif
+          path: codeql-results/**/*.sarif
+          if-no-files-found: error
+          retention-days: 14
