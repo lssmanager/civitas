@@ -92,7 +92,6 @@ const orderedChecks = (checks: OwnerIntegrationHealthCheck[]) =>
     return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
   });
 
-
 const metricTone = (metric?: OwnerSystemMetric): Tone => {
   if (!metric) return "neutral";
   if (["live", "derived"].includes(metric.instrumentationStatus)) return "success";
