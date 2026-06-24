@@ -1,6 +1,7 @@
 import "./OwnerSystemPage.css";
 
-import { Button } from "react-bootstrap";
+import { useEffect, useState } from "react";
+import { Alert, Button } from "react-bootstrap";
 import {
   useOwnerApi,
   type OwnerIntegrationHealthCheck,
@@ -106,6 +107,8 @@ function MetricBar({ label, value, text, tone = "info" }: MetricBarProps) {
   );
 }
 
+const SECONDARY_RESOURCE_DELAY_MS = 250;
+
 const wantedSystems = [
   "Redis / BullMQ",
   "Logto Management API",
@@ -185,6 +188,8 @@ const queueTotals = (workerHealth?: OwnerWorkerHealth) =>
 
 export function OwnerSystemPage() {
   const ownerApi = useOwnerApi();
+  const [integrationsEnabled, setIntegrationsEnabled] = useState(false);
+  const [metricsEnabled, setMetricsEnabled] = useState(false);
   const workerResource = useStableResource({
     load: ownerApi.getWorkerHealth,
     getKey: () => "owner-worker-health",
@@ -194,15 +199,76 @@ export function OwnerSystemPage() {
     load: ownerApi.getIntegrationsHealth,
     getKey: () => "owner-integrations-health",
     initialParams: undefined,
+    enabled: integrationsEnabled,
   });
   const metricsResource = useStableResource({
     load: ownerApi.getSystemMetrics,
     getKey: () => "owner-system-metrics",
     initialParams: undefined,
+    enabled: metricsEnabled,
   });
+
+  const secondaryResourcesAreLoading =
+    integrationsResource.isLoading || metricsResource.isLoading;
+  const refreshAllIsDisabled =
+    workerResource.isLoading || secondaryResourcesAreLoading;
+
+  useEffect(() => {
+    if (
+      workerResource.isLoading ||
+      workerResource.error ||
+      !workerResource.data
+    ) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setIntegrationsEnabled(true);
+    }, SECONDARY_RESOURCE_DELAY_MS);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [workerResource.data, workerResource.error, workerResource.isLoading]);
+
+  useEffect(() => {
+    if (!integrationsEnabled || integrationsResource.isLoading) {
+      return;
+    }
+
+    if (integrationsResource.data || integrationsResource.error) {
+      setMetricsEnabled(true);
+    }
+  }, [
+    integrationsEnabled,
+    integrationsResource.data,
+    integrationsResource.error,
+    integrationsResource.isLoading,
+  ]);
+
   const retryAll = () => {
+    if (refreshAllIsDisabled) {
+      return;
+    }
+
+    setIntegrationsEnabled(false);
+    setMetricsEnabled(false);
     workerResource.retry();
+  };
+
+  const retryIntegrations = () => {
+    if (integrationsResource.isLoading) {
+      return;
+    }
+
+    setIntegrationsEnabled(true);
     integrationsResource.retry();
+  };
+
+  const retryMetrics = () => {
+    if (metricsResource.isLoading) {
+      return;
+    }
+
+    setMetricsEnabled(true);
     metricsResource.retry();
   };
 
@@ -235,13 +301,18 @@ export function OwnerSystemPage() {
       description="Dashboard operativo compacto para Redis, BullMQ, worker e integraciones críticas."
       className="civitas-owner-system-page"
     >
-      {workerResource.isLoading ||
-      integrationsResource.isLoading ||
-      metricsResource.isLoading ? (
+      {workerResource.isLoading && !workerResource.data ? (
         <LoadingState
-          title="Cargando salud técnica"
-          description="Consultando worker, colas, integraciones y métricas Redis/BullMQ."
+          title="Cargando salud del worker"
+          description="Consultando primero Redis, BullMQ y heartbeat antes de cargar recursos secundarios."
         />
+      ) : null}
+      {secondaryResourcesAreLoading ? (
+        <Alert variant="info" className="mb-0">
+          Carga secundaria en curso:{" "}
+          {integrationsResource.isLoading ? "integraciones" : "métricas"}. La
+          vista principal permanece disponible.
+        </Alert>
       ) : null}
       {workerResource.error ? (
         <ErrorState
@@ -257,7 +328,7 @@ export function OwnerSystemPage() {
           title="No se pudieron cargar integraciones"
           message={integrationsResource.error}
           action={
-            <Button onClick={integrationsResource.retry}>
+            <Button onClick={retryIntegrations}>
               Reintentar integraciones
             </Button>
           }
@@ -267,9 +338,7 @@ export function OwnerSystemPage() {
         <ErrorState
           title="No se pudieron cargar métricas Redis/BullMQ"
           message={metricsResource.error}
-          action={
-            <Button onClick={metricsResource.retry}>Reintentar métricas</Button>
-          }
+          action={<Button onClick={retryMetrics}>Reintentar métricas</Button>}
         />
       ) : null}
 
@@ -290,11 +359,19 @@ export function OwnerSystemPage() {
             <Button
               size="sm"
               variant="outline-primary"
-              onClick={integrationsResource.retry}
+              onClick={retryIntegrations}
+              disabled={
+                workerResource.isLoading || integrationsResource.isLoading
+              }
             >
               Verificar conexión CRM
             </Button>
-            <Button size="sm" variant="primary" onClick={retryAll}>
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={retryAll}
+              disabled={refreshAllIsDisabled}
+            >
               Revisar todo
             </Button>
           </div>

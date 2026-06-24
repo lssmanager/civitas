@@ -3,8 +3,17 @@ import { useMemo } from "react";
 import { APP_ENV } from "../env";
 
 const API_BASE_URL = APP_ENV.api.baseUrl;
-const CIVITAS_API_RESOURCE_INDICATOR = APP_ENV.api.resourceIndicator || undefined;
+const CIVITAS_API_RESOURCE_INDICATOR =
+  APP_ENV.api.resourceIndicator || undefined;
 const inflightGetRequests = new Map<string, Promise<unknown>>();
+const inflightAccessTokenRequests = new Map<
+  string,
+  Promise<string | undefined>
+>();
+const inflightOrganizationTokenRequests = new Map<
+  string,
+  Promise<string | undefined>
+>();
 const DEFAULT_REQUEST_TIMEOUT_MS = 15000;
 
 export type ApiError = {
@@ -29,8 +38,50 @@ export class ApiRequestError extends Error {
 }
 
 const normalizeMethod = (method?: string) => (method ?? "GET").toUpperCase();
-const getInflightRequestKey = (method: string, endpoint: string, organizationId?: string) =>
-  `${method}:${organizationId ?? "global"}:${endpoint}`;
+const getInflightRequestKey = (
+  method: string,
+  endpoint: string,
+  organizationId?: string,
+) => `${method}:${organizationId ?? "global"}:${endpoint}`;
+const getAccessTokenKey = (resource?: string) =>
+  resource ?? "default-api-resource";
+
+const getDedupedAccessToken = (
+  getAccessToken: (resource?: string) => Promise<string | undefined>,
+  resource?: string,
+) => {
+  const tokenKey = getAccessTokenKey(resource);
+  const inflightToken = inflightAccessTokenRequests.get(tokenKey);
+
+  if (inflightToken) {
+    return inflightToken;
+  }
+
+  const tokenPromise = getAccessToken(resource).finally(() => {
+    inflightAccessTokenRequests.delete(tokenKey);
+  });
+
+  inflightAccessTokenRequests.set(tokenKey, tokenPromise);
+  return tokenPromise;
+};
+
+const getDedupedOrganizationToken = (
+  getOrganizationToken: (organizationId: string) => Promise<string | undefined>,
+  organizationId: string,
+) => {
+  const inflightToken = inflightOrganizationTokenRequests.get(organizationId);
+
+  if (inflightToken) {
+    return inflightToken;
+  }
+
+  const tokenPromise = getOrganizationToken(organizationId).finally(() => {
+    inflightOrganizationTokenRequests.delete(organizationId);
+  });
+
+  inflightOrganizationTokenRequests.set(organizationId, tokenPromise);
+  return tokenPromise;
+};
 
 const getApiErrorMessage = (response: Response, payload: ApiError | null) => {
   const apiMessage = payload?.message || payload?.error;
@@ -51,9 +102,17 @@ export const useApi = () => {
 
   const fetchWithToken = useMemo(
     () =>
-      async <T>(endpoint: string, options: RequestInit = {}, organizationId?: string): Promise<T> => {
+      async <T>(
+        endpoint: string,
+        options: RequestInit = {},
+        organizationId?: string,
+      ): Promise<T> => {
         const method = normalizeMethod(options.method);
-        const requestKey = getInflightRequestKey(method, endpoint, organizationId);
+        const requestKey = getInflightRequestKey(
+          method,
+          endpoint,
+          organizationId,
+        );
 
         if (method === "GET") {
           const inflightRequest = inflightGetRequests.get(requestKey);
@@ -67,19 +126,30 @@ export const useApi = () => {
             let token: string | undefined;
 
             if (organizationId) {
-              token = await getOrganizationToken(organizationId);
+              token = await getDedupedOrganizationToken(
+                getOrganizationToken,
+                organizationId,
+              );
             } else {
-              token = await getAccessToken(CIVITAS_API_RESOURCE_INDICATOR);
+              token = await getDedupedAccessToken(
+                getAccessToken,
+                CIVITAS_API_RESOURCE_INDICATOR,
+              );
             }
 
             if (!token) {
               throw new ApiRequestError(
-                organizationId ? "User is not a member of the organization" : "Failed to get access token"
+                organizationId
+                  ? "User is not a member of the organization"
+                  : "Failed to get access token",
               );
             }
 
             const abortController = new AbortController();
-            const timeoutId = window.setTimeout(() => abortController.abort(), DEFAULT_REQUEST_TIMEOUT_MS);
+            const timeoutId = window.setTimeout(
+              () => abortController.abort(),
+              DEFAULT_REQUEST_TIMEOUT_MS,
+            );
 
             const response = await fetch(`${API_BASE_URL}${endpoint}`, {
               ...options,
@@ -92,11 +162,13 @@ export const useApi = () => {
             }).finally(() => window.clearTimeout(timeoutId));
 
             if (!response.ok) {
-              const errorPayload = await response.json().catch(() => null) as ApiError | null;
+              const errorPayload = (await response
+                .json()
+                .catch(() => null)) as ApiError | null;
               throw new ApiRequestError(
                 getApiErrorMessage(response, errorPayload),
                 response.status,
-                errorPayload
+                errorPayload,
               );
             }
 
@@ -105,9 +177,13 @@ export const useApi = () => {
             if (error instanceof ApiRequestError) {
               throw error;
             }
-            throw new ApiRequestError(error instanceof DOMException && error.name === "AbortError"
-              ? "API request failed: la solicitud tardó demasiado y fue cancelada por Civitas."
-              : error instanceof Error ? error.message : String(error));
+            throw new ApiRequestError(
+              error instanceof DOMException && error.name === "AbortError"
+                ? "API request failed: la solicitud tardó demasiado y fue cancelada por Civitas."
+                : error instanceof Error
+                  ? error.message
+                  : String(error),
+            );
           } finally {
             if (method === "GET") {
               inflightGetRequests.delete(requestKey);
@@ -121,7 +197,7 @@ export const useApi = () => {
 
         return requestPromise;
       },
-    [getAccessToken, getOrganizationToken]
+    [getAccessToken, getOrganizationToken],
   );
 
   return { fetchWithToken };

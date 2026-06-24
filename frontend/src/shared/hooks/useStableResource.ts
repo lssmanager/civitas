@@ -14,19 +14,26 @@ type UseStableResourceOptions<TData, TParams> = {
   load: (params: TParams) => Promise<TData>;
   getKey?: (params: TParams) => string;
   getErrorMessage?: (error: unknown) => string;
+  enabled?: boolean;
 };
 
-const defaultGetKey = <TParams,>(params: TParams) => JSON.stringify(params);
+const defaultGetKey = <TParams>(params: TParams) => JSON.stringify(params);
 
 const defaultGetErrorMessage = (error: unknown) =>
-  error instanceof Error ? error.message : "No se pudo cargar el recurso solicitado.";
+  error instanceof Error
+    ? error.message
+    : "No se pudo cargar el recurso solicitado.";
 
 export function useStableResource<TData, TParams>({
   initialParams,
   load,
   getKey = defaultGetKey,
   getErrorMessage = defaultGetErrorMessage,
-}: UseStableResourceOptions<TData, TParams>): StableResourceState<TData, TParams> {
+  enabled = true,
+}: UseStableResourceOptions<TData, TParams>): StableResourceState<
+  TData,
+  TParams
+> {
   const loadRef = useRef(load);
   const getErrorMessageRef = useRef(getErrorMessage);
   const [params, setParams] = useState(initialParams);
@@ -34,7 +41,7 @@ export function useStableResource<TData, TParams>({
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [data, setData] = useState<TData>();
   const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(enabled);
 
   useEffect(() => {
     loadRef.current = load;
@@ -52,6 +59,13 @@ export function useStableResource<TData, TParams>({
 
   useEffect(() => {
     let isMounted = true;
+
+    if (!enabled) {
+      setIsLoading(false);
+      return () => {
+        isMounted = false;
+      };
+    }
 
     async function loadResource() {
       setIsLoading(true);
@@ -79,25 +93,30 @@ export function useStableResource<TData, TParams>({
     return () => {
       isMounted = false;
     };
-  }, [paramsKey, refreshNonce]);
+  }, [enabled, paramsKey, refreshNonce]);
 
   const retry = useCallback(() => {
     setRefreshNonce((current) => current + 1);
   }, []);
 
-  const reload = useCallback((nextParams?: TParams | ((current: TParams) => TParams)) => {
-    if (typeof nextParams === "function") {
-      setParams((current) => (nextParams as (current: TParams) => TParams)(current));
-      return;
-    }
+  const reload = useCallback(
+    (nextParams?: TParams | ((current: TParams) => TParams)) => {
+      if (typeof nextParams === "function") {
+        setParams((current) =>
+          (nextParams as (current: TParams) => TParams)(current),
+        );
+        return;
+      }
 
-    if (nextParams !== undefined) {
-      setParams(nextParams);
-      return;
-    }
+      if (nextParams !== undefined) {
+        setParams(nextParams);
+        return;
+      }
 
-    setRefreshNonce((current) => current + 1);
-  }, []);
+      setRefreshNonce((current) => current + 1);
+    },
+    [],
+  );
 
   return {
     data,
