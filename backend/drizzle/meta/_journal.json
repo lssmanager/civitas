@@ -134,6 +134,13 @@
       "when": 1781712360000,
       "tag": "0018_repair_identity_and_sync_operations_schema",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1791841980000,
+      "tag": "0019_create_operational_metric_snapshots",
+      "breakpoints": true
     }
   ]
 }
