@@ -149,7 +149,7 @@ export function OwnerSystemPage() {
       <div className="owner-system-dashboard">
         <div className="owner-system-topbar">
           <div><h1>Civitas — System KPI Dashboard</h1><p>civitas.socialstudies.cloud · owner/system · última revisión {lastReview}</p></div>
-          <div className="owner-system-topbar__actions"><StatusPill tone={statusTone(generalStatus)}>Estado general: {generalStatus}</StatusPill><Button size="sm" variant="outline-primary" onClick={retryAll}>Refresh</Button><Button size="sm" variant="primary" onClick={retryAll}>Revisar todo</Button></div>
+          <div className="owner-system-topbar__actions"><StatusPill tone={statusTone(generalStatus)}>Estado general: {generalStatus}</StatusPill><Button size="sm" variant="outline-primary" onClick={integrationsResource.retry}>Verificar conexión CRM</Button><Button size="sm" variant="primary" onClick={retryAll}>Revisar todo</Button></div>
         </div>
 
         <div className={`owner-system-alert owner-system-alert--${redisOk ? "ok" : "warn"}`}><strong>Redis / BullMQ:</strong> {redisOk ? "conectado y listo para coordinar jobs." : `requiere atención (${workerHealth?.redis.status ?? "unknown"}).`} <span>Los timeouts cortos protegen el panel owner.</span></div>
