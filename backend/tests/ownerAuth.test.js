@@ -40,6 +40,28 @@ test("owner middleware requires owner_global even when global role claims were p
   assert.equal(res.body.requiredRole, OWNER_GLOBAL_ROLE);
 });
 
+
+test("owner middleware accepts namespaced Civitas global role claim", async () => {
+  const requireOwner = createRequireOwner();
+  const req = {
+    method: "GET",
+    user: {
+      scopes: [OWNER_READ_SCOPE],
+      claims: { "https://civitas.socialstudies.cloud/claims/global_roles": [OWNER_GLOBAL_ROLE] },
+    },
+    params: {},
+  };
+  const res = createResponseRecorder();
+  let nextCalled = false;
+
+  await requireOwner(req, res, () => {
+    nextCalled = true;
+  });
+
+  assert.equal(nextCalled, true);
+  assert.equal(res.body, null);
+});
+
 test("owner middleware requires owner:write for mutating requests", async () => {
   const requireOwner = createRequireOwner();
   const req = {

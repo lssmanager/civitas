@@ -30,25 +30,27 @@ function runRequireOwner(user) {
   return { res, nextCalled };
 }
 
-test("requireOwner allows a global owner token when owner scope is present and role claims are absent", async () => {
+test("requireOwner rejects a global token when owner role claims are absent", async () => {
   const { res, nextCalled } = runRequireOwner({
     scopes: ["owner:read"],
     claims: {},
   });
 
-  assert.equal(nextCalled, true);
-  assert.equal(res.statusCode, 200);
+  assert.equal(nextCalled, false);
+  assert.equal(res.statusCode, 403);
+  assert.equal(res.body.requiredRole, "owner_global");
 });
 
-test("requireOwner ignores organization role claims when no global role claims are present", async () => {
+test("requireOwner ignores organization role claims and still requires owner global", async () => {
   const { res, nextCalled } = runRequireOwner({
     scopes: ["owner:read"],
     organizationRoles: ["Admin-org"],
     claims: { organization_roles: ["Admin-org"] },
   });
 
-  assert.equal(nextCalled, true);
-  assert.equal(res.statusCode, 200);
+  assert.equal(nextCalled, false);
+  assert.equal(res.statusCode, 403);
+  assert.equal(res.body.requiredRole, "owner_global");
 });
 
 test("requireOwner allows global owner role with owner scope", async () => {
@@ -87,5 +89,5 @@ test("requireOwner rejects global tokens with explicit non-owner global roles", 
   assert.equal(nextCalled, false);
   assert.equal(res.statusCode, 403);
   assert.equal(res.body.requiredRole, "owner_global");
-  assert.match(res.body.message, /global role claims/i);
+  assert.match(res.body.message, /global Logto role/i);
 });

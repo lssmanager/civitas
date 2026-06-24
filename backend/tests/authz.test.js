@@ -10,9 +10,10 @@ function runMiddleware(middleware, req) {
   });
 }
 
-test("owner route falls back to owner scope when global role claims are absent", async () => {
+test("owner route requires owner_global even when owner scope is present", async () => {
   const result = await runMiddleware(requireOwner, { user: { scopes: ["owner:read"], roles: [] } });
-  assert.equal(result.next, true);
+  assert.equal(result.statusCode, 403);
+  assert.equal(result.body.requiredRole, "owner_global");
 });
 
 test("owner route allows global owner role with owner scope", async () => {
@@ -34,12 +35,13 @@ test("role extractors keep global and organization role claims separate", () => 
     roles: ["owner_global"],
     role_names: "support_global",
     global_roles: ["billing_global"],
+    "https://civitas.socialstudies.cloud/claims/global_roles": ["auditor_global"],
     organization_roles: ["Admin-org"],
     organizationRoles: "Teacher-org",
     org_roles: ["Student-org"],
   };
 
-  assert.deepEqual(extractGlobalRoleNames(payload).sort(), ["billing_global", "owner_global", "support_global"].sort());
+  assert.deepEqual(extractGlobalRoleNames(payload).sort(), ["auditor_global", "billing_global", "owner_global", "support_global"].sort());
   assert.deepEqual(extractOrganizationRoleNames(payload).sort(), ["Admin-org", "Student-org", "Teacher-org"].sort());
-  assert.deepEqual(extractRoleNames(payload).sort(), ["Admin-org", "Student-org", "Teacher-org", "billing_global", "owner_global", "support_global"].sort());
+  assert.deepEqual(extractRoleNames(payload).sort(), ["Admin-org", "Student-org", "Teacher-org", "auditor_global", "billing_global", "owner_global", "support_global"].sort());
 });
