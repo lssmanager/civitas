@@ -19,12 +19,20 @@ export type SessionIdentity = {
   username: string | null;
 };
 
+export type OwnerCapabilities = {
+  canReadOwner: boolean;
+  canWriteOwner: boolean;
+  globalRoles: string[];
+  scopes: string[];
+};
+
 export type AuthMetadata = {
   sub?: string;
   issuer?: string;
   audience?: string | string[];
   scopes?: string[];
   organizationId?: string | null;
+  owner?: OwnerCapabilities;
   token?: {
     issuedAt: string | null;
     expiresAt: string | null;

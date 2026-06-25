@@ -114,3 +114,30 @@ Civitas owner API calls request a global access token with `getAccessToken(VITE_
 ## Backend enforcement
 
 The backend verifies the token against `LOGTO_API_RESOURCE_INDICATOR`, rejects organization-scoped tokens in `requireOwner`, verifies the presence of `owner_global` in accepted global role claims, and then enforces owner scopes by HTTP method. Scopes alone are not sufficient for owner access.
+
+## Owner read/write split
+
+The owner portal uses a global Logto API access token only. Organization tokens (`organization_id` or `urn:logto:organization:*` audience) are rejected by `/owner/*` even if they contain organization administrator roles.
+
+Effective owner authorization is the intersection of signed global role claims and signed global scopes:
+
+- `owner_global` is the required global base role for all `/owner/*` routes.
+- `owner:read` allows read-only owner views (`GET`, `HEAD`, `OPTIONS`).
+- `owner:write` is additionally required for mutating owner operations (`POST`, `PUT`, `PATCH`, `DELETE`).
+- Scopes alone are insufficient: backend authorization still requires the `owner_global` role from verified token claims.
+
+Recommended Logto role model:
+
+- `owner_global`: global role granting `owner:read`.
+- `owner_write_global`: separate global role granting `owner:write` for operators allowed to mutate owner state.
+
+The frontend requests both `owner:read` and `owner:write` for the global Civitas API resource. Logto downscopes the issued token according to the user's effective global roles, so a read-only owner receives `owner:read` but not `owner:write`.
+
+The backend exposes the UI contract in `/me` (`auth.owner`) and `/owner/me`:
+
+- `canReadOwner`
+- `canWriteOwner`
+- `globalRoles`
+- `scopes`
+
+UI read/write affordances must use these capabilities to hide or disable mutating controls for read-only owners. Backend middleware remains authoritative.

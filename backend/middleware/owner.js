@@ -11,6 +11,22 @@ const getOwnerRequiredScopes = (method = "GET") =>
     ? [OWNER_READ_SCOPE]
     : [OWNER_READ_SCOPE, OWNER_WRITE_SCOPE];
 
+const buildOwnerCapabilities = (user = {}) => {
+  const scopes = Array.isArray(user.scopes) ? user.scopes : [];
+  const globalRoles = Array.isArray(user.globalRoles)
+    ? user.globalRoles
+    : extractGlobalRoleNames(user.claims || {});
+  const hasOwnerGlobalRole = globalRoles.includes(OWNER_GLOBAL_ROLE);
+  const isGlobalAccessToken = !user.organizationId;
+
+  return {
+    canReadOwner: isGlobalAccessToken && hasOwnerGlobalRole && hasRequiredScopes(scopes, [OWNER_READ_SCOPE]),
+    canWriteOwner: isGlobalAccessToken && hasOwnerGlobalRole && hasRequiredScopes(scopes, [OWNER_READ_SCOPE, OWNER_WRITE_SCOPE]),
+    globalRoles,
+    scopes,
+  };
+};
+
 const getLogtoUserId = (member = {}) => member.id || member.userId || member.logtoUserId || member.sub || null;
 
 async function verifyTenantScopedMemberAccess({ organizationId, logtoUserId, listOrganizationUsers = listLogtoOrganizationUsers } = {}) {
@@ -32,9 +48,7 @@ const createRequireOwner = ({ listOrganizationUsers = listLogtoOrganizationUsers
         });
       }
 
-      const globalRoles = Array.isArray(req.user?.globalRoles)
-        ? req.user.globalRoles
-        : extractGlobalRoleNames(req.user?.claims || {});
+      const { globalRoles, scopes } = buildOwnerCapabilities(req.user || {});
       if (!globalRoles.includes(OWNER_GLOBAL_ROLE)) {
         return res.status(403).json({
           error: "Forbidden",
@@ -44,7 +58,6 @@ const createRequireOwner = ({ listOrganizationUsers = listLogtoOrganizationUsers
       }
 
       const requiredScopes = getOwnerRequiredScopes(req.method);
-      const scopes = Array.isArray(req.user?.scopes) ? req.user.scopes : [];
       if (!hasRequiredScopes(scopes, requiredScopes)) {
         return res.status(403).json({
           error: "Forbidden",
@@ -87,6 +100,7 @@ module.exports = {
   OWNER_GLOBAL_ROLE,
   OWNER_READ_SCOPE,
   OWNER_WRITE_SCOPE,
+  buildOwnerCapabilities,
   createRequireOwner,
   getOwnerRequiredScopes,
   requireOwner,
