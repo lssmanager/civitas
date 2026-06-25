@@ -45,6 +45,7 @@ export const APP_ENV = {
     baseUrl: getUrlEnv(import.meta.env.VITE_API_BASE_URL, getApiBaseUrlFallback()),
     resourceIndicator: getUrlEnv(import.meta.env.VITE_API_RESOURCE_INDICATOR, getResourceIndicatorFallback()),
     requestTimeoutMs: getPositiveIntegerEnv(import.meta.env.VITE_API_REQUEST_TIMEOUT_MS, 45000),
+    sessionBootstrapTimeoutMs: getPositiveIntegerEnv(import.meta.env.VITE_SESSION_BOOTSTRAP_TIMEOUT_MS, 120000),
   },
   app: {
     redirectUri: getViteEnv(import.meta.env.VITE_APP_REDIRECT_URI, getRedirectUriFallback()),
