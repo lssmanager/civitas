@@ -20,6 +20,11 @@ const getRedirectUriFallback = () => (import.meta.env.PROD ? PRODUCTION_APP_REDI
 const getSignOutRedirectUriFallback = () =>
   import.meta.env.PROD ? PRODUCTION_APP_SIGN_OUT_REDIRECT_URI : LOCAL_APP_SIGN_OUT_REDIRECT_URI;
 
+const getPositiveIntegerEnv = (value: string | undefined, fallback: number) => {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+};
+
 const getBooleanEnv = (value: string | undefined, fallback = false) => {
   if (value === undefined || value.trim() === "") {
     return fallback;
@@ -39,6 +44,7 @@ export const APP_ENV = {
   api: {
     baseUrl: getUrlEnv(import.meta.env.VITE_API_BASE_URL, getApiBaseUrlFallback()),
     resourceIndicator: getUrlEnv(import.meta.env.VITE_API_RESOURCE_INDICATOR, getResourceIndicatorFallback()),
+    requestTimeoutMs: getPositiveIntegerEnv(import.meta.env.VITE_API_REQUEST_TIMEOUT_MS, 45000),
   },
   app: {
     redirectUri: getViteEnv(import.meta.env.VITE_APP_REDIRECT_URI, getRedirectUriFallback()),
