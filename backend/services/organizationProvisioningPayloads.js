@@ -8,7 +8,8 @@ const FORM_FIELD_INVENTORY = Object.freeze({
   "name": ["logto.organization.topLevel.name", "fluentcrm.company.companyNameFallback"],
   "description/crm.description": ["logto.organization.topLevel.description", "logto.organization.customData.civitasProfile.business.description", "fluentcrm.company.description"],
   "slug": ["logto.organization.customData.provisioning.slug", "logto.organization.customData.civitasProfile.business.slug", "civitas.operation.payloadSnapshot"],
-  "appSubdomain/subdomain": ["logto.organization.customData.provisioning.appSubdomain", "logto.organization.customData.civitasProfile.business.subdomain", "civitas.organization_profiles.subdomain"],
+  "appSubdomain/subdomain": ["logto.organization.customData.provisioning.appSubdomain", "logto.organization.customData.civitasProfile.business.appSubdomain", "civitas.organization_profiles.subdomain"],
+  "appBaseDomain": ["logto.organization.customData.provisioning.appBaseDomain", "logto.organization.customData.civitasProfile.business.appBaseDomain"],
   "adminDomain/jitProvisioning.domain": ["logto.organization.customData.provisioning.institutionalDomain", "logto.jit.emailDomains", "civitas.organization_profiles.adminDomain"],
   "baseAdmin.firstName": ["logto.user.profile.givenName", "fluentcrm.contact.firstName"],
   "baseAdmin.middleName": ["logto.user.profile.middleName"],
@@ -30,6 +31,9 @@ function buildLogtoOrganizationCustomData({ canonical = {}, extended = {}, crm =
   const business = cleanObject({
     slug: extended.slug,
     subdomain: extended.subdomain,
+    appSubdomain: extended.appSubdomain || extended.subdomain,
+    appBaseDomain: extended.appBaseDomain,
+    entryUrl: extended.entryUrl,
     institutionalDomain: extended.adminDomain,
     website: normalizedCrm.website,
     type: normalizedCrm.type || extended.type,
@@ -48,7 +52,7 @@ function buildLogtoOrganizationCustomData({ canonical = {}, extended = {}, crm =
   });
   const contact = cleanObject({ owner: normalizedCrm.companyOwner || canonical.baseAdmin?.name, email: normalizedCrm.companyEmail, phone: normalizedCrm.companyPhone });
   return cleanObject({
-    provisioning: cleanObject({ slug: extended.slug, appSubdomain: extended.subdomain, institutionalDomain: extended.adminDomain }),
+    provisioning: cleanObject({ slug: extended.slug, appSubdomain: extended.appSubdomain || extended.subdomain, appBaseDomain: extended.appBaseDomain, entryUrl: extended.entryUrl, institutionalDomain: extended.adminDomain }),
     oidcRedirectUri: extended.oidcRedirectUri || null,
     civitasProfile: {
       version: 1,

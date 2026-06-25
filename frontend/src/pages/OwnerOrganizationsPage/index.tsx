@@ -10,7 +10,8 @@ import {
 import { useStableResource } from "../../shared/hooks/useStableResource";
 import { ErrorState, LoadingState, PageCard, PageShell } from "../../shared/ui";
 
-const OWNER_ORGANIZATION_DRAFT_KEY = "civitas.owner.organization.create.draft.v2";
+const OWNER_ORGANIZATION_DRAFT_KEY = "civitas.owner.organization.create.draft.v3";
+const APP_BASE_DOMAINS = ["didaxus.com", "socialstudies.cloud", "learnsocialstudies.com"] as const;
 
 type WizardStep = 1 | 2 | 3;
 type CrmField = keyof OwnerOrganizationFormData["crm"];
@@ -35,6 +36,7 @@ type OwnerOrganizationFormData = {
   name: string;
   slug: string;
   appSubdomain: string;
+  appBaseDomain: string;
   adminDomain: string;
   baseAdminFirstName: string;
   baseAdminLastName: string;
@@ -158,6 +160,7 @@ const initialFormData: OwnerOrganizationFormData = {
   name: "",
   slug: "",
   appSubdomain: "",
+  appBaseDomain: "didaxus.com",
   adminDomain: "",
   baseAdminFirstName: "",
   baseAdminLastName: "",
@@ -229,14 +232,6 @@ const wizardSteps: Array<{
 const uniqueValues = (values: string[]) => [
   ...new Set(values.map((value) => value.trim()).filter(Boolean)),
 ];
-
-const slugify = (value: string) =>
-  value
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
 
 const displayValue = (value?: string | null) => value?.trim() || "—";
 
@@ -487,7 +482,6 @@ export function OwnerOrganizationsPage() {
     setFormData((current) => ({
       ...current,
       name: value,
-      slug: slugify(value),
       crm: { ...current.crm, companyName: value },
     }));
   };
@@ -631,8 +625,8 @@ export function OwnerOrganizationsPage() {
   const validateStepOne = (): string | null => {
     if (
       !formData.name.trim() ||
-      !formData.slug.trim() ||
       !formData.appSubdomain.trim() ||
+      !formData.appBaseDomain.trim() ||
       !formData.adminDomain.trim()
     ) {
       return "Completa los datos obligatorios de la organización antes de avanzar.";
@@ -819,8 +813,9 @@ export function OwnerOrganizationsPage() {
     try {
       const result = await ownerApi.createOrganization({
         name: formData.name,
-        slug: formData.slug,
-        subdomain: formData.appSubdomain,
+        slug: formData.slug || undefined,
+        appSubdomain: formData.appSubdomain,
+        appBaseDomain: formData.appBaseDomain,
         adminDomain: formData.adminDomain || undefined,
         jitProvisioning: {
           domain: formData.adminDomain || undefined,
@@ -998,6 +993,19 @@ export function OwnerOrganizationsPage() {
             placeholder="sanjose"
             required
           />
+        </Form.Group>
+        <Form.Group className="col-12 col-xl-3" controlId="ownerOrganizationAppBaseDomain">
+          <Form.Label>Dominio base app</Form.Label>
+          <Form.Select
+            value={formData.appBaseDomain}
+            onChange={(event) => updateField("appBaseDomain", event.target.value)}
+            required
+          >
+            {APP_BASE_DOMAINS.map((domain) => (
+              <option key={domain} value={domain}>{domain}</option>
+            ))}
+          </Form.Select>
+          <Form.Text className="text-secondary">URL final: https://{formData.appSubdomain || "subdominio"}.{formData.appBaseDomain}</Form.Text>
         </Form.Group>
         <Form.Group className="col-12 col-xl-3" controlId="ownerOrganizationAdminDomain">
           <Form.Label>Dominio de aprovisionamiento</Form.Label>
@@ -1494,8 +1502,9 @@ export function OwnerOrganizationsPage() {
               </Button>
             </div>
             {summaryRow("Nombre organización", formData.name)}
-            {summaryRow("Slug", formData.slug)}
             {summaryRow("Subdominio app", formData.appSubdomain)}
+            {summaryRow("Dominio base app", formData.appBaseDomain)}
+            {summaryRow("URL de entrada", formData.appSubdomain && formData.appBaseDomain ? `https://${formData.appSubdomain}.${formData.appBaseDomain}` : "")}
             {summaryRow("Dominio de aprovisionamiento", formData.adminDomain)}
             {summaryRow("País", formData.crm.country)}
             {summaryRow("Ciudad", formData.crm.city)}

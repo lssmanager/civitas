@@ -10,12 +10,15 @@ const {
 
 test("organization payload separates Logto top-level, customData and downstream CRM metadata", () => {
   const canonical = { name: "Colegio Civitas", description: "Desc", baseAdmin: { name: "Ada Admin" } };
-  const extended = { slug: "colegio-civitas", subdomain: "civitas", adminDomain: "colegio.edu.co", oidcRedirectUri: "https://civitas.learnsocialstudies.com/callback" };
+  const extended = { slug: "colegio-civitas", subdomain: "civitas", appBaseDomain: "socialstudies.cloud", entryUrl: "https://civitas.socialstudies.cloud", adminDomain: "colegio.edu.co", oidcRedirectUri: "https://civitas.socialstudies.cloud/callback" };
   const crm = { companyEmail: " INFO@COLEGIO.EDU.CO ", type: "school", industry: "education", nit: "123", verificationDigit: "4", tags: [" colegios ", "colegios"], lists: [" onboarding "] };
   const payload = buildLogtoOrganizationCreatePayload({ canonical, extended, crm });
   assert.equal(payload.name, "Colegio Civitas");
   assert.equal(payload.description, "Desc");
   assert.equal(payload.customData.provisioning.slug, "colegio-civitas");
+  assert.equal(payload.customData.provisioning.appSubdomain, "civitas");
+  assert.equal(payload.customData.provisioning.appBaseDomain, "socialstudies.cloud");
+  assert.equal(payload.customData.provisioning.entryUrl, "https://civitas.socialstudies.cloud");
   assert.equal(payload.customData.civitasProfile.business.nit, 123);
   assert.equal(payload.customData.civitasProfile.contact.email, "info@colegio.edu.co");
   assert.deepEqual(payload.customData.civitasProfile.downstream.crm.tags, ["colegios"]);

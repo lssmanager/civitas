@@ -9,6 +9,9 @@ export type CanonicalOrganizationFields = {
   customData: Record<string, unknown>;
   oidcRedirectUri: string | null;
   appSubdomain: string | null;
+  appBaseDomain: string | null;
+  entryUrl: string | null;
+  entryUrlInconsistency?: string | null;
   slug: string | null;
   adminDomain: string | null;
   visibleSource: "logto" | string;
