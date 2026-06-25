@@ -14,7 +14,7 @@ const inflightOrganizationTokenRequests = new Map<
   string,
   Promise<string | undefined>
 >();
-const DEFAULT_REQUEST_TIMEOUT_MS = 15000;
+const DEFAULT_REQUEST_TIMEOUT_MS = APP_ENV.api.requestTimeoutMs;
 
 export type ApiError = {
   message?: string;

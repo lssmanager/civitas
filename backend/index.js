@@ -3,7 +3,7 @@ const cors = require("cors");
 const { eq } = require("drizzle-orm");
 require("dotenv").config();
 const { requireAuth, requireOrganizationAccess, requireScope } = require("./middleware/auth");
-const { requireOwner } = require("./middleware/owner");
+const { buildOwnerCapabilities, requireOwner } = require("./middleware/owner");
 const { checkDatabaseConnection } = require("./db/connection");
 const { getIdentityFromLogtoClaims, getOrCreateInternalUser, serializeUser } = require("./services/users");
 const {
@@ -635,6 +635,8 @@ app.get("/me", requireAuth(API_RESOURCE), async (req, res) => {
 
     const identity = buildRequestIdentity(enrichedAuthUser, internalUser);
 
+    const ownerCapabilities = buildOwnerCapabilities(req.user);
+
     return res.json({
       user: serializeUser(internalUser),
       identity,
@@ -644,6 +646,7 @@ app.get("/me", requireAuth(API_RESOURCE), async (req, res) => {
         audience: req.user.claims?.aud,
         scopes: req.user.scopes,
         organizationId: req.user.organizationId,
+        owner: ownerCapabilities,
         token: buildSessionTokenMetadata(req.user.claims),
       },
     });
@@ -675,13 +678,18 @@ app.get("/me", requireAuth(API_RESOURCE), async (req, res) => {
 app.get("/owner/me", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
   try {
     const internalUser = await getOrCreateInternalUser(req.user);
+    const capabilities = buildOwnerCapabilities(req.user);
     return res.json({
       owner: {
         logtoUserId: req.user.sub,
         internalUserId: internalUser.id,
-        authorizedBy: "logto_scope",
+        authorizedBy: "logto_global_role_and_scope",
         requiredScope: "owner:read",
-        scopes: req.user.scopes,
+        requiredWriteScope: "owner:write",
+        canReadOwner: capabilities.canReadOwner,
+        canWriteOwner: capabilities.canWriteOwner,
+        globalRoles: capabilities.globalRoles,
+        scopes: capabilities.scopes,
       },
     });
   } catch (error) {

@@ -4,8 +4,12 @@ import { useApi } from "./base";
 export type OwnerAuthorization = {
   logtoUserId: string;
   internalUserId: string;
-  authorizedBy: "logto_scope";
+  authorizedBy: "logto_global_role_and_scope" | "logto_scope";
   requiredScope: "owner:read";
+  requiredWriteScope?: "owner:write";
+  canReadOwner: boolean;
+  canWriteOwner: boolean;
+  globalRoles: string[];
   scopes: string[];
 };
 

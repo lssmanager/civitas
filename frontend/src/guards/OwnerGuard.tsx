@@ -3,7 +3,6 @@ import { useSession } from "../session/sessionContext";
 import { ErrorState, PageCard, PageShell } from "../shared/ui";
 import {
   getOwnerAuthorizationFromSession,
-  OWNER_REQUIRED_SCOPE,
   type OwnerAuthorizationContext,
 } from "./ownerAuthorization";
 
@@ -42,16 +41,15 @@ export function OwnerGuard({ children }: OwnerGuardProps) {
     );
   }
 
-  const scopes = Array.isArray(me.auth?.scopes) ? me.auth.scopes : [];
-  const isAuthorized = scopes.includes(OWNER_REQUIRED_SCOPE);
+  const ownerAuthorization = getOwnerAuthorizationFromSession(me);
 
-  if (!isAuthorized) {
+  if (!ownerAuthorization.owner.canReadOwner) {
     return (
       <PageShell eyebrow="Owner" title="Acceso denegado" description="El portal owner requiere scopes globales de Logto." actions={<Badge bg="danger">403</Badge>}>
         <PageCard title="Permisos insuficientes">
           <ErrorState
             title="Permisos insuficientes"
-            message="Tu access token de Logto no contiene el scope global owner:read."
+            message="Tu access token global de Logto debe incluir el rol owner_global y el scope owner:read. Los organization tokens no son válidos para /owner/*."
             action={<Button href="/account" variant="outline-primary">Ver mi cuenta</Button>}
           />
         </PageCard>
@@ -59,5 +57,5 @@ export function OwnerGuard({ children }: OwnerGuardProps) {
     );
   }
 
-  return <>{children(getOwnerAuthorizationFromSession(me))}</>;
+  return <>{children(ownerAuthorization)}</>;
 }

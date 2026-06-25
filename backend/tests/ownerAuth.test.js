@@ -164,3 +164,45 @@ test("getOwnerRequiredScopes distinguishes read-only and mutating methods", () =
   assert.deepEqual(getOwnerRequiredScopes("GET"), [OWNER_READ_SCOPE]);
   assert.deepEqual(getOwnerRequiredScopes("PATCH"), [OWNER_READ_SCOPE, OWNER_WRITE_SCOPE]);
 });
+
+test("owner middleware rejects organization tokens before evaluating owner scopes", async () => {
+  const requireOwner = createRequireOwner();
+  const req = {
+    method: "GET",
+    user: {
+      organizationId: "org-1",
+      scopes: [OWNER_READ_SCOPE, OWNER_WRITE_SCOPE],
+      globalRoles: [OWNER_GLOBAL_ROLE],
+      claims: {},
+    },
+    params: {},
+  };
+  const res = createResponseRecorder();
+  let nextCalled = false;
+
+  await requireOwner(req, res, () => {
+    nextCalled = true;
+  });
+
+  assert.equal(nextCalled, false);
+  assert.equal(res.statusCode, 403);
+  assert.match(res.body.message, /global API access token/i);
+});
+
+test("owner middleware allows mutating requests with owner_global, owner:read and owner:write", async () => {
+  const requireOwner = createRequireOwner();
+  const req = {
+    method: "POST",
+    user: { scopes: [OWNER_READ_SCOPE, OWNER_WRITE_SCOPE], globalRoles: [OWNER_GLOBAL_ROLE], claims: {} },
+    params: {},
+  };
+  const res = createResponseRecorder();
+  let nextCalled = false;
+
+  await requireOwner(req, res, () => {
+    nextCalled = true;
+  });
+
+  assert.equal(nextCalled, true);
+  assert.equal(res.body, null);
+});
