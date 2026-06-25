@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Country, State } from "country-state-city";
 import { Alert, Badge, Button, Form } from "react-bootstrap";
 import { useOwnerApi } from "../../api/owner";
+import { useOwnerAuthorization } from "../../guards/ownerAuthorization";
 import {
   ORGANIZATION_BOOTSTRAP_ADMIN_ROLE,
   ORGANIZATION_JIT_DEFAULT_ROLE,
@@ -302,6 +303,8 @@ const getDiagnosticFromUnknown = (
 
 export function OwnerOrganizationsPage() {
   const ownerApi = useOwnerApi();
+  const { owner } = useOwnerAuthorization();
+  const canWriteOwner = owner.canWriteOwner;
   const [currentStep, setCurrentStep] = useState<WizardStep>(1);
   const [formData, setFormData] =
     useState<OwnerOrganizationFormData>(initialFormData);
@@ -789,6 +792,11 @@ export function OwnerOrganizationsPage() {
   };
 
   const handleCreateOrganization = async () => {
+    if (!canWriteOwner) {
+      setSubmitError("Tu token owner es de solo lectura. Solicita a Logto un token con owner:write para crear organizaciones.");
+      return;
+    }
+
     const stepOneError = validateStepOne();
     if (stepOneError) {
       setCurrentStep(1);
@@ -1583,7 +1591,7 @@ export function OwnerOrganizationsPage() {
       eyebrow="Owner / Organizaciones"
       title="Crear organización"
       description="Flujo Logto-first: la organización nace canónicamente en Logto y el formulario queda enfocado en alta, roles y datos comerciales básicos."
-      actions={<Badge bg="success">organizations:create</Badge>}
+      actions={<Badge bg={canWriteOwner ? "success" : "secondary"}>{canWriteOwner ? "owner:write" : "solo lectura"}</Badge>}
     >
       <div className="row g-4">
         <div className="col-12">
@@ -1639,6 +1647,11 @@ export function OwnerOrganizationsPage() {
                 ) : null}
                 {draftMessage ? <Alert variant="secondary" className="mb-0">{draftMessage}</Alert> : null}
                 {stepError ? <Alert variant="warning" className="mb-0">{stepError}</Alert> : null}
+                {!canWriteOwner ? (
+                  <Alert variant="info" className="mb-0">
+                    Tu sesión owner tiene permiso de lectura. Puedes revisar la plantilla y el formulario, pero las acciones de creación requieren owner:write emitido por Logto.
+                  </Alert>
+                ) : null}
                 {templateResource.data && !templateResource.data.ready ? (
                   <Alert variant="danger" className="mb-0">
                     Falta configurar la plantilla de Logto. Roles requeridos ausentes: {templateResource.data.missingRoleNames.join(", ") || ORGANIZATION_BOOTSTRAP_ADMIN_ROLE}.
@@ -1685,8 +1698,8 @@ export function OwnerOrganizationsPage() {
                         Siguiente
                       </Button>
                     ) : (
-                      <Button type="button" onClick={handleCreateOrganization} disabled={isSubmitting} className="px-4">
-                        {isSubmitting ? "Creando..." : "Crear organización"}
+                      <Button type="button" onClick={handleCreateOrganization} disabled={isSubmitting || !canWriteOwner} className="px-4">
+                        {isSubmitting ? "Creando..." : canWriteOwner ? "Crear organización" : "Solo lectura"}
                       </Button>
                     )}
                   </div>

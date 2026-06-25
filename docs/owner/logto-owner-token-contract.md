@@ -131,7 +131,7 @@ Recommended Logto role model:
 - `owner_global`: global role granting `owner:read`.
 - `owner_write_global`: separate global role granting `owner:write` for operators allowed to mutate owner state.
 
-The frontend requests both `owner:read` and `owner:write` for the global Civitas API resource. Logto downscopes the issued token according to the user's effective global roles, so a read-only owner receives `owner:read` but not `owner:write`.
+The frontend requests the global Civitas API resource with `owner:read`, `owner:write`, `organizations:read`, `organizations:create`, `organizations:update`, and `organizations:delete`. Logto downscopes the issued token according to the user's effective global roles and API resource permissions, so a read-only owner receives `owner:read` but not `owner:write`.
 
 The backend exposes the UI contract in `/me` (`auth.owner`) and `/owner/me`:
 
