@@ -3,7 +3,6 @@ import { useSession } from "../session/sessionContext";
 import { ErrorState, PageCard, PageShell } from "../shared/ui";
 import {
   getOwnerAuthorizationFromSession,
-  OWNER_REQUIRED_SCOPE,
   type OwnerAuthorizationContext,
 } from "./ownerAuthorization";
 
