@@ -101,7 +101,10 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
     return capability ? capabilities[capability] : false;
   };
   const rootRoute = ownerNavigationTree[0] && isVisible(ownerNavigationTree[0]) ? ownerNavigationTree[0] : undefined;
-  const sectionRoutes = ownerNavigationTree.slice(1).map((item) => ({ ...item, children: item.children?.filter(isVisible) })).filter((item) => !item.children || item.children.length > 0);
+  const sectionRoutes = ownerNavigationTree
+    .slice(1)
+    .map((item) => ({ ...item, children: item.children?.filter(isVisible) }))
+    .filter((item) => !item.children || item.children.length > 0);
   const activeOwnerSections = sectionRoutes
     .map((item, index) =>
       item.children?.some((child) => child.path === location.pathname)
@@ -117,7 +120,7 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
           <p className="mb-1 fw-semibold civitas-sidebar__panel-title">Owner</p>
         </div>
         {rootRoute ? <SidebarLink item={rootRoute} onNavigate={onNavigate} /> : null}
-        <Accordion defaultActiveKey={activeOwnerSections} alwaysOpen>
+        <Accordion activeKey={activeOwnerSections} alwaysOpen>
           {sectionRoutes.map((item, index) => (
             <NavigationBranch key={item.path} item={item} index={index} onNavigate={onNavigate} />
           ))}
