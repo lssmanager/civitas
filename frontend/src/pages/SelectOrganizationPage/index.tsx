@@ -26,8 +26,8 @@ const getOrganizationName = (organization: SelectableOrganization) => organizati
 function OrganizationCard({ organization }: { organization: SelectableOrganization }) {
   const profile = organization.profile;
   const canonical = organization.canonical;
-  const subdomain = canonical?.appSubdomain || profile?.subdomain || canonical?.slug;
-  const entryHost = subdomain ? `${subdomain}.learnsocialstudies.com` : null;
+  const entryUrl = canonical?.entryUrl || null;
+  const entryHost = entryUrl ? entryUrl.replace(/^https?:\/\//, "") : null;
   const customData = canonical.customData || {};
   const civitasProfile = (customData.civitasProfile && typeof customData.civitasProfile === "object" ? customData.civitasProfile : {}) as { business?: Record<string, string>; contact?: Record<string, string>; branding?: Record<string, string> };
   const business = civitasProfile.business || {};

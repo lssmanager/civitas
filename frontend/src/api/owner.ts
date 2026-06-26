@@ -28,6 +28,10 @@ export type OwnerOrganization = {
     type: string | null;
     status: string;
     subdomain: string | null;
+    appSubdomain?: string | null;
+    appBaseDomain?: string | null;
+    entryUrl?: string | null;
+    entryUrlInconsistency?: string | null;
     slug?: string | null;
     adminDomain?: string | null;
     branding?: { logoUrl: string | null; faviconUrl: string | null; primaryColor: string | null; primaryColorDark: string | null; lightLogoUrl?: string | null; darkLogoUrl?: string | null; lightMarkUrl?: string | null; darkMarkUrl?: string | null; lightFaviconUrl?: string | null; darkFaviconUrl?: string | null; lightPrimaryColor?: string | null; darkPrimaryColor?: string | null; };
@@ -275,6 +279,8 @@ export type CreateOwnerOrganizationInput = {
   description?: string;
   type?: string;
   subdomain?: string;
+  appSubdomain?: string;
+  appBaseDomain?: string;
   seatTotal?: number;
   slug?: string;
   adminDomain?: string;

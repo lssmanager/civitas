@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { APP_ENV } from "../env";
 import { useApi } from "./base";
 
 export type InternalUser = {
@@ -51,7 +52,7 @@ export const useMeApi = () => {
 
   return useMemo(
     () => ({
-      getMe: async (): Promise<MeResponse> => fetchWithToken("/me"),
+      getMe: async (): Promise<MeResponse> => fetchWithToken("/me", { timeoutMs: APP_ENV.api.sessionBootstrapTimeoutMs }),
     }),
     [fetchWithToken]
   );

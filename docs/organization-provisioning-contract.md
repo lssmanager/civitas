@@ -5,12 +5,25 @@ The active organization creation flow is Logto-first. `POST /owner/organizations
 ## Data ownership
 
 - **Logto organization top-level:** `name`, `description`.
-- **Logto organization `customData`:** `provisioning.slug`, `provisioning.appSubdomain`, `provisioning.institutionalDomain`, `oidcRedirectUri`, plus `civitasProfile.business`, `civitasProfile.contact`, and `civitasProfile.downstream.crm`.
+- **Logto organization `customData`:** `provisioning.appSubdomain`, `provisioning.appBaseDomain`, derived `provisioning.entryUrl`, derived `oidcRedirectUri`, `provisioning.institutionalDomain`, optional legacy `provisioning.slug`, plus `civitasProfile.business`, `civitasProfile.contact`, and `civitasProfile.downstream.crm`.
 - **Logto user top-level:** `primaryEmail`, `primaryPhone`, `username`, `name`.
 - **Logto user `profile`:** standard OIDC profile claims only: `givenName`, `familyName`, `preferredUsername`.
 - **Logto user `customData`:** Civitas business metadata such as `civitasProfile.position` and `civitasProfile.phoneExtension`.
 - **FluentCRM:** company/contact commercial payloads, tags, lists, segmentation, and CRM IDs.
-- **Civitas PostgreSQL:** operational snapshots, retries, sync status, audit, reconciliation, read-model complements, and downstream errors.
+- **Civitas PostgreSQL:** operational snapshots, retries, sync status, audit, reconciliation, read-model complements, technical mappings, and downstream errors. PostgreSQL may cache `appSubdomain` for operations, but it is not a parallel organization source of truth.
+
+## Organization entry URL contract
+
+`slug` is not a functional organization entry field. It may remain in payloads only as historical or commercial metadata, and must never be used to construct public hosts, previews, links, or OIDC redirect URIs.
+
+The canonical entry fields are:
+
+- `appSubdomain`: a single lowercase DNS label, for example `flacso`.
+- `appBaseDomain`: one of exactly `didaxus.com`, `socialstudies.cloud`, or `learnsocialstudies.com`.
+- `entryUrl`: derived only as `https://${appSubdomain}.${appBaseDomain}`.
+- `oidcRedirectUri`: derived only as `https://${appSubdomain}.${appBaseDomain}/callback`.
+
+Legacy organizations can be read from an existing `oidcRedirectUri` when its host is a single subdomain under an allowed base domain. If Civitas cannot derive both canonical fields safely, the read model must expose an operational inconsistency instead of inventing a hostname from `name` or `slug`.
 
 ## Retry and partial failure semantics
 

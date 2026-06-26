@@ -93,3 +93,19 @@ test("organization provisioning does not validate legacy base admin role or phon
   assert.equal(result.errors.some((error) => error.field?.startsWith("baseAdmin.")), false);
   assert.equal(result.value.baseAdmin, null);
 });
+
+const { normalizeExtendedProvisioningInput } = require("../services/organizationProvisioningSettings");
+
+test("extended provisioning builds entry and redirect URL from appSubdomain and appBaseDomain", () => {
+  const result = normalizeExtendedProvisioningInput({ name: "FLACSO Ecuador", appSubdomain: "flacso", appBaseDomain: "didaxus.com", adminDomain: "flacso.edu.ec" });
+  assert.equal(result.errors.length, 0);
+  assert.equal(result.value.entryUrl, "https://flacso.didaxus.com");
+  assert.equal(result.value.oidcRedirectUri, "https://flacso.didaxus.com/callback");
+  assert.equal(result.value.slug, null);
+});
+
+test("extended provisioning rejects full URLs and unsupported base domains for app entry", () => {
+  const result = normalizeExtendedProvisioningInput({ appSubdomain: "https://flacso.didaxus.com", appBaseDomain: "example.com", adminDomain: "flacso.edu.ec" });
+  assert.equal(result.errors.some((error) => error.field === "subdomain"), true);
+  assert.equal(result.errors.some((error) => error.field === "appBaseDomain"), true);
+});

@@ -16,6 +16,8 @@ const inflightOrganizationTokenRequests = new Map<
 >();
 const DEFAULT_REQUEST_TIMEOUT_MS = APP_ENV.api.requestTimeoutMs;
 
+type CivitasRequestInit = RequestInit & { timeoutMs?: number };
+
 export type ApiError = {
   message?: string;
   error?: string;
@@ -104,7 +106,7 @@ export const useApi = () => {
     () =>
       async <T>(
         endpoint: string,
-        options: RequestInit = {},
+        options: CivitasRequestInit = {},
         organizationId?: string,
       ): Promise<T> => {
         const method = normalizeMethod(options.method);
@@ -145,14 +147,16 @@ export const useApi = () => {
               );
             }
 
+            const { timeoutMs, ...fetchOptions } = options;
+            const requestTimeoutMs = timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
             const abortController = new AbortController();
             const timeoutId = window.setTimeout(
               () => abortController.abort(),
-              DEFAULT_REQUEST_TIMEOUT_MS,
+              requestTimeoutMs,
             );
 
             const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-              ...options,
+              ...fetchOptions,
               signal: options.signal ?? abortController.signal,
               headers: {
                 "Content-Type": "application/json",

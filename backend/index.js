@@ -38,7 +38,7 @@ const {
 } = require("./services/auditLogs");
 const { buildLogtoUsername, normalizeCanonicalProvisioningInput, runCanonicalOrganizationBootstrap } = require("./services/organizationProvisioningCore");
 const { buildLogtoUserCreatePayload } = require("./services/organizationProvisioningPayloads");
-const { buildLogtoOrganizationCustomData, normalizeExtendedProvisioningInput } = require("./services/organizationProvisioningSettings");
+const { APP_BASE_DOMAINS, buildEntryUrl, buildLogtoOrganizationCustomData, normalizeExtendedProvisioningInput } = require("./services/organizationProvisioningSettings");
 const {
   FluentCrmError,
   cleanupContactInFluentCrm,
@@ -102,26 +102,26 @@ app.use(express.json({
 
 const getLogtoOrganizationId = (organization) => organization.id || organization.organizationId || organization.logtoOrganizationId;
 const getLogtoOrganizationName = (organization) => organization.name || organization.nameCache || null;
-const LEARNSOCIALSTUDIES_APP_HOST = "learnsocialstudies.com";
+
 
 const getLogtoOrganizationCustomData = (organization = {}) => {
   const customData = organization.customData || organization.custom_data || {};
   return customData && typeof customData === "object" && !Array.isArray(customData) ? customData : {};
 };
 
-const deriveAppSubdomainFromOidcRedirectUri = (oidcRedirectUri) => {
-  if (!oidcRedirectUri || typeof oidcRedirectUri !== "string") return null;
-
+const deriveAppEntryFromOidcRedirectUri = (oidcRedirectUri) => {
+  if (!oidcRedirectUri || typeof oidcRedirectUri !== "string") return { appSubdomain: null, appBaseDomain: null, entryUrl: null, inconsistency: "missing_oidc_redirect_uri" };
   try {
     const url = new URL(oidcRedirectUri);
     const hostname = url.hostname.toLowerCase();
-    const suffix = `.${LEARNSOCIALSTUDIES_APP_HOST}`;
-    if (!hostname.endsWith(suffix)) return null;
-
-    const subdomain = hostname.slice(0, -suffix.length);
-    return subdomain && !subdomain.includes(".") ? subdomain : null;
+    const appBaseDomain = APP_BASE_DOMAINS.find((domain) => hostname.endsWith(`.${domain}`)) || null;
+    if (!appBaseDomain) return { appSubdomain: null, appBaseDomain: null, entryUrl: null, inconsistency: "unsupported_oidc_redirect_domain" };
+    const suffix = `.${appBaseDomain}`;
+    const appSubdomain = hostname.slice(0, -suffix.length);
+    if (!appSubdomain || appSubdomain.includes(".")) return { appSubdomain: null, appBaseDomain, entryUrl: null, inconsistency: "invalid_oidc_redirect_subdomain" };
+    return { appSubdomain, appBaseDomain, entryUrl: buildEntryUrl(appSubdomain, appBaseDomain), inconsistency: null };
   } catch (error) {
-    return null;
+    return { appSubdomain: null, appBaseDomain: null, entryUrl: null, inconsistency: "invalid_oidc_redirect_uri" };
   }
 };
 
@@ -129,15 +129,19 @@ const buildCanonicalLogtoOrganizationFields = (logtoOrganization = {}) => {
   const customData = getLogtoOrganizationCustomData(logtoOrganization);
   const provisioning = customData.provisioning && typeof customData.provisioning === "object" ? customData.provisioning : {};
   const oidcRedirectUri = typeof customData.oidcRedirectUri === "string" ? customData.oidcRedirectUri : null;
-  const appSubdomain = typeof provisioning.appSubdomain === "string" && provisioning.appSubdomain
-    ? provisioning.appSubdomain
-    : deriveAppSubdomainFromOidcRedirectUri(oidcRedirectUri);
+  const derivedEntry = deriveAppEntryFromOidcRedirectUri(oidcRedirectUri);
+  const appSubdomain = typeof provisioning.appSubdomain === "string" && provisioning.appSubdomain ? provisioning.appSubdomain : derivedEntry.appSubdomain;
+  const appBaseDomain = typeof provisioning.appBaseDomain === "string" && APP_BASE_DOMAINS.includes(provisioning.appBaseDomain) ? provisioning.appBaseDomain : derivedEntry.appBaseDomain;
+  const entryUrl = appSubdomain && appBaseDomain ? buildEntryUrl(appSubdomain, appBaseDomain) : null;
 
   return {
     name: getCanonicalLogtoOrganizationName(logtoOrganization),
     customData,
     oidcRedirectUri,
     appSubdomain,
+    appBaseDomain,
+    entryUrl,
+    entryUrlInconsistency: entryUrl ? null : derivedEntry.inconsistency || "missing_app_entry_fields",
     slug: typeof provisioning.slug === "string" ? provisioning.slug : null,
     adminDomain: typeof provisioning.institutionalDomain === "string" ? provisioning.institutionalDomain : null,
     visibleSource: "logto",
@@ -1449,12 +1453,19 @@ const buildCivitasCustomData = (customData = {}, patch = {}) => {
   const existingBranding = customData.civitasProfile?.branding || {};
   const incomingBranding = { ...existingBranding, ...(patch.branding || {}) };
   const generatedBranding = buildLogtoOrganizationBrandingCss(incomingBranding);
+  const existingBusiness = customData.civitasProfile?.business || {};
+  const business = { ...existingBusiness, ...(patch.business || {}) };
+  const appSubdomain = business.appSubdomain || business.subdomain || customData.provisioning?.appSubdomain || null;
+  const appBaseDomain = business.appBaseDomain || customData.provisioning?.appBaseDomain || null;
+  const validEntry = appSubdomain && APP_BASE_DOMAINS.includes(appBaseDomain);
+  if (validEntry) business.entryUrl = buildEntryUrl(appSubdomain, appBaseDomain);
   return {
     ...customData,
+    ...(validEntry ? { provisioning: { ...(customData.provisioning || {}), appSubdomain, appBaseDomain, entryUrl: business.entryUrl }, oidcRedirectUri: `${business.entryUrl}/callback` } : {}),
     civitasProfile: {
       version: 1,
       ...(customData.civitasProfile && typeof customData.civitasProfile === "object" ? customData.civitasProfile : {}),
-      business: { ...(customData.civitasProfile?.business || {}), ...(patch.business || {}) },
+      business,
       contact: { ...(customData.civitasProfile?.contact || {}), ...(patch.contact || {}) },
       branding: { ...incomingBranding, ...generatedBranding.normalized, logtoCustomCss: generatedBranding.css, customCssGeneratedAt: new Date().toISOString() },
       downstream: { ...(customData.civitasProfile?.downstream || {}), ...(patch.downstream || {}) },
@@ -1484,11 +1495,19 @@ function buildOrganizationProfileReadModel({ logtoOrganization, profile, fluentC
   const contact = civitasProfile.contact || {};
   const branding = civitasProfile.branding || {};
   const crm = fluentCrmCompany && !fluentCrmCompany.unavailable ? fluentCrmCompany : {};
+  const derivedEntry = deriveAppEntryFromOidcRedirectUri(typeof customData.oidcRedirectUri === "string" ? customData.oidcRedirectUri : null);
+  const readAppSubdomain = firstValue(business.appSubdomain, business.subdomain, provisioning.appSubdomain, derivedEntry.appSubdomain, profile?.subdomain);
+  const readAppBaseDomain = firstValue(business.appBaseDomain, provisioning.appBaseDomain, derivedEntry.appBaseDomain);
+  const readEntryUrl = readAppSubdomain && readAppBaseDomain ? buildEntryUrl(readAppSubdomain, readAppBaseDomain) : null;
   return {
     sourcePriority: ["logto.customData.civitasProfile", "logto.customData.provisioning", "fluentcrm.company", "civitas.operational_cache"],
     business: {
       slug: firstValue(business.slug, provisioning.slug, profile?.slug),
-      subdomain: firstValue(business.subdomain, provisioning.appSubdomain, profile?.subdomain),
+      appSubdomain: readAppSubdomain,
+      appBaseDomain: readAppBaseDomain,
+      entryUrl: readEntryUrl,
+      entryUrlInconsistency: readEntryUrl ? null : derivedEntry.inconsistency || "missing_app_entry_fields",
+      subdomain: readAppSubdomain,
       website: firstValue(business.website, crm.website, crm.url),
       institutionalDomain: firstValue(business.institutionalDomain, provisioning.institutionalDomain, profile?.adminDomain),
       nit: firstValue(business.nit, crm.nit, crm.custom_values?.nit),
@@ -1551,6 +1570,7 @@ app.patch("/owner/organizations/:organizationId/profile", requireAuth(API_RESOUR
         nameCache: getLogtoOrganizationName(updated) || profile.nameCache,
         slug: customData.civitasProfile?.business?.slug || profile.slug,
         adminDomain: customData.civitasProfile?.business?.institutionalDomain || profile.adminDomain,
+        subdomain: customData.civitasProfile?.business?.appSubdomain || customData.civitasProfile?.business?.subdomain || profile.subdomain,
         logoUrl: customData.civitasProfile?.branding?.logoUrl || profile.logoUrl,
         primaryColor: customData.civitasProfile?.branding?.primaryColor || profile.primaryColor,
         updatedAt: new Date(),
