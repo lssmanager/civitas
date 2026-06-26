@@ -754,3 +754,106 @@ test("syncOrganizationContactsToFluentCrm reports per-contact diagnostics for pa
   assert.equal(summary.results[0].payloadSummary.company_id, "company-1");
   assert.ok(summary.results[0].fieldsSent.includes("company_id"));
 });
+
+test("syncCompanyFromLogtoOrganization creates FluentCRM company with field diagnostics when no match exists", async () => {
+  const { syncCompanyFromLogtoOrganization } = require("../services/fluentCrm");
+  configureFluentCrmEnv();
+  const requests = [];
+  global.fetch = async (url, options = {}) => {
+    requests.push({ url: String(url), options, body: options.body ? JSON.parse(options.body) : null });
+    if (String(url).includes("/companies") && options.method === "POST") return jsonResponse({ id: 901, name: "Colegio Demo" }, 201);
+    return jsonResponse({ companies: [] });
+  };
+  const markCalls = [];
+  const result = await syncCompanyFromLogtoOrganization({
+    profile: { id: "profile-1", logtoOrganizationId: "org-1", nameCache: "Colegio Demo", fluentcrmCompanyId: null },
+    logtoOrganization: { name: "Colegio Demo", customData: { civitasProfile: { business: { website: "https://school.edu", city: "Medellín", state: "Antioquia" }, contact: { email: "info@school.edu", phone: "+57300" }, downstream: { crm: { companyName: "Colegio Demo", tags: ["colegios"], lists: ["onboarding"] } } } } },
+    markSync: async (call) => markCalls.push(call),
+    audit: async () => {},
+  });
+
+  const post = requests.find((request) => request.options.method === "POST");
+  assert.equal(result.status, "created");
+  assert.equal(result.entityType, "company");
+  assert.ok(result.fieldsSent.includes("name"));
+  assert.ok(result.fieldsSent.includes("custom_values"));
+  assert.equal(post.body.name, "Colegio Demo");
+  assert.equal(post.body.custom_values.state, "Antioquia");
+  assert.equal(markCalls.at(-1).companyId, "901");
+});
+
+test("syncCompanyFromLogtoOrganization patches only changed FluentCRM company fields", async () => {
+  const { syncCompanyFromLogtoOrganization } = require("../services/fluentCrm");
+  configureFluentCrmEnv();
+  const requests = [];
+  global.fetch = async (url, options = {}) => {
+    requests.push({ url: String(url), options, body: options.body ? JSON.parse(options.body) : null });
+    if (String(url).includes("/companies/77") && options.method === "GET") return jsonResponse({ id: 77, name: "Colegio Demo", website: "https://old.edu", custom_values: { state: "Antioquia", city: "Medellín" } });
+    if (String(url).includes("/companies/77") && options.method === "PUT") return jsonResponse({ id: 77, name: "Colegio Demo", website: "https://new.edu" });
+    return jsonResponse({ companies: [] });
+  };
+
+  const result = await syncCompanyFromLogtoOrganization({
+    profile: { id: "profile-77", logtoOrganizationId: "org-77", nameCache: "Colegio Demo", fluentcrmCompanyId: "77" },
+    logtoOrganization: { name: "Colegio Demo", customData: { civitasProfile: { business: { website: "https://new.edu", city: "Envigado", state: "Antioquia" }, contact: {}, downstream: { crm: { companyName: "Colegio Demo" } } } } },
+    markSync: async () => {},
+    audit: async () => {},
+  });
+
+  const put = requests.find((request) => request.options.method === "PUT");
+  assert.equal(result.status, "updated");
+  assert.deepEqual(result.fieldsSent.sort(), ["address", "city", "custom_values.city", "website"].sort());
+  assert.equal(result.fieldDiffs.website.before, "https://old.edu");
+  assert.equal(result.fieldDiffs.website.after, "https://new.edu");
+  assert.equal(put.body.website, "https://new.edu");
+  assert.equal(put.body.city, "Envigado");
+  assert.equal(put.body.custom_values.city, "Envigado");
+  assert.equal(put.body.state, undefined);
+});
+
+test("syncCompanyFromLogtoOrganization reports no_changes without PUT when FluentCRM matches Logto", async () => {
+  const { syncCompanyFromLogtoOrganization } = require("../services/fluentCrm");
+  configureFluentCrmEnv();
+  const requests = [];
+  global.fetch = async (url, options = {}) => {
+    requests.push({ url: String(url), options });
+    if (String(url).includes("/companies/88")) return jsonResponse({ id: 88, name: "Colegio Demo", website: "https://school.edu", address: "Antioquia", custom_values: { state: "Antioquia" } });
+    return jsonResponse({ companies: [] });
+  };
+
+  const result = await syncCompanyFromLogtoOrganization({
+    profile: { id: "profile-88", logtoOrganizationId: "org-88", nameCache: "Colegio Demo", fluentcrmCompanyId: "88" },
+    logtoOrganization: { name: "Colegio Demo", customData: { civitasProfile: { business: { website: "https://school.edu", state: "Antioquia" }, contact: {}, downstream: { crm: { companyName: "Colegio Demo" } } } } },
+    markSync: async () => {},
+    audit: async () => {},
+  });
+
+  assert.equal(result.status, "no_changes");
+  assert.deepEqual(result.fieldsSent, []);
+  assert.equal(requests.some((request) => request.options.method === "PUT"), false);
+});
+
+test("syncCompanyFromLogtoOrganization exposes company validation diagnostics", async () => {
+  const { syncCompanyFromLogtoOrganization } = require("../services/fluentCrm");
+  configureFluentCrmEnv();
+  global.fetch = async (url, options = {}) => {
+    if (String(url).includes("/companies/99") && options.method === "GET") return jsonResponse({ id: 99, name: "Colegio Demo", website: "https://old.edu" });
+    if (String(url).includes("/companies/99") && options.method === "PUT") return jsonResponse({ message: "website is invalid" }, 422);
+    return jsonResponse({ companies: [] });
+  };
+
+  await assert.rejects(
+    () => syncCompanyFromLogtoOrganization({
+      profile: { id: "profile-99", logtoOrganizationId: "org-99", nameCache: "Colegio Demo", fluentcrmCompanyId: "99" },
+      logtoOrganization: { name: "Colegio Demo", customData: { civitasProfile: { business: { website: "not-a-url" }, contact: {}, downstream: { crm: { companyName: "Colegio Demo" } } } } },
+      markSync: async () => {},
+      audit: async () => {},
+    }),
+    (error) => {
+      assert.equal(error.status, 422);
+      assert.equal(error.crmCompanySync.entityType, "company");
+      assert.equal(error.crmCompanySync.providerCode, "FLUENTCRM_VALIDATION_FAILED");
+      return true;
+    }
+  );
+});

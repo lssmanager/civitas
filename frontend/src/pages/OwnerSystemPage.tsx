@@ -310,6 +310,9 @@ export function OwnerSystemPage() {
           description="Consultando primero Redis, BullMQ y heartbeat antes de cargar recursos secundarios."
         />
       ) : null}
+      <Alert variant="secondary" className="mb-0">
+        Aquí ves el estado técnico de colas, Redis y worker. El detalle funcional por organización —step, campos faltantes, proveedor y retry— está en la consola de cada organización.
+      </Alert>
       {secondaryResourcesAreLoading ? (
         <Alert variant="info" className="mb-0">
           Carga secundaria en curso:{" "}

@@ -9,22 +9,24 @@ const {
 } = require("../services/organizationProvisioningPayloads");
 
 test("organization payload separates Logto top-level, customData and downstream CRM metadata", () => {
-  const canonical = { name: "Colegio Civitas", description: "Desc", baseAdmin: { name: "Ada Admin" } };
+  const canonical = { name: "Colegio Civitas", description: "Desc", administrativeContacts: [{ name: "Ada Admin", email: "ada@colegio.edu.co" }] };
   const extended = { slug: "colegio-civitas", subdomain: "civitas", appBaseDomain: "socialstudies.cloud", entryUrl: "https://civitas.socialstudies.cloud", adminDomain: "colegio.edu.co", oidcRedirectUri: "https://civitas.socialstudies.cloud/callback" };
   const crm = { companyEmail: " INFO@COLEGIO.EDU.CO ", type: "school", industry: "education", nit: "123", verificationDigit: "4", state: " California ", department: "Legacy Department", tags: [" colegios ", "colegios"], lists: [" onboarding "] };
   const payload = buildLogtoOrganizationCreatePayload({ canonical, extended, crm });
   assert.equal(payload.name, "Colegio Civitas");
   assert.equal(payload.description, "Desc");
-  assert.equal(payload.customData.provisioning.slug, "colegio-civitas");
+  assert.equal(payload.customData.provisioning.slug, undefined);
   assert.equal(payload.customData.provisioning.appSubdomain, "civitas");
   assert.equal(payload.customData.provisioning.appBaseDomain, "socialstudies.cloud");
   assert.equal(payload.customData.provisioning.entryUrl, "https://civitas.socialstudies.cloud");
   assert.equal(payload.customData.civitasProfile.business.nit, 123);
   assert.equal(payload.customData.civitasProfile.business.state, "California");
   assert.equal(payload.customData.civitasProfile.business.department, undefined);
+  assert.equal(payload.customData.civitasProfile.business.slug, undefined);
+  assert.equal(payload.customData.civitasProfile.business.subdomain, undefined);
   assert.equal(payload.customData.civitasProfile.contact.email, "info@colegio.edu.co");
   assert.deepEqual(payload.customData.civitasProfile.downstream.crm.tags, ["colegios"]);
-  assert.ok(FORM_FIELD_INVENTORY["baseAdmin.position"].includes("logto.user.customData.civitasProfile.position"));
+  assert.ok(FORM_FIELD_INVENTORY["baseAdmin.position (deprecated)"].includes("use.administrativeContacts[].position"));
 });
 
 test("user payload maps Latin American names to Logto profile and customData", () => {
@@ -47,7 +49,7 @@ test("user payload keeps personal phones as Logto primaryPhone only when no exte
 });
 
 test("FluentCRM builders produce retryable clean snapshots for company and contacts", () => {
-  const company = buildFluentCrmCompanyPayloadFromForm({ form: { crm: { companyName: "Acme", numberOfEmployees: "25", department: "Antioquia", tags: ["org"], lists: ["main"] } }, canonical: { name: "Fallback", baseAdmin: { name: "Owner" } }, extended: { adminDomain: "acme.edu" } });
+  const company = buildFluentCrmCompanyPayloadFromForm({ form: { crm: { companyName: "Acme", numberOfEmployees: "25", department: "Antioquia", tags: ["org"], lists: ["main"] } }, canonical: { name: "Fallback", administrativeContacts: [{ name: "Owner", email: "owner@acme.edu" }] }, extended: { adminDomain: "acme.edu" } });
   assert.equal(company.companyName, "Acme");
   assert.equal(company.numberOfEmployees, 25);
   assert.equal(company.state, "Antioquia");

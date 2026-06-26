@@ -27,11 +27,13 @@ export type OwnerOrganization = {
     nameCache: string | null;
     type: string | null;
     status: string;
+    /** @deprecated Compatibility alias for appSubdomain. */
     subdomain: string | null;
     appSubdomain?: string | null;
     appBaseDomain?: string | null;
     entryUrl?: string | null;
     entryUrlInconsistency?: string | null;
+    /** @deprecated Historical/display-only; never functional for URLs or routing. */
     slug?: string | null;
     adminDomain?: string | null;
     branding?: { logoUrl: string | null; faviconUrl: string | null; primaryColor: string | null; primaryColorDark: string | null; lightLogoUrl?: string | null; darkLogoUrl?: string | null; lightMarkUrl?: string | null; darkMarkUrl?: string | null; lightFaviconUrl?: string | null; darkFaviconUrl?: string | null; lightPrimaryColor?: string | null; darkPrimaryColor?: string | null; };
@@ -87,8 +89,8 @@ export type OwnerSystemMetricsResponse = {
   series?: { last8?: Array<{ at: string; redisCommandsPerMinute: number | null; bullmqJobsPerMinute: number | null; sampleWindowMinutes: number }>; throughput24h?: Array<{ at: string; redisCommandsPerMinute: number | null; bullmqJobsPerMinute: number | null; sampleCount: number }>; rollup?: Record<string, unknown> | null };
 };
 
-export type OwnerPendingSync = { id: string; operationId: string; organizationId: string | null; organizationName: string | null; type: string; affectedSystem: string; status: string; retryable: boolean; lastError: string; suggestedAction: string; };
-export type OwnerOrganizationEvent = { id: string; at: string | null; type: string; result: string; stage: string; message: string; requiresAction: boolean; retryOperationId: string | null };
+export type OwnerPendingSync = { id: string; operationId: string; organizationId: string | null; organizationName: string | null; operationType?: string | null; type: string; affectedSystem: string; stepName?: string | null; queueName?: string | null; jobId?: string | null; retryState?: string | null; status: string; retryable: boolean; lastError: string; suggestedAction: string; entityType?: string | null; targetIdentity?: Record<string, unknown> | null; fieldsSent?: string[]; missingFields?: string[]; fieldDiffs?: Record<string, unknown> | null; providerStatus?: string | null; providerCode?: string | null; humanMessage?: string | null; technicalErrorPresent?: boolean; };
+export type OwnerOrganizationEvent = { id: string; at: string | null; type: string; result: string; stage: string; message: string; requiresAction: boolean; retryOperationId: string | null; stepName?: string | null; targetIdentity?: Record<string, unknown> | null; humanMessage?: string | null; providerCode?: string | null; retryState?: string | null };
 export type OwnerOrganizationProfileResponse = {
   organization: OwnerOrganization;
   canonical: { source: "logto"; topLevelFields: string[]; customData: Record<string, unknown> };
@@ -258,6 +260,7 @@ export type OwnerFluentCrmHealthResponse = {
 };
 
 
+/** @deprecated Legacy bootstrap micro-requests are not an active owner operational source; use sync_operations / sync_operation_steps projections instead. */
 export type OwnerBootstrapMicroRequest = {
   id: string;
   parentOperationId: string;
@@ -278,10 +281,12 @@ export type CreateOwnerOrganizationInput = {
   name: string;
   description?: string;
   type?: string;
+  /** @deprecated Legacy input alias. New creation flows must send appSubdomain. */
   subdomain?: string;
   appSubdomain?: string;
   appBaseDomain?: string;
   seatTotal?: number;
+  /** @deprecated Historical/display-only; not part of the active creation contract. */
   slug?: string;
   adminDomain?: string;
   logoUrl?: string;
@@ -299,7 +304,9 @@ export const useOwnerApi = () => {
     () => ({
       getOwnerMe: async (): Promise<OwnerMeResponse> => fetchWithToken("/owner/me"),
       getOrganizations: async (): Promise<{ organizations: OwnerOrganization[] }> => fetchWithToken("/owner/organizations"),
+      /** @deprecated Legacy compatibility endpoint; active owner UI must use getOrganizationProfile().sync or operations summary. */
       getBootstrapMicroRequests: async (): Promise<{ microRequests: OwnerBootstrapMicroRequest[] }> => fetchWithToken("/owner/bootstrap/micro-requests"),
+      /** @deprecated Legacy compatibility endpoint; active retries must use retrySyncOperation(). */
       retryBootstrapMicroRequest: async (microRequestId: string): Promise<{ microRequest: OwnerBootstrapMicroRequest; status: string; note?: string }> =>
         fetchWithToken(`/owner/bootstrap/micro-requests/${encodeURIComponent(microRequestId)}/retry`, { method: "POST" }),
       getOrganizationTemplate: async (): Promise<OwnerOrganizationTemplate> => fetchWithToken("/owner/organization-template"),

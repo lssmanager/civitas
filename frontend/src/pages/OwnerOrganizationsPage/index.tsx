@@ -38,13 +38,6 @@ type OwnerOrganizationFormData = {
   appSubdomain: string;
   appBaseDomain: string;
   adminDomain: string;
-  baseAdminFirstName: string;
-  baseAdminLastName: string;
-  baseAdminEmail: string;
-  baseAdminPhoneCountryCode: string;
-  baseAdminPhoneNationalNumber: string;
-  baseAdminPhoneExtension: string;
-  baseAdminPosition: string;
   adminRoleName: string;
   jitDefaultRoleName: string;
   crm: {
@@ -156,19 +149,21 @@ const ensureMinimumAdministrativeContact = (
   });
 };
 
+const getAdministrativeContactFullName = (contact?: AdministrativeContact | null) =>
+  [contact?.primerNombre, contact?.segundoNombre, contact?.primerApellido, contact?.segundoApellido]
+    .map((value) => value?.trim() || "")
+    .filter(Boolean)
+    .join(" ");
+
+const getPrimaryAdministrativeContact = (contacts: AdministrativeContact[]) =>
+  contacts.find((contact) => contact.email.trim() || getAdministrativeContactFullName(contact)) || contacts[0] || null;
+
 const initialFormData: OwnerOrganizationFormData = {
   name: "",
   slug: "",
   appSubdomain: "",
   appBaseDomain: "didaxus.com",
   adminDomain: "",
-  baseAdminFirstName: "",
-  baseAdminLastName: "",
-  baseAdminEmail: "",
-  baseAdminPhoneCountryCode: "",
-  baseAdminPhoneNationalNumber: "",
-  baseAdminPhoneExtension: "",
-  baseAdminPosition: "",
   adminRoleName: ORGANIZATION_BOOTSTRAP_ADMIN_ROLE,
   jitDefaultRoleName: ORGANIZATION_JIT_DEFAULT_ROLE,
   crm: {
@@ -353,25 +348,10 @@ export function OwnerOrganizationsPage() {
   const defaultCallingCode =
     selectedCountry?.phonecode?.replace(/\D/g, "") || "";
 
-  const baseAdminFullName = [
-    formData.baseAdminFirstName,
-    formData.baseAdminLastName,
-  ]
-    .map((value) => value.trim())
-    .filter(Boolean)
-    .join(" ");
+  const primaryAdministrativeContact = getPrimaryAdministrativeContact(formData.administrativeContacts);
   const effectiveCompanyOwner =
-    formData.crm.companyOwner.trim() ||
-    [
-      formData.administrativeContacts[0]?.primerNombre,
-      formData.administrativeContacts[0]?.segundoNombre,
-      formData.administrativeContacts[0]?.primerApellido,
-      formData.administrativeContacts[0]?.segundoApellido,
-    ]
-      .map((value) => value?.trim() || "")
-      .filter(Boolean)
-      .join(" ") ||
-    baseAdminFullName;
+    formData.crm.companyOwner.trim() || getAdministrativeContactFullName(primaryAdministrativeContact);
+  const effectiveCompanyEmail = formData.crm.companyEmail.trim() || primaryAdministrativeContact?.email.trim() || "";
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -419,7 +399,7 @@ export function OwnerOrganizationsPage() {
           : current.name,
         companyEmail: dirty.crm.companyEmail
           ? current.crm.companyEmail
-          : current.baseAdminEmail,
+          : getPrimaryAdministrativeContact(current.administrativeContacts)?.email.trim() || "",
         website: dirty.crm.website ? current.crm.website : current.adminDomain,
         tags: dirty.crm.tags
           ? current.crm.tags
@@ -431,7 +411,7 @@ export function OwnerOrganizationsPage() {
     }));
   }, [
     formData.name,
-    formData.baseAdminEmail,
+    formData.administrativeContacts,
     formData.adminDomain,
     selectedAdminRole,
     selectedJitRole,
@@ -513,11 +493,6 @@ export function OwnerOrganizationsPage() {
       const selectedCallingCode = selected?.phonecode?.replace(/\D/g, "") || "";
       return {
         ...next,
-        baseAdminPhoneCountryCode:
-          !current.baseAdminPhoneCountryCode ||
-          current.baseAdminPhoneCountryCode === defaultCallingCode
-            ? selectedCallingCode
-            : current.baseAdminPhoneCountryCode,
         crm: {
           ...next.crm,
           companyPhoneCountryCode:
@@ -824,7 +799,7 @@ export function OwnerOrganizationsPage() {
         crm: {
           companyName: formData.crm.companyName || formData.name,
           companyEmail:
-            formData.crm.companyEmail || undefined,
+            effectiveCompanyEmail || undefined,
           companyPhone:
             normalizePhoneForSubmission(
               formData.crm.companyPhoneNationalNumber,
