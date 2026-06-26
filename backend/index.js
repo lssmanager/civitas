@@ -6,7 +6,7 @@ const { requireAuth, requireOrganizationAccess, requireScope } = require("./midd
 const { buildOwnerCapabilities, requireOwner } = require("./middleware/owner");
 const { buildAuthorizationMetadata } = require("./services/authorizationMetadata");
 const { checkDatabaseConnection } = require("./db/connection");
-const { getIdentityFromLogtoClaims, getOrCreateInternalUser, serializeUser } = require("./services/users");
+const { getIdentityFromLogtoClaims, getOrCreateInternalUser, resolveInternalUserForSession, serializeUser } = require("./services/users");
 const {
   ORGANIZATION_ADMIN_ROLE_NAME,
   ensureOrganizationTemplate,
@@ -651,15 +651,30 @@ const sendSessionResolutionError = (res, error, { allowLogtoTimeout = false } = 
   if (error.status === 401) return res.status(401).json({ error: "Unauthorized", message: error.message });
   if (error.status === 403) return res.status(403).json({ error: "Forbidden", message: error.message });
   const isSchemaDrift = error?.code === "DATABASE_SCHEMA_DRIFT";
+  const isDatabaseTimeout = error?.code === "DATABASE_CONNECTION_TIMEOUT" || error?.code === "DATABASE_OPERATION_TIMEOUT";
+  const isSessionUserTimeout = error?.code === "SESSION_INTERNAL_USER_TIMEOUT";
   const isLogtoTimeout = error?.code === "LOGTO_MANAGEMENT_REQUEST_TIMEOUT" || error?.code === "LOGTO_MANAGEMENT_TOKEN_TIMEOUT";
   const status = allowLogtoTimeout && isLogtoTimeout ? 504 : error?.status || 500;
   logSessionResolutionError(error);
-  return res.status(isSchemaDrift ? 503 : status).json({ error: isSchemaDrift ? "Service Unavailable" : status === 504 ? "Gateway Timeout" : status === 502 ? "Bad Gateway" : "Internal Server Error", message: isSchemaDrift ? "Database schema is not compatible with the running backend. Run migrations before retrying." : "Failed to resolve session", diagnostic: error?.diagnostic || undefined });
+  const responseStatus = isSchemaDrift || isDatabaseTimeout || isSessionUserTimeout ? 503 : status;
+  const message = isSchemaDrift
+    ? "Database schema is not compatible with the running backend. Run migrations before retrying."
+    : isDatabaseTimeout
+      ? "Database did not respond in time while resolving the session."
+      : isSessionUserTimeout
+        ? "Session bootstrap timed out while resolving the internal user."
+        : "Failed to resolve session";
+  return res.status(responseStatus).json({
+    error: responseStatus === 503 ? "Service Unavailable" : responseStatus === 504 ? "Gateway Timeout" : responseStatus === 502 ? "Bad Gateway" : "Internal Server Error",
+    message,
+    code: error?.code || undefined,
+    diagnostic: error?.diagnostic || undefined,
+  });
 };
 
 app.get("/me", requireAuth(API_RESOURCE), async (req, res) => {
   try {
-    const internalUser = await getOrCreateInternalUser(req.user);
+    const internalUser = await resolveInternalUserForSession(req.user);
     return res.json({
       user: serializeUser(internalUser),
       identity: buildRequestIdentity(req.user, internalUser),

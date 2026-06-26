@@ -7,21 +7,33 @@ function getTimeoutMs(name, defaultValue) {
   return parsePositiveInteger(process.env[name], defaultValue);
 }
 
-async function withTimeout(promiseFactory, { timeoutMs, label, onTimeout } = {}) {
+function buildTimeoutError({ timeoutMs, label, code, name, status } = {}) {
+  const timeoutError = new Error(`${label || "operation"} timed out after ${timeoutMs}ms`);
+  timeoutError.name = name || "IntegrationTimeoutError";
+  timeoutError.code = code || "INTEGRATION_TIMEOUT";
+  timeoutError.status = status;
+  timeoutError.timeoutMs = timeoutMs;
+  return timeoutError;
+}
+
+async function withTimeout(promiseFactory, { timeoutMs, label, onTimeout, code, name, status } = {}) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => {
-    onTimeout?.();
-    controller.abort();
-  }, timeoutMs);
+  let timeout;
+  let didTimeout = false;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeout = setTimeout(() => {
+      didTimeout = true;
+      onTimeout?.();
+      controller.abort();
+      reject(buildTimeoutError({ timeoutMs, label, code, name, status }));
+    }, timeoutMs);
+  });
+
   try {
-    return await promiseFactory(controller.signal);
+    return await Promise.race([promiseFactory(controller.signal), timeoutPromise]);
   } catch (error) {
-    if (error?.name === "AbortError") {
-      const timeoutError = new Error(`${label || "operation"} timed out after ${timeoutMs}ms`);
-      timeoutError.name = "IntegrationTimeoutError";
-      timeoutError.code = "INTEGRATION_TIMEOUT";
-      timeoutError.timeoutMs = timeoutMs;
-      throw timeoutError;
+    if (!didTimeout && error?.name === "AbortError") {
+      throw buildTimeoutError({ timeoutMs, label, code, name, status });
     }
     throw error;
   } finally {
@@ -43,4 +55,4 @@ async function measureAsync(label, operation, { warnAfterMs = 1000, logger = con
   }
 }
 
-module.exports = { getTimeoutMs, measureAsync, parsePositiveInteger, withTimeout };
+module.exports = { buildTimeoutError, getTimeoutMs, measureAsync, parsePositiveInteger, withTimeout };

@@ -1,10 +1,11 @@
 const { and, eq, ne } = require("drizzle-orm");
 const { db } = require("../db/client");
 const { users } = require("../db/schema");
-const { measureAsync } = require("./timeouts");
+const { getTimeoutMs, measureAsync, withTimeout } = require("./timeouts");
 const { buildSafePostgresErrorDiagnostic, classifyPostgresOperationalError } = require("./postgresErrors");
 
 const INACTIVE_STATUSES = new Set(["blocked", "inactive"]);
+const SESSION_INTERNAL_USER_TIMEOUT_MS = getTimeoutMs("SESSION_INTERNAL_USER_TIMEOUT_MS", 3000);
 
 class AuthUserMissingSubError extends Error {
   constructor() {
@@ -130,6 +131,23 @@ async function emailBelongsToAnotherUser(email, currentUserId) {
   return Boolean(existingUser);
 }
 
+async function updateLastLoginBestEffort(user, email) {
+  const shouldCheckEmail = email && email !== user.email;
+  try {
+    const emailAvailable = shouldCheckEmail
+      ? !(await measureAsync("PostgreSQL users email uniqueness check for /api/me", () => emailBelongsToAnotherUser(email, user.id), { warnAfterMs: 1000 }))
+      : false;
+    await measureAsync("PostgreSQL users last-login update for /api/me", () => updateLastLogin(user.id, emailAvailable ? email : undefined), { warnAfterMs: 1000 });
+  } catch (error) {
+    const classified = classifyPostgresOperationalError(error, "/api/me best-effort last-login update");
+    console.warn("Best-effort last-login update failed during /api/me", {
+      code: classified?.code,
+      status: classified?.status,
+      diagnostic: classified?.diagnostic || buildSafePostgresErrorDiagnostic(error),
+    });
+  }
+}
+
 async function getOrCreateInternalUser(authUser) {
   const claims = authUser?.claims || authUser || {};
   const logtoUserId = authUser?.sub || claims.sub;
@@ -138,7 +156,6 @@ async function getOrCreateInternalUser(authUser) {
     throw new AuthUserMissingSubError();
   }
 
-  const email = getEmailFromClaims({ ...claims, sub: logtoUserId });
   let user;
   try {
     user = await measureAsync("PostgreSQL users lookup for /api/me", () => findUserByLogtoUserId(logtoUserId), { warnAfterMs: 1000 });
@@ -150,19 +167,29 @@ async function getOrCreateInternalUser(authUser) {
     if (INACTIVE_STATUSES.has(user.status)) {
       throw new InternalUserInactiveError(user.status);
     }
-
-    const shouldUpdateEmail = email && email !== user.email && !(await measureAsync("PostgreSQL users email uniqueness check for /api/me", () => emailBelongsToAnotherUser(email, user.id), { warnAfterMs: 1000 }));
-    user = await measureAsync("PostgreSQL users last-login update for /api/me", () => updateLastLogin(user.id, shouldUpdateEmail ? email : undefined), { warnAfterMs: 1000 });
   } catch (error) {
     if (error instanceof InternalUserInactiveError) throw error;
     const classified = classifyPostgresOperationalError(error, "/api/me internal user projection");
     if (classified !== error) {
-      console.error("PostgreSQL schema drift while resolving /api/me", buildSafePostgresErrorDiagnostic(error));
+      console.error("PostgreSQL operational issue while resolving /api/me", classified.diagnostic);
     }
     throw classified;
   }
 
+  const email = getEmailFromClaims({ ...claims, sub: logtoUserId });
+  setImmediate(() => updateLastLoginBestEffort(user, email));
   return user;
+}
+
+async function resolveInternalUserForSession(authUser) {
+  return withTimeout(() => getOrCreateInternalUser(authUser), {
+    timeoutMs: SESSION_INTERNAL_USER_TIMEOUT_MS,
+    label: "/api/me internal user resolution",
+    code: "SESSION_INTERNAL_USER_TIMEOUT",
+    name: "SessionInternalUserTimeoutError",
+    status: 503,
+    onTimeout: () => console.error("Timed out resolving internal user for session", { timeoutMs: SESSION_INTERNAL_USER_TIMEOUT_MS }),
+  });
 }
 
 module.exports = {
@@ -172,6 +199,8 @@ module.exports = {
   findUserByLogtoUserId,
   getIdentityFromLogtoClaims,
   getOrCreateInternalUser,
+  resolveInternalUserForSession,
   serializeUser,
   updateLastLogin,
+  updateLastLoginBestEffort,
 };
