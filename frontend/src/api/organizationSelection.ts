@@ -24,9 +24,14 @@ export type OrganizationReconciliationIncident = {
   profile: NonNullable<OwnerOrganization["profile"]>;
 };
 
+export type OperationalStatusComponent = { key: string; label: string; state: "failure" | "pending" | string; detail?: string | null };
+
+export type OperationalStatusSummary = { base: string; summary: string; text: string; components: OperationalStatusComponent[] };
+
 export type SelectableOrganization = OwnerOrganization & {
   logtoOrganizationId: string;
   canonical: CanonicalOrganizationFields;
+  operationalStatus?: OperationalStatusSummary;
   syncStatus: "synced" | "pending" | "error" | "metadata_missing" | "conflict" | string;
   syncError: string | null;
   reconciliation: {

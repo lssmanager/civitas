@@ -27,6 +27,7 @@ const {
 const {
   LOGTO_SYNC_STATUSES,
   listOrganizationProfiles,
+  deleteOrganizationProfilesByIds,
   markOrganizationProfileFluentCrmSync,
   serializeOrganizationProfile,
   upsertOrganizationProfile,
@@ -163,6 +164,47 @@ const serializeLogtoOwnerOrganization = (logtoOrganization = null, fallbackLogto
   profile: null,
 });
 
+
+const STATUS_COMPONENT_LABELS = Object.freeze({ logto: "Logto", branding: "Branding", users: "Usuarios", crm: "CRM" });
+const FAILURE_STATUSES = new Set(["error", "failed", "partial_failed", "conflict", "unavailable"]);
+const PENDING_STATUSES = new Set(["pending", "queued", "running", "partial_error", "not_linked", "metadata_missing", "creator_membership_pending", "creator_role_pending", "logto_created"]);
+const OK_LOGTO_STATUSES = new Set(["bootstrapped", "synced", "reconciled", "completed"]);
+const OK_CRM_STATUSES = new Set(["linked", "synced", "completed"]);
+
+const getOperationalComponentState = (status, okStatuses = new Set()) => {
+  if (!status || okStatuses.has(status)) return null;
+  if (FAILURE_STATUSES.has(status)) return "failure";
+  if (PENDING_STATUSES.has(status)) return "pending";
+  return null;
+};
+
+const pushOperationalComponent = (components, key, state, detail = null) => {
+  if (!state || components.some((component) => component.key === key && component.state === state)) return;
+  components.push({ key, label: STATUS_COMPONENT_LABELS[key] || key, state, detail });
+};
+
+const buildOperationalStatusSummary = ({ profile = null, hasConflict = false } = {}) => {
+  const base = profile?.status === "suspended" ? "Suspendida" : "Activa";
+  const components = [];
+  if (hasConflict) pushOperationalComponent(components, "logto", "failure", "duplicate_profiles");
+  if (profile) {
+    pushOperationalComponent(components, "logto", getOperationalComponentState(profile.logtoSyncStatus, OK_LOGTO_STATUSES), profile.logtoSyncError);
+    pushOperationalComponent(components, "crm", getOperationalComponentState(profile.fluentcrmSyncStatus, OK_CRM_STATUSES), profile.fluentcrmSyncError);
+    const settings = profile.settings && typeof profile.settings === "object" ? profile.settings : {};
+    const brandingStatus = settings.brandingSyncStatus || settings.branding?.syncStatus || settings.logtoCustomCssSyncStatus;
+    pushOperationalComponent(components, "branding", getOperationalComponentState(brandingStatus, new Set(["synced", "completed", "generated"])), settings.brandingSyncError || settings.branding?.syncError || null);
+    const contactStatus = settings.fluentcrmContactSync?.status || settings.contactSyncStatus || settings.usersSyncStatus;
+    pushOperationalComponent(components, "users", getOperationalComponentState(contactStatus, new Set(["synced", "completed"])), settings.fluentcrmContactSync?.reason || settings.contactSyncError || settings.usersSyncError || null);
+  }
+  const failures = components.filter((component) => component.state === "failure");
+  const pending = components.filter((component) => component.state === "pending");
+  const joinLabels = (items) => items.map((item) => item.label).join(" y ");
+  const parts = [];
+  if (failures.length) parts.push(`falla ${joinLabels(failures)}`);
+  if (pending.length) parts.push(`pendiente ${joinLabels(pending)}`);
+  return { base, summary: parts.join(" · ") || "ok", text: `${base} · ${parts.join(" · ") || "ok"}`, components };
+};
+
 const toMillis = (value) => {
   const time = value instanceof Date ? value.getTime() : new Date(value || 0).getTime();
   return Number.isFinite(time) ? time : 0;
@@ -215,16 +257,12 @@ function buildLogtoOrganizationDirectory({ logtoOrganizations, profiles }) {
   const logtoOrganizationIds = new Set(logtoOrganizations.map(getLogtoOrganizationId).filter(Boolean));
   const profilesByLogtoId = new Map();
   const profilesWithoutLogtoId = [];
-  const orphanedProfiles = [];
-
   for (const profile of profiles) {
     if (profile.logtoOrganizationId) {
       if (logtoOrganizationIds.has(profile.logtoOrganizationId)) {
         const existingProfiles = profilesByLogtoId.get(profile.logtoOrganizationId) || [];
         existingProfiles.push(profile);
         profilesByLogtoId.set(profile.logtoOrganizationId, existingProfiles);
-      } else {
-        orphanedProfiles.push(profile);
       }
     } else {
       profilesWithoutLogtoId.push(profile);
@@ -275,6 +313,7 @@ function buildLogtoOrganizationDirectory({ logtoOrganizations, profiles }) {
         syncError: hasConflict
           ? "Multiple internal profiles match this Logto organization; only the newest profile is used for operational state and the rest are reconciliation incidents."
           : profile?.logtoSyncError || null,
+        operationalStatus: buildOperationalStatusSummary({ profile, hasConflict }),
         reconciliation: {
           status: reconciliationStatus,
           profileCount: associatedProfiles.length,
@@ -287,31 +326,26 @@ function buildLogtoOrganizationDirectory({ logtoOrganizations, profiles }) {
     })
     .filter(Boolean);
 
-  const staleUnlinkedProfiles = profilesWithoutLogtoId.filter((profile) => !matchedLegacyProfileIds.has(profile.id));
-  const reconciliationIncidents = [
-    ...orphanedProfiles.map((profile) => ({
-      type: "orphaned_deleted_logto_organization",
-      policy: "archived_out_of_operational_directory",
-      profile: serializeOrganizationProfile(profile),
-      message: "Local profile references a Logto organization that no longer exists; it is retained only for audit/reconciliation.",
-    })),
-    ...staleUnlinkedProfiles.map((profile) => ({
-      type: "unlinked_legacy_profile",
-      policy: "observability_only",
-      profile: serializeOrganizationProfile(profile),
-      message: "Local profile has no Logto organization id and did not match any current Logto organization by name; it is not part of the operational directory.",
-    })),
-  ];
-
   return {
     organizations,
-    reconciliationIncidents,
-    unreconciledProfiles: reconciliationIncidents.map((incident) => incident.profile),
+    reconciliationIncidents: [],
+    unreconciledProfiles: [],
   };
 }
 
-function reconcileProfilesWithLogtoOrganizations({ profiles }) {
-  return profiles;
+async function cleanupOrphanedOrganizationProfiles({ logtoOrganizations = [], profiles = [] } = {}) {
+  const logtoOrganizationIds = new Set(logtoOrganizations.map(getLogtoOrganizationId).filter(Boolean));
+  const orphanedProfileIds = profiles
+    .filter((profile) => profile.logtoOrganizationId && !logtoOrganizationIds.has(profile.logtoOrganizationId))
+    .map((profile) => profile.id);
+  if (orphanedProfileIds.length === 0) return { deletedProfiles: [], deletedProfileIds: [] };
+  const deletedProfiles = await deleteOrganizationProfilesByIds(orphanedProfileIds);
+  return { deletedProfiles, deletedProfileIds: deletedProfiles.map((profile) => profile.id) };
+}
+
+function reconcileProfilesWithLogtoOrganizations({ logtoOrganizations = [], profiles = [] }) {
+  const logtoOrganizationIds = new Set(logtoOrganizations.map(getLogtoOrganizationId).filter(Boolean));
+  return profiles.filter((profile) => !profile.logtoOrganizationId || logtoOrganizationIds.has(profile.logtoOrganizationId));
 }
 
 async function runFluentCrmOrganizationStep({ logtoOrganization, logtoOrganizationId, canonical, extended, crmInput, administrativeContactAssignments = [], internalUser, authUser }) {
@@ -682,7 +716,8 @@ app.get("/owner/me", requireAuth(API_RESOURCE), requireOwner, async (req, res) =
 app.get("/organizations", requireAuth(API_RESOURCE), requireScope("organizations:read"), async (req, res) => {
   try {
     const [logtoOrganizations, rawProfiles] = await Promise.all([listLogtoOrganizations(), listOrganizationProfiles()]);
-    const profiles = await reconcileProfilesWithLogtoOrganizations({ logtoOrganizations, profiles: rawProfiles });
+    await cleanupOrphanedOrganizationProfiles({ logtoOrganizations, profiles: rawProfiles });
+    const profiles = reconcileProfilesWithLogtoOrganizations({ logtoOrganizations, profiles: rawProfiles });
     return res.json(buildLogtoOrganizationDirectory({ logtoOrganizations, profiles }));
   } catch (error) {
     console.error("Failed to list canonical Logto organizations", error);
@@ -1428,8 +1463,8 @@ const buildCivitasCustomData = (customData = {}, patch = {}) => {
   const existingBranding = customData.civitasProfile?.branding || {};
   const incomingBranding = { ...existingBranding, ...(patch.branding || {}) };
   const generatedBranding = buildLogtoOrganizationBrandingCss(incomingBranding);
-  const existingBusiness = customData.civitasProfile?.business || {};
-  const business = { ...existingBusiness, ...(patch.business || {}) };
+  const existingBusiness = normalizeBusinessLocationState(customData.civitasProfile?.business || {});
+  const business = normalizeBusinessLocationState({ ...existingBusiness, ...(patch.business || {}) });
   const appSubdomain = business.appSubdomain || business.subdomain || customData.provisioning?.appSubdomain || null;
   const appBaseDomain = business.appBaseDomain || customData.provisioning?.appBaseDomain || null;
   const validEntry = appSubdomain && APP_BASE_DOMAINS.includes(appBaseDomain);
@@ -1450,6 +1485,12 @@ const buildCivitasCustomData = (customData = {}, patch = {}) => {
 };
 
 const firstValue = (...values) => values.find((value) => value !== undefined && value !== null && value !== "") ?? null;
+
+const normalizeBusinessLocationState = (business = {}) => {
+  if (!business || typeof business !== "object" || Array.isArray(business)) return {};
+  const { department, ...rest } = business;
+  return { ...rest, state: firstValue(business.state, department) };
+};
 
 async function loadFluentCrmCompanySnapshot(profile) {
   if (!profile?.fluentcrmCompanyId) return null;
@@ -1488,7 +1529,7 @@ function buildOrganizationProfileReadModel({ logtoOrganization, profile, fluentC
       nit: firstValue(business.nit, crm.nit, crm.custom_values?.nit),
       verificationDigit: firstValue(business.verificationDigit, crm.verification_digit, crm.custom_values?.verification_digit),
       country: firstValue(business.country, crm.country),
-      department: firstValue(business.department, crm.state, crm.region),
+      state: firstValue(business.state, business.department, crm.state, crm.region),
       city: firstValue(business.city, crm.city),
       postalCode: firstValue(business.postalCode, crm.postal_code, crm.zip),
       addressLine1: firstValue(business.addressLine1, crm.address_line_1, crm.address1, crm.address),

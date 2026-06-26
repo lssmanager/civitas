@@ -98,7 +98,7 @@ function buildFluentCrmCompanyPayloadFromForm({ form = {}, canonical = {}, exten
 
 function buildFluentCrmContactPayloadFromAssignment({ assignment = {}, companyId = null, organizationLists = [], organizationTags = [] } = {}) {
   return cleanObject({
-    identity: cleanObject({ logtoUserId: assignment.logtoUserId, email: assignment.email, name: assignment.name, phone: assignment.phone, position: assignment.position, phoneExtension: assignment.phoneExtension }),
+    identity: cleanObject({ logtoUserId: assignment.logtoUserId, logtoOrganizationId: assignment.logtoOrganizationId, email: assignment.email, previousEmail: assignment.previousEmail, name: assignment.name, firstName: assignment.firstName, middleName: assignment.middleName, lastName: assignment.lastName, firstSurname: assignment.firstSurname, secondSurname: assignment.secondSurname, username: assignment.username, phone: assignment.phone, position: assignment.position, phoneExtension: assignment.phoneExtension, lastLoginAt: assignment.lastLoginAt }),
     companyId,
     roleNames: [assignment.roleName || assignment.organizationRoleName].filter(Boolean),
     extraLists: unique(organizationLists),

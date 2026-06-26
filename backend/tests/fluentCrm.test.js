@@ -649,3 +649,108 @@ test("FluentCRM 422 invalid company/tag/list diagnostic is classified", () => {
   assert.match(diagnostic.message, /company_id is invalid and tags\/lists contain unknown values/);
   assert.equal(diagnostic.validationDetail, "company_id is invalid and tags/lists contain unknown values");
 });
+
+test("upsertContactFromLogtoIdentity creates administrative contact with company, tags, lists and Civitas custom values", async () => {
+  const { upsertContactFromLogtoIdentity } = require("../services/fluentCrm");
+  configureFluentCrmEnv();
+  const requests = [];
+  global.fetch = async (url, options = {}) => {
+    requests.push({ url: String(url), options, body: options.body ? JSON.parse(options.body) : null });
+    if (String(url).includes("/subscribers") && options.method === "POST") return jsonResponse({ id: 10, email: "ada@school.edu" }, 201);
+    return jsonResponse({ subscribers: [] });
+  };
+
+  const result = await upsertContactFromLogtoIdentity({
+    identity: { logtoUserId: "user-1", logtoOrganizationId: "org-1", email: "ADA@SCHOOL.EDU", name: "Ada Lovelace", firstName: "Ada", lastName: "Lovelace", username: "ada", phone: "+571234567890", lastLoginAt: "2026-06-26T00:00:00.000Z" },
+    companyId: "company-123",
+    roleNames: ["Admin-org"],
+    extraTags: ["School Tag"],
+    extraLists: ["School List"],
+  });
+
+  const post = requests.find((request) => request.options.method === "POST");
+  assert.equal(result.status, "created");
+  assert.equal(post.body.first_name, "Ada");
+  assert.equal(post.body.last_name, "Lovelace");
+  assert.equal(post.body.email, "ada@school.edu");
+  assert.equal(post.body.phone, "+571234567890");
+  assert.equal(post.body.company_id, "company-123");
+  assert.ok(post.body.tags.includes("School Tag"));
+  assert.ok(post.body.lists.includes("School List"));
+  assert.equal(post.body.custom_values.logto_user_id, "user-1");
+  assert.equal(post.body.custom_values.logto_id_organization, "org-1");
+  assert.equal(post.body.custom_values.username, "ada");
+  assert.equal(post.body.custom_values.profile_display_name, "Ada Lovelace");
+  assert.match(post.body.custom_values.user_role, /Admin-org/);
+  assert.equal(post.body.custom_values.last_login, "2026-06-26T00:00:00.000Z");
+  assert.deepEqual(result.missingFields, []);
+});
+
+test("upsertContactFromLogtoIdentity updates existing contact and preserves previous email address", async () => {
+  const { upsertContactFromLogtoIdentity } = require("../services/fluentCrm");
+  configureFluentCrmEnv();
+  const requests = [];
+  global.fetch = async (url, options = {}) => {
+    requests.push({ url: String(url), options, body: options.body ? JSON.parse(options.body) : null });
+    if (String(url).includes("/subscribers") && options.method === "GET") return jsonResponse({ subscribers: [{ id: 55, email: "old@school.edu", external_id: "user-55" }] });
+    if (String(url).includes("/subscribers/55") && options.method === "PUT") return jsonResponse({ id: 55, email: "new@school.edu" });
+    return jsonResponse({ subscribers: [] });
+  };
+
+  const result = await upsertContactFromLogtoIdentity({
+    identity: { logtoUserId: "user-55", logtoOrganizationId: "org-55", email: "new@school.edu", previousEmail: "old@school.edu", firstName: "Grace", lastName: "Hopper", username: "grace", phone: "+571111111111" },
+    companyId: "company-55",
+    roleNames: ["Admin-org"],
+  });
+
+  const put = requests.find((request) => request.options.method === "PUT");
+  assert.equal(result.status, "updated");
+  assert.equal(put.body.company_id, "company-55");
+  assert.equal(put.body.email, "new@school.edu");
+  assert.equal(put.body.custom_values.previous_email_address, "old@school.edu");
+  assert.equal(put.body.custom_values.logto_user_id, "user-55");
+});
+
+test("upsertContactFromLogtoIdentity exposes FluentCRM 422 diagnostics with payload summary", async () => {
+  const { upsertContactFromLogtoIdentity } = require("../services/fluentCrm");
+  configureFluentCrmEnv();
+  global.fetch = async (url, options = {}) => {
+    if (String(url).includes("/subscribers") && options.method === "POST") return jsonResponse({ message: "Validation failed", errors: { first_name: ["required"] } }, 422);
+    return jsonResponse({ subscribers: [] });
+  };
+
+  await assert.rejects(
+    () => upsertContactFromLogtoIdentity({ identity: { logtoUserId: "user-bad", logtoOrganizationId: "org-bad", email: "bad@school.edu" }, companyId: "company-bad", roleNames: ["Admin-org"] }),
+    (error) => {
+      assert.equal(error.status, 422);
+      assert.equal(error.crmContactSync.status, "error");
+      assert.equal(error.crmContactSync.code, "FLUENTCRM_VALIDATION_FAILED");
+      assert.ok(error.crmContactSync.missingFields.includes("first_name"));
+      assert.equal(error.crmContactSync.payloadSummary.company_id, "company-bad");
+      return true;
+    }
+  );
+});
+
+test("syncOrganizationContactsToFluentCrm reports per-contact diagnostics for partial CRM failures", async () => {
+  const { syncOrganizationContactsToFluentCrm } = require("../services/fluentCrm");
+  configureFluentCrmEnv();
+  global.fetch = async (url, options = {}) => {
+    if (String(url).includes("bad%40school.edu")) return jsonResponse({ subscribers: [] });
+    if (String(url).includes("/subscribers") && options.method === "POST") return jsonResponse({ message: "Validation failed", errors: { phone: ["required"] } }, 422);
+    return jsonResponse({ subscribers: [] });
+  };
+
+  const summary = await syncOrganizationContactsToFluentCrm({
+    profile: { id: "profile-1", logtoOrganizationId: "org-1", fluentcrmCompanyId: "company-1" },
+    members: [{ id: "bad-user", primaryEmail: "bad@school.edu", firstName: "Bad", lastName: "User" }],
+    getMemberRoles: async () => ["Admin-org"],
+    roleMapping: getFluentCrmRoleSyncMapping(),
+  });
+
+  assert.equal(summary.status, "partial_error");
+  assert.equal(summary.failed, 1);
+  assert.equal(summary.errors[0].code, "FLUENTCRM_VALIDATION_FAILED");
+  assert.equal(summary.results[0].payloadSummary.company_id, "company-1");
+  assert.ok(summary.results[0].fieldsSent.includes("company_id"));
+});
