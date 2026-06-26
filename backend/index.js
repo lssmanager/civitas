@@ -76,6 +76,8 @@ const {
   listOrganizationEvents,
   listOrganizationPendingSync,
   retrySyncOperation,
+  recordOperationStep,
+  updateSyncOperation,
   safeFunctionalMessage,
   getLatestOperationForOrganization,
   getSyncOperationWithSteps,
@@ -1081,7 +1083,7 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireOwner, async 
         logtoOrganizationId,
         canonical: canonicalInput.value,
         extended: extendedInput.value,
-        crmInput: { companyOwner: canonicalInput.value.baseAdmin?.name, ...(req.body?.crm || req.body?.fluentcrm || {}) },
+        crmInput: { companyOwner: canonicalInput.value.administrativeContacts?.[0]?.name, companyEmail: canonicalInput.value.administrativeContacts?.[0]?.email, companyPhone: canonicalInput.value.administrativeContacts?.[0]?.phone, ...(req.body?.crm || req.body?.fluentcrm || {}) },
         administrativeContactAssignments: result.administrativeContactAssignments || [],
         internalUser,
         authUser: req.user,
@@ -1111,7 +1113,8 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireOwner, async 
           organizationProfileId: fluentCrmStep.profile?.id || null,
           stepResults: {
             logtoOrganization: { status: result.reconciled ? "reconciled" : "created", id: logtoOrganizationId },
-            baseAdmin: result.adminAssignment || null,
+            legacyBaseAdmin: null,
+            administrativeContactSeed: result.adminAssignment || null,
             administrativeContacts: result.administrativeContactAssignments || [],
             fluentcrm: fluentCrmStep,
             microRequestCount: insertedMicroRequests.length,
@@ -1133,9 +1136,9 @@ app.post("/owner/organizations", requireAuth(API_RESOURCE), requireOwner, async 
       reconciled: result.reconciled,
       steps: {
         logtoOrganization: { status: result.reconciled ? "reconciled" : "created", id: logtoOrganizationId },
-        baseAdminUser: { status: result.adminAssignment?.userCreated ? "created" : "resolved", logtoUserId: result.adminAssignment?.logtoUserId, source: result.adminAssignment?.userSource },
-        baseAdminMembership: { status: result.adminAssignment?.membershipAdded ? "added" : "not_added" },
-        baseAdminRole: { status: result.adminAssignment?.roleAssigned ? "assigned" : "not_assigned", roleName: result.adminAssignment?.roleName },
+        administrativeContactUser: { status: result.adminAssignment?.userCreated ? "created" : "resolved", logtoUserId: result.adminAssignment?.logtoUserId, source: result.adminAssignment?.userSource },
+        administrativeContactMembership: { status: result.adminAssignment?.membershipAdded ? "added" : "not_added" },
+        administrativeContactRole: { status: result.adminAssignment?.roleAssigned ? "assigned" : "not_assigned", roleName: result.adminAssignment?.roleName },
         administrativeContacts: { status: result.administrativeContactAssignments?.length ? "assigned" : "not_requested", contacts: result.administrativeContactAssignments || [] },
         jitProvisioning: { status: result.jitProvisioning?.status, domainConfigured: result.jitProvisioning?.domainConfigured, domain: result.jitProvisioning?.domain },
         jitDefaultRoles: { status: result.jitProvisioning?.defaultRolesConfigured ? "configured" : "not_configured", roleNames: result.jitProvisioning?.defaultRoleNames },
@@ -1326,7 +1329,7 @@ app.patch("/owner/organizations/:organizationId/members/:logtoUserId/identity", 
 
     const logtoUser = await updateLogtoUser({ userId: req.params.logtoUserId, email, name, phone });
     await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: req.params.organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "logto_identity_updated", logtoUserId: req.params.logtoUserId, previousEmail, email } });
-    const operation = await createSyncOperation({ organizationId: req.params.organizationId, operationType: "member_identity_downstream_sync", stepName: "fluentcrm_contact_identity_sync", metadata: { logtoUserId: req.params.logtoUserId, previousEmail, email, name, phone, sourceOfTruth: "logto" } });
+    const operation = await createSyncOperation({ operationType: "member_identity_downstream_sync", entityType: "organization_member", entityId: req.params.logtoUserId, logtoOrganizationId: req.params.organizationId, logtoUserId: req.params.logtoUserId, correlationId: `member-identity:${req.params.organizationId}:${req.params.logtoUserId}:${Date.now()}`, idempotencyKey: req.body?.idempotencyKey || `member-identity:${req.params.organizationId}:${req.params.logtoUserId}:${email}:${previousEmail}`, payloadSnapshotJson: { logtoUserId: req.params.logtoUserId, previousEmail, email, name, phone, organizationRoleName: req.body?.organizationRoleName || req.body?.roleName || null, sourceOfTruth: "logto" } });
     await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: req.params.organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_FLUENTCRM_SYNC, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "fluentcrm_contact_identity_sync_queued", logtoUserId: req.params.logtoUserId, syncOperationId: operation.id } });
     return res.json({ status: "logto_updated_sync_queued", logtoUser, syncOperation: operation, futureSelfServiceRoute: "PATCH /me/identity" });
   } catch (error) {
@@ -1354,7 +1357,7 @@ app.patch("/owner/organizations/:organizationId/members/:logtoUserId", requireAu
     const customData = { ...previousCustomData, secondFamilyName: segundoApellido || undefined };
     const profile = { ...previousProfile, givenName: primerNombre, middleName: segundoNombre || undefined, familyName: primerApellido };
     const logtoUser = await updateLogtoUser({ userId: req.params.logtoUserId, email, name, phone, profile, customData });
-    const operation = await createSyncOperation({ organizationId: req.params.organizationId, operationType: "member_identity_downstream_sync", stepName: "fluentcrm_contact_identity_sync", metadata: { logtoUserId: req.params.logtoUserId, previousEmail, email, name, phone, primerNombre, segundoNombre, primerApellido, segundoApellido, sourceOfTruth: "logto" } });
+    const operation = await createSyncOperation({ operationType: "member_identity_downstream_sync", entityType: "organization_member", entityId: req.params.logtoUserId, logtoOrganizationId: req.params.organizationId, logtoUserId: req.params.logtoUserId, correlationId: `member-identity:${req.params.organizationId}:${req.params.logtoUserId}:${Date.now()}`, idempotencyKey: req.body?.idempotencyKey || `member-identity:${req.params.organizationId}:${req.params.logtoUserId}:${email}:${previousEmail}:${name}`, payloadSnapshotJson: { logtoUserId: req.params.logtoUserId, previousEmail, email, name, phone, primerNombre, segundoNombre, primerApellido, segundoApellido, position: trim(req.body?.position), phoneExtension: trim(req.body?.phoneExtension), organizationRoleName: req.body?.organizationRoleName || req.body?.roleName || null, sourceOfTruth: "logto" } });
     await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: req.params.organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "member_identity_updated", syncOperationId: operation.id } });
     return res.json({ status: "logto_updated_sync_queued", logtoUser, syncOperation: operation });
   } catch (error) {
@@ -1366,7 +1369,7 @@ app.post("/owner/organizations/:organizationId/members/:logtoUserId/reset-passwo
   let internalUser = null;
   try {
     internalUser = await getOrCreateInternalUser(req.user);
-    const operation = await createSyncOperation({ organizationId: req.params.organizationId, operationType: "member_reset_password", stepName: "logto_member_reset_password", metadata: { logtoUserId: req.params.logtoUserId, sourceOfTruth: "logto", policy: "provider_capability_only_no_local_reset" } });
+    const operation = await createSyncOperation({ operationType: "member_reset_password", entityType: "organization_member", entityId: req.params.logtoUserId, logtoOrganizationId: req.params.organizationId, logtoUserId: req.params.logtoUserId, correlationId: `member-reset:${req.params.organizationId}:${req.params.logtoUserId}:${Date.now()}`, idempotencyKey: req.body?.idempotencyKey || `member-reset:${req.params.organizationId}:${req.params.logtoUserId}:${Date.now()}`, payloadSnapshotJson: { logtoUserId: req.params.logtoUserId, sourceOfTruth: "logto", policy: "provider_capability_only_no_local_reset" } });
     await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: req.params.organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "member_password_reset_queued", logtoUserId: req.params.logtoUserId, syncOperationId: operation.id } });
     return res.json({ status: "queued", provider: "logto", syncOperation: operation, message: "Reset password encolado para que el worker use solo capacidades reales de Logto; no se creará reset local." });
   } catch (error) {
@@ -1609,9 +1612,17 @@ app.patch("/owner/organizations/:organizationId/profile", requireAuth(API_RESOUR
         updatedAt: new Date(),
       }).where(eq(organizationProfiles.id, profile.id));
     }
-    const operation = await createSyncOperation({ operationType: "organization_profile_downstream_sync", entityType: "organization", entityId: logtoOrganizationId, logtoOrganizationId, correlationId: `owner-profile:${logtoOrganizationId}:${Date.now()}`, idempotencyKey: req.body?.idempotencyKey || `owner-profile:${logtoOrganizationId}:${JSON.stringify(customData.civitasProfile || {})}`, payloadSnapshotJson: { source: "logto_customData.civitasProfile", target: "fluentcrm", requestedBy: "owner_console", customData: customData.civitasProfile || {} } });
-    await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "organization_profile_custom_data_updated", syncOperationId: operation.id, sourceOfTruth: "logto.customData" } });
-    return res.json({ status: "updated_sync_queued", organization: serializeOwnerOrganization(profile, updated), syncOperation: operation });
+    const requestedCustomData = req.body?.customData || {};
+    const needsCrmProfileSync = Boolean(requestedCustomData.business || requestedCustomData.contact || requestedCustomData.downstream?.propagateTo?.includes?.("fluentcrm"));
+    const operation = needsCrmProfileSync
+      ? await createSyncOperation({ operationType: "organization_profile_downstream_sync", entityType: "organization", entityId: logtoOrganizationId, logtoOrganizationId, correlationId: `owner-profile:${logtoOrganizationId}:${Date.now()}`, idempotencyKey: req.body?.idempotencyKey || `owner-profile:${logtoOrganizationId}:${JSON.stringify(customData.civitasProfile || {})}`, payloadSnapshotJson: { source: "logto_customData.civitasProfile", target: "fluentcrm", requestedBy: "owner_console", customData: customData.civitasProfile || {} } })
+      : await createSyncOperation({ operationType: "organization_branding_logto_sync", entityType: "branding", entityId: logtoOrganizationId, logtoOrganizationId, correlationId: `owner-branding:${logtoOrganizationId}:${Date.now()}`, idempotencyKey: req.body?.idempotencyKey || `owner-branding:${logtoOrganizationId}:${JSON.stringify(customData.civitasProfile?.branding || {})}`, payloadSnapshotJson: { source: "logto_customData.civitasProfile.branding", target: "logto_custom_css", requestedBy: "owner_console", branding: customData.civitasProfile?.branding || {} } });
+    if (!needsCrmProfileSync) {
+      await recordOperationStep({ operationId: operation.id, stepName: "logto_custom_css_regenerated", queueName: "owner-profile", jobId: operation.id, status: "completed", outputJson: { result: { entityType: "branding", targetIdentity: { logtoOrganizationId }, fieldsSent: Object.keys(customData.civitasProfile?.branding || {}), missingFields: [], fieldDiffs: {}, providerStatus: "completed", providerCode: null, humanMessage: "Branding: logto_custom_css regenerado" } } });
+      await updateSyncOperation({ id: operation.id, status: "completed", canonicalStatus: "completed", downstreamStatus: "completed", resultSnapshotJson: { workerOutcome: { status: "completed", result: { entityType: "branding", humanMessage: "Branding: logto_custom_css regenerado" } } } });
+    }
+    await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: needsCrmProfileSync ? "organization_profile_custom_data_updated" : "organization_branding_custom_data_updated", syncOperationId: operation.id, sourceOfTruth: "logto.customData" } });
+    return res.json({ status: needsCrmProfileSync ? "updated_sync_queued" : "branding_updated", organization: serializeOwnerOrganization(profile, updated), syncOperation: operation });
   } catch (error) {
     await recordAuditLogBestEffort({ actorUserId: internalUser?.id ?? null, organizationId: req.params.organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.ERROR, metadata: { stage: "organization_profile_custom_data_update_failed", error } });
     return res.status(error.status || 502).json({ error: "Profile update failed", message: safeFunctionalMessage(getSafeErrorMessage(error), "No se pudo guardar el perfil en Logto.") });

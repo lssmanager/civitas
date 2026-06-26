@@ -100,3 +100,9 @@ FluentCRM contacts are transformed projections of canonical Logto users and orga
 - Logto user and organization IDs -> `custom_values.logto_user_id` and `custom_values.logto_id_organization`.
 
 Every contact sync result should record `payloadSummary`, `fieldsSent`, `missingFields`, `providerStatus`, `providerCode`, and a conflict/validation reason in `sync_operation_steps.outputJson` or `lastErrorJson` so owner-facing screens can render per-contact diagnostics without treating PostgreSQL as a second contact truth.
+
+## Operational visibility and branding pipeline
+
+Owner pending/conflict views must be projected from `sync_operations` and `sync_operation_steps` only. Legacy bootstrap micro-requests are retained solely as a compatibility/admin repair surface and are not an active owner-facing source.
+
+Branding saves are Logto/CSS work only: the owner console patches `customData.civitasProfile.branding`, regenerates Logto custom CSS/login-experience data, and records a branding/logto step. Branding must not enqueue FluentCRM company/contact work unless a future CRM branding mapping is explicitly documented.

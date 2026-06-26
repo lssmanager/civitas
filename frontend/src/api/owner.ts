@@ -260,6 +260,7 @@ export type OwnerFluentCrmHealthResponse = {
 };
 
 
+/** @deprecated Legacy bootstrap micro-requests are not an active owner operational source; use sync_operations / sync_operation_steps projections instead. */
 export type OwnerBootstrapMicroRequest = {
   id: string;
   parentOperationId: string;
@@ -303,7 +304,9 @@ export const useOwnerApi = () => {
     () => ({
       getOwnerMe: async (): Promise<OwnerMeResponse> => fetchWithToken("/owner/me"),
       getOrganizations: async (): Promise<{ organizations: OwnerOrganization[] }> => fetchWithToken("/owner/organizations"),
+      /** @deprecated Legacy compatibility endpoint; active owner UI must use getOrganizationProfile().sync or operations summary. */
       getBootstrapMicroRequests: async (): Promise<{ microRequests: OwnerBootstrapMicroRequest[] }> => fetchWithToken("/owner/bootstrap/micro-requests"),
+      /** @deprecated Legacy compatibility endpoint; active retries must use retrySyncOperation(). */
       retryBootstrapMicroRequest: async (microRequestId: string): Promise<{ microRequest: OwnerBootstrapMicroRequest; status: string; note?: string }> =>
         fetchWithToken(`/owner/bootstrap/micro-requests/${encodeURIComponent(microRequestId)}/retry`, { method: "POST" }),
       getOrganizationTemplate: async (): Promise<OwnerOrganizationTemplate> => fetchWithToken("/owner/organization-template"),

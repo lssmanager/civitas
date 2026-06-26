@@ -29,6 +29,12 @@ const FORM_FIELD_INVENTORY = Object.freeze({
   "adminRoleName/jitDefaultRoleName": ["logto.organizationRole", "logto.jit.defaultRoles", "civitas.operation.payloadSnapshot"],
 });
 
+
+function getPrimaryAdministrativeContact(canonical = {}) {
+  const contacts = Array.isArray(canonical.administrativeContacts) ? canonical.administrativeContacts : [];
+  return contacts.find((contact) => contact?.email || contact?.name) || null;
+}
+
 function buildLogtoOrganizationCustomData({ canonical = {}, extended = {}, crm = {} } = {}) {
   const normalizedCrm = normalizeCrmCompanyInput(crm, { name: canonical.name, adminDomain: extended.adminDomain });
   const business = cleanObject({
@@ -51,7 +57,8 @@ function buildLogtoOrganizationCustomData({ canonical = {}, extended = {}, crm =
     postalCode: normalizedCrm.postalCode,
     country: normalizedCrm.country,
   });
-  const contact = cleanObject({ owner: normalizedCrm.companyOwner || canonical.baseAdmin?.name, email: normalizedCrm.companyEmail, phone: normalizedCrm.companyPhone });
+  const primaryAdministrativeContact = getPrimaryAdministrativeContact(canonical);
+  const contact = cleanObject({ owner: normalizedCrm.companyOwner || primaryAdministrativeContact?.name, email: normalizedCrm.companyEmail || primaryAdministrativeContact?.email, phone: normalizedCrm.companyPhone || primaryAdministrativeContact?.phone });
   return cleanObject({
     provisioning: cleanObject({ appSubdomain: extended.appSubdomain || extended.subdomain, appBaseDomain: extended.appBaseDomain, entryUrl: extended.entryUrl, institutionalDomain: extended.adminDomain }),
     oidcRedirectUri: extended.oidcRedirectUri || null,
@@ -99,7 +106,8 @@ function buildLogtoUserCreatePayload(person = {}) {
 }
 
 function buildFluentCrmCompanyPayloadFromForm({ form = {}, canonical = {}, extended = {} } = {}) {
-  return normalizeCrmCompanyInput({ companyOwner: canonical.baseAdmin?.name, ...(form.crm || form.fluentcrm || {}) }, { name: canonical.name || form.name, adminDomain: extended.adminDomain || form.adminDomain });
+  const primaryAdministrativeContact = getPrimaryAdministrativeContact(canonical);
+  return normalizeCrmCompanyInput({ companyOwner: primaryAdministrativeContact?.name, companyEmail: primaryAdministrativeContact?.email, companyPhone: primaryAdministrativeContact?.phone, ...(form.crm || form.fluentcrm || {}) }, { name: canonical.name || form.name, adminDomain: extended.adminDomain || form.adminDomain });
 }
 
 function buildFluentCrmContactPayloadFromAssignment({ assignment = {}, companyId = null, organizationLists = [], organizationTags = [] } = {}) {
