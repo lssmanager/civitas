@@ -1,7 +1,4 @@
-import type { CapabilityKey } from "./capabilities";
-export const actionCapabilities = {
-  ownerBrandingSave: "canManageBranding",
-  ownerRoleMappingSave: "canManageRoleMappings",
-  organizationProfileSave: "canEditOrganizationProfile",
-  organizationMembersWrite: "canManageMembers",
-} as const satisfies Record<string, CapabilityKey>;
+import { RBACMatrix, type ActionKey, type CapabilityKey } from "./rbacMatrix";
+
+type ScreenWithActions = { actions?: Partial<Record<ActionKey, CapabilityKey>> };
+export const actionCapabilities: Record<ActionKey, CapabilityKey> = (Object.values(RBACMatrix.screens) as ScreenWithActions[]).reduce((actions, screen) => ({ ...actions, ...(screen.actions ?? {}) }), {} as Record<ActionKey, CapabilityKey>);

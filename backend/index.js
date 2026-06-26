@@ -4,6 +4,7 @@ const { eq } = require("drizzle-orm");
 require("dotenv").config();
 const { requireAuth, requireOrganizationAccess, requireScope } = require("./middleware/auth");
 const { buildOwnerCapabilities, requireOwner } = require("./middleware/owner");
+const { buildAuthorizationMetadata } = require("./services/authorizationMetadata");
 const { checkDatabaseConnection } = require("./db/connection");
 const { getIdentityFromLogtoClaims, getOrCreateInternalUser, serializeUser } = require("./services/users");
 const {
@@ -179,36 +180,6 @@ const normalizeLogtoUserToClaims = (logtoUser = {}) => ({
   username: logtoUser.username || logtoUser.profile?.username,
   picture: logtoUser.avatar || logtoUser.profile?.picture,
 });
-
-const normalizeStringList = (value) => Array.isArray(value) ? [...new Set(value.map(String).filter(Boolean))] : typeof value === "string" ? [...new Set(value.split(/[\s,]+/).filter(Boolean))] : [];
-
-const buildSessionTokenMetadata = (claims = {}) => ({
-  issuedAt: claims.iat ? new Date(Number(claims.iat) * 1000).toISOString() : null,
-  expiresAt: claims.exp ? new Date(Number(claims.exp) * 1000).toISOString() : null,
-  permissionFreshness: "Token claims are authoritative for this request; Logto role changes apply after token renewal or expiration.",
-});
-
-const buildAuthorizationMetadata = (authUser = {}) => {
-  const claims = authUser.claims || {};
-  const scopes = normalizeStringList(authUser.scopes ?? claims.scope);
-  const globalRoles = normalizeStringList(authUser.globalRoles ?? claims.global_roles ?? claims.globalRoles);
-  const organizationRoles = normalizeStringList(authUser.organizationRoles ?? claims.organization_roles ?? claims.organizationRoles ?? claims.org_roles);
-  const roles = normalizeStringList(authUser.roles).length ? normalizeStringList(authUser.roles) : [...new Set([...globalRoles, ...organizationRoles])];
-  const organizationId = authUser.organizationId ?? claims.organization_id ?? claims.organizationId ?? null;
-
-  return {
-    sub: authUser.sub ?? claims.sub ?? null,
-    issuer: claims.iss ?? null,
-    audience: claims.aud ?? null,
-    scopes,
-    roles,
-    globalRoles,
-    organizationRoles,
-    organizationId,
-    owner: buildOwnerCapabilities({ ...authUser, scopes, globalRoles, organizationId, claims }),
-    token: buildSessionTokenMetadata(claims),
-  };
-};
 
 const buildRequestIdentity = (authUser, internalUser = null) => {
   const logtoIdentity = getIdentityFromLogtoClaims({ ...(authUser?.claims || {}), sub: authUser?.sub });

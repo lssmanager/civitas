@@ -1,12 +1,3 @@
-import { appRoutes } from "../navigation/routes";
+import { RBACMatrix } from "./rbacMatrix";
 import type { CapabilityKey } from "./capabilities";
-export const routeCapabilities: Record<string, CapabilityKey> = {
-  [appRoutes.owner.path]: "canSeeOwnerMenu",
-  [appRoutes.ownerOrganizations.path]: "canSeeOrganizations",
-  [appRoutes.selectOrganization.path]: "canSelectOrganization",
-  [appRoutes.ownerLogs.path]: "canViewAudit",
-  [appRoutes.ownerSystem.path]: "canViewSystem",
-  [appRoutes.ownerBranding.path]: "canManageBranding",
-  [appRoutes.ownerRoleMapping.path]: "canManageRoleMappings",
-  [appRoutes.account.path]: "canViewAccount",
-};
+export const routeCapabilities: Record<string, CapabilityKey> = Object.fromEntries(Object.values(RBACMatrix.screens).map((screen) => [screen.path, screen.route])) as Record<string, CapabilityKey>;

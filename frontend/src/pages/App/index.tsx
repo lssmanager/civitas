@@ -95,17 +95,17 @@ function App() {
           <Route path="owner" element={<OwnerLayout />}>
             <Route index element={<CapabilityRouteGuard capability={routeCapabilities["/owner"]}><OwnerPage /></CapabilityRouteGuard>} />
             <Route path="organizations" element={<CapabilityRouteGuard capability={routeCapabilities["/owner/organizations"]}><OwnerOrganizationsPage /></CapabilityRouteGuard>} />
-            <Route path="organizations/:organizationId" element={<OwnerOrganizationConsolePage />} />
-            <Route path="organizations/:organizationId/settings" element={<OwnerOrganizationSettingsPage />} />
+            <Route path="organizations/:organizationId" element={<CapabilityRouteGuard capability={routeCapabilities["/owner/organizations/:organizationId"]}><OwnerOrganizationConsolePage /></CapabilityRouteGuard>} />
+            <Route path="organizations/:organizationId/settings" element={<CapabilityRouteGuard capability={routeCapabilities["/owner/organizations/:organizationId/settings"]}><OwnerOrganizationSettingsPage /></CapabilityRouteGuard>} />
             <Route path="logs" element={<CapabilityRouteGuard capability={routeCapabilities["/owner/logs"]}><OwnerAuditPage /></CapabilityRouteGuard>} />
             <Route path="system" element={<CapabilityRouteGuard capability={routeCapabilities["/owner/system"]}><OwnerSystemPage /></CapabilityRouteGuard>} />
             <Route path="audit" element={<Navigate to="/owner/logs" replace />} />
-            <Route path="settings" element={<Navigate to="/owner/settings/branding" replace />} />
+            <Route path="settings" element={<CapabilityRouteGuard capability={routeCapabilities["/owner/settings/branding"]}><Navigate to="/owner/settings/branding" replace /></CapabilityRouteGuard>} />
             <Route path="settings/branding" element={<CapabilityRouteGuard capability={routeCapabilities["/owner/settings/branding"]}><OwnerBrandingSettingsPage /></CapabilityRouteGuard>} />
             <Route path="settings/role-mapping" element={<CapabilityRouteGuard capability={routeCapabilities["/owner/settings/role-mapping"]}><OwnerSettingsPage /></CapabilityRouteGuard>} />
           </Route>
           <Route path="select-organization" element={<CapabilityRouteGuard capability={routeCapabilities["/select-organization"]}><SelectOrganizationPage /></CapabilityRouteGuard>} />
-          <Route path="account" element={<AccountPage />} />
+          <Route path="account" element={<CapabilityRouteGuard capability={routeCapabilities["/account"]}><AccountPage /></CapabilityRouteGuard>} />
           <Route path="*" element={<Navigate to="/owner" replace />} />
         </Route>
       </Route>

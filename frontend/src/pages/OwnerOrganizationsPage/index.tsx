@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Country, State } from "country-state-city";
 import { Alert, Badge, Button, Form } from "react-bootstrap";
 import { useOwnerApi } from "../../api/owner";
-import { useOwnerAuthorization } from "../../guards/ownerAuthorization";
+import { useAuthorization } from "../../authz/useAuthorization";
 import {
   ORGANIZATION_BOOTSTRAP_ADMIN_ROLE,
   ORGANIZATION_JIT_DEFAULT_ROLE,
@@ -298,8 +298,8 @@ const getDiagnosticFromUnknown = (
 
 export function OwnerOrganizationsPage() {
   const ownerApi = useOwnerApi();
-  const { owner } = useOwnerAuthorization();
-  const canWriteOwner = owner.canWriteOwner;
+  const { canExecute } = useAuthorization();
+  const canCreateOrganization = canExecute("owner.organization.create");
   const [currentStep, setCurrentStep] = useState<WizardStep>(1);
   const [formData, setFormData] =
     useState<OwnerOrganizationFormData>(initialFormData);
@@ -786,7 +786,7 @@ export function OwnerOrganizationsPage() {
   };
 
   const handleCreateOrganization = async () => {
-    if (!canWriteOwner) {
+    if (!canCreateOrganization) {
       setSubmitError("Tu token owner es de solo lectura. Solicita a Logto un token con owner:write para crear organizaciones.");
       return;
     }
@@ -1600,7 +1600,7 @@ export function OwnerOrganizationsPage() {
       eyebrow="Owner / Organizaciones"
       title="Crear organización"
       description="Flujo Logto-first: la organización nace canónicamente en Logto y el formulario queda enfocado en alta, roles y datos comerciales básicos."
-      actions={<Badge bg={canWriteOwner ? "success" : "secondary"}>{canWriteOwner ? "owner:write" : "solo lectura"}</Badge>}
+      actions={<Badge bg={canCreateOrganization ? "success" : "secondary"}>{canCreateOrganization ? "write habilitado" : "solo lectura"}</Badge>}
     >
       <div className="row g-4">
         <div className="col-12">
@@ -1656,7 +1656,7 @@ export function OwnerOrganizationsPage() {
                 ) : null}
                 {draftMessage ? <Alert variant="secondary" className="mb-0">{draftMessage}</Alert> : null}
                 {stepError ? <Alert variant="warning" className="mb-0">{stepError}</Alert> : null}
-                {!canWriteOwner ? (
+                {!canCreateOrganization ? (
                   <Alert variant="info" className="mb-0">
                     Tu sesión owner tiene permiso de lectura. Puedes revisar la plantilla y el formulario, pero las acciones de creación requieren owner:write emitido por Logto.
                   </Alert>
@@ -1666,9 +1666,11 @@ export function OwnerOrganizationsPage() {
                     Falta configurar la plantilla de Logto. Roles requeridos ausentes: {templateResource.data.missingRoleNames.join(", ") || ORGANIZATION_BOOTSTRAP_ADMIN_ROLE}.
                   </Alert>
                 ) : null}
-                {currentStep === 1 ? renderStepOne() : null}
-                {currentStep === 2 ? renderStepTwo() : null}
-                {currentStep === 3 ? renderStepThree() : null}
+                <fieldset disabled={!canCreateOrganization}>
+                  {currentStep === 1 ? renderStepOne() : null}
+                  {currentStep === 2 ? renderStepTwo() : null}
+                  {currentStep === 3 ? renderStepThree() : null}
+                </fieldset>
                 {submitError ? <Alert variant="danger" className="mb-0">{submitError}</Alert> : null}
                 {submitWarning ? (
                   <Alert variant="warning" className="mb-0">
@@ -1707,8 +1709,8 @@ export function OwnerOrganizationsPage() {
                         Siguiente
                       </Button>
                     ) : (
-                      <Button type="button" onClick={handleCreateOrganization} disabled={isSubmitting || !canWriteOwner} className="px-4">
-                        {isSubmitting ? "Creando..." : canWriteOwner ? "Crear organización" : "Solo lectura"}
+                      <Button type="button" onClick={handleCreateOrganization} disabled={isSubmitting || !canCreateOrganization} className="px-4">
+                        {isSubmitting ? "Creando..." : canCreateOrganization ? "Crear organización" : "Solo lectura"}
                       </Button>
                     )}
                   </div>
