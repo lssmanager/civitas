@@ -59,12 +59,12 @@ async function runDownstreamFluentCrm({ operation, canonical, extended, logtoOrg
   const taxonomy = await ensureOrganizationTagsAndLists({ logtoOrganizationId, slug: extended.slug, name: canonical.name });
   const organizationLists = [...new Set([...(normalizedCrm.lists || []), taxonomy.list?.title].filter(Boolean))];
   const organizationTags = [...new Set([...(normalizedCrm.tags || []), taxonomy.tag?.title].filter(Boolean))];
-  const baseAdminAssignment = { ...(canonical.baseAdmin || {}), key: "base_admin", logtoUserId: operation.resultSnapshotJson?.canonical?.adminAssignment?.logtoUserId, roleName: canonical.baseAdmin?.initialOrganizationRole, organizationRoleName: canonical.baseAdmin?.initialOrganizationRole, status: "assigned" };
+  const baseAdminAssignment = { ...(canonical.baseAdmin || {}), key: "base_admin", logtoOrganizationId, logtoUserId: operation.resultSnapshotJson?.canonical?.adminAssignment?.logtoUserId, roleName: canonical.baseAdmin?.initialOrganizationRole, organizationRoleName: canonical.baseAdmin?.initialOrganizationRole, status: "assigned" };
   const contactAssignments = [baseAdminAssignment, ...(administrativeContactAssignments || [])].filter((assignment) => assignment.email && assignment.logtoUserId);
   const administrativeContacts = [];
   for (const assignment of contactAssignments) {
-    try { const contactPayload = buildFluentCrmContactPayloadFromAssignment({ assignment, companyId, organizationLists, organizationTags }); administrativeContacts.push({ ...assignment, contactSync: await upsertContactFromLogtoIdentity(contactPayload) }); }
-    catch (error) { administrativeContacts.push({ ...assignment, contactSync: { status: "error", ...classifyOperationalError(error) } }); }
+    try { const contactPayload = buildFluentCrmContactPayloadFromAssignment({ assignment: { ...assignment, logtoOrganizationId }, companyId, organizationLists, organizationTags }); administrativeContacts.push({ ...assignment, contactSync: await upsertContactFromLogtoIdentity(contactPayload) }); }
+    catch (error) { administrativeContacts.push({ ...assignment, contactSync: error.crmContactSync || { status: "error", ...classifyOperationalError(error), code: error.code || null, fluentCrmStatus: error.status || null } }); }
   }
   const contactFailures = administrativeContacts.filter((contact) => contact.contactSync?.status === "error" || contact.contactSync?.status === "conflict");
   await recordOperationStep({ operationId: operation.id, stepName: STEP_NAMES.FLUENTCRM_CONTACTS, queueName: QUEUE_NAMES.ORGANIZATION_BOOTSTRAP, jobId: job.id, attempt: job.attemptsMade + 1, status: contactFailures.length ? STEP_STATUSES.FAILED : STEP_STATUSES.COMPLETED, outputJson: { companyId, taxonomy, administrativeContacts }, lastErrorJson: contactFailures.length ? { message: "One or more FluentCRM contact syncs failed", retryable: true, contacts: contactFailures } : null });

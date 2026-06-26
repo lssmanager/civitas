@@ -118,6 +118,7 @@ function normalizeName(value) {
 }
 
 const normalizeString = (value) => (typeof value === "string" && value.trim() ? value.trim() : null);
+const cleanObject = (obj = {}) => Object.fromEntries(Object.entries(obj).filter(([, value]) => value !== null && value !== undefined && value !== ""));
 const normalizeStringList = (value) => Array.isArray(value) ? [...new Set(value.map(normalizeString).filter(Boolean))] : [];
 const normalizeInteger = (value) => {
   if (value === undefined || value === null || value === "") return null;
@@ -602,26 +603,99 @@ async function createContact(fields = {}) {
   return requestFluentCrm("/subscribers", { method: "POST", body: fields });
 }
 
-async function upsertContactFromLogtoIdentity({ identity, companyId, roleNames = [], extraTags = [], extraLists = [], roleMapping = getFluentCrmRoleSyncMapping() }) {
+function splitContactName(identity = {}) {
+  const firstName = normalizeString(identity.firstName ?? identity.givenName ?? identity.primerNombre);
+  const middleName = normalizeString(identity.middleName ?? identity.segundoNombre);
+  const lastName = normalizeString(identity.lastName ?? identity.familyName ?? identity.firstSurname ?? identity.primerApellido);
+  const secondSurname = normalizeString(identity.secondSurname ?? identity.segundoApellido);
+  if (firstName || lastName) return { firstName: [firstName, middleName].filter(Boolean).join(" ") || null, lastName: [lastName, secondSurname].filter(Boolean).join(" ") || null };
+  const parts = normalizeString(identity.name)?.split(/\s+/).filter(Boolean) || [];
+  if (parts.length <= 1) return { firstName: parts[0] || null, lastName: null };
+  return { firstName: parts.slice(0, -1).join(" "), lastName: parts[parts.length - 1] };
+}
+
+function summarizeContactPayload(payload = {}) {
+  return {
+    email: payload.email || null,
+    first_name: payload.first_name || null,
+    last_name: payload.last_name || null,
+    phone: payload.phone || null,
+    company_id: payload.company_id ?? null,
+    tags: payload.tags || [],
+    lists: payload.lists || [],
+    customValueKeys: Object.keys(payload.custom_values || {}),
+  };
+}
+
+function getMissingContactPayloadFields(payload = {}) {
+  return ["first_name", "last_name", "email", "phone", "company_id", "tags", "lists"].filter((field) => {
+    const value = payload[field];
+    if (Array.isArray(value)) return value.length === 0;
+    return value === undefined || value === null || value === "";
+  });
+}
+
+function buildContactIdentifiers(identity = {}) {
+  return JSON.stringify(cleanObject({
+    logto_user_id: identity.logtoUserId || null,
+    logto_id_organization: identity.logtoOrganizationId || identity.organizationId || null,
+    email: normalizeEmail(identity.email),
+    username: normalizeString(identity.username),
+  }));
+}
+
+function buildFluentCrmContactPayload({ identity = {}, companyId = null, roleNames = [], extraTags = [], extraLists = [], roleMapping = getFluentCrmRoleSyncMapping(), existingContact = null } = {}) {
   const email = normalizeEmail(identity.email);
-  if (!email) return { status: "error", reason: "missing_email", logtoUserId: identity.logtoUserId || null };
-  const contacts = await searchContacts({ email });
-  if (contacts.length > 1) return { status: "conflict", reason: "duplicate_contact", email, logtoUserId: identity.logtoUserId || null, candidateCount: contacts.length };
+  const { firstName, lastName } = splitContactName(identity);
+  const displayName = normalizeString(identity.name) || [firstName, lastName].filter(Boolean).join(" ") || null;
   const taxonomy = mapOrganizationRolesToCrmTaxonomy(roleNames, roleMapping);
+  const tags = [...new Set([...taxonomy.tags, ...normalizeStringList(extraTags)])];
+  const lists = [...new Set([...taxonomy.lists, ...normalizeStringList(extraLists)])];
+  const previousEmail = normalizeEmail(identity.previousEmailAddress ?? identity.previousEmail) || (existingContact && contactEmail(existingContact) !== email ? contactEmail(existingContact) : null);
+  const roleValue = [...new Set([...(taxonomy.mappedRoles || []).map((role) => role.roleName).filter(Boolean), ...roleNames.map((role) => normalizeRoleReference(role).organizationRoleName).filter(Boolean)])].join(", ") || null;
+  const customValues = cleanObject({
+    profile_display_name: displayName,
+    username: normalizeString(identity.username),
+    user_role: roleValue,
+    previous_email_address: previousEmail,
+    logto_user_id: identity.logtoUserId || null,
+    logto_id_organization: identity.logtoOrganizationId || identity.organizationId || null,
+    last_login: normalizeString(identity.lastLoginAt ?? identity.lastLogin),
+    identifiers: buildContactIdentifiers(identity),
+    ...(normalizeString(identity.position) ? { cargo: normalizeString(identity.position) } : {}),
+    ...(normalizeString(identity.phoneExtension) ? { phone_extension: normalizeString(identity.phoneExtension) } : {}),
+  });
   const payload = {
+    first_name: firstName || undefined,
+    last_name: lastName || undefined,
     email,
-    full_name: normalizeString(identity.name),
     phone: normalizeString(identity.phone),
-    job_title: normalizeString(identity.position),
-    custom_values: { ...(normalizeString(identity.position) ? { cargo: normalizeString(identity.position) } : {}), ...(normalizeString(identity.phoneExtension) ? { phone_extension: normalizeString(identity.phoneExtension) } : {}) },
-    external_id: identity.logtoUserId || undefined,
     company_id: companyId,
-    tags: [...new Set([...taxonomy.tags, ...normalizeStringList(extraTags)])],
-    lists: [...new Set([...taxonomy.lists, ...normalizeStringList(extraLists)])],
+    tags,
+    lists,
+    full_name: displayName || undefined,
+    job_title: normalizeString(identity.position),
+    external_id: identity.logtoUserId || undefined,
+    custom_values: customValues,
   };
   if (Object.keys(payload.custom_values || {}).length === 0) delete payload.custom_values;
-  const contact = contacts[0] ? await updateContact(contacts[0], payload) : await createContact(payload);
-  return { status: contacts[0] ? "updated" : "created", contact, email, logtoUserId: identity.logtoUserId || null, taxonomy };
+  return { payload, taxonomy, summary: summarizeContactPayload(payload), fieldsSent: Object.keys(payload).filter((key) => payload[key] !== undefined), missingFields: getMissingContactPayloadFields(payload) };
+}
+
+async function upsertContactFromLogtoIdentity({ identity, companyId, roleNames = [], extraTags = [], extraLists = [], roleMapping = getFluentCrmRoleSyncMapping() }) {
+  const email = normalizeEmail(identity.email);
+  if (!email) return { status: "error", reason: "missing_email", logtoUserId: identity.logtoUserId || null, payloadSummary: null, fieldsSent: [], missingFields: ["email"] };
+  const contacts = await searchContacts({ email, externalId: identity.logtoUserId });
+  if (contacts.length > 1) return { status: "conflict", reason: "duplicate_contact", email, logtoUserId: identity.logtoUserId || null, candidateCount: contacts.length };
+  const existingContact = contacts[0] || null;
+  const { payload, taxonomy, summary, fieldsSent, missingFields } = buildFluentCrmContactPayload({ identity, companyId, roleNames, extraTags, extraLists, roleMapping, existingContact });
+  try {
+    const contact = existingContact ? await updateContact(existingContact, payload) : await createContact(payload);
+    return { status: existingContact ? "updated" : "created", contact, email, logtoUserId: identity.logtoUserId || null, taxonomy, payloadSummary: summary, fieldsSent, missingFields };
+  } catch (error) {
+    error.crmContactSync = { status: "error", reason: "crm_request_failed", email, logtoUserId: identity.logtoUserId || null, payloadSummary: summary, fieldsSent, missingFields, code: error.code || null, fluentCrmStatus: error.status || null, message: error.message };
+    throw error;
+  }
 }
 
 async function syncOrganizationContactsToFluentCrm({ profile, members, getMemberRoles, roleMapping = null, audit = async () => {}, markOrganizationSync = async () => {} }) {
@@ -645,8 +719,15 @@ async function syncOrganizationContactsToFluentCrm({ profile, members, getMember
     const identity = {
       logtoUserId: member.id || member.userId || member.logtoUserId || member.sub || null,
       email: member.primaryEmail || member.email || member.profile?.email || null,
+      previousEmail: member.previousEmail || member.previousEmailAddress || null,
       name: member.name || member.profile?.name || null,
+      firstName: member.firstName || member.givenName || member.profile?.givenName || null,
+      middleName: member.middleName || member.profile?.middleName || null,
+      lastName: member.lastName || member.familyName || member.profile?.familyName || null,
+      username: member.username || member.profile?.preferredUsername || null,
       phone: member.primaryPhone || member.phone || member.profile?.phone || null,
+      logtoOrganizationId: profile.logtoOrganizationId || null,
+      lastLoginAt: member.lastLoginAt || member.lastSignInAt || null,
     };
     try {
       const roleNames = await getMemberRoles(identity.logtoUserId);
@@ -654,7 +735,7 @@ async function syncOrganizationContactsToFluentCrm({ profile, members, getMember
       results.push(result);
       await audit({ result: result.status === "conflict" || result.status === "error" ? "error" : "success", member: { logtoUserId: identity.logtoUserId, email: identity.email }, syncResult: result });
     } catch (error) {
-      const result = { status: "error", reason: "crm_request_failed", logtoUserId: identity.logtoUserId, email: identity.email, message: error.message };
+      const result = error.crmContactSync || { status: "error", reason: "crm_request_failed", logtoUserId: identity.logtoUserId, email: identity.email, message: error.message, code: error.code || null, fluentCrmStatus: error.status || null };
       results.push(result);
       await audit({ result: "error", member: { logtoUserId: identity.logtoUserId, email: identity.email }, syncResult: result, error });
     }
@@ -665,7 +746,7 @@ async function syncOrganizationContactsToFluentCrm({ profile, members, getMember
     succeeded: results.filter((item) => ["created", "updated"].includes(item.status)).length,
     failed: results.filter((item) => item.status === "error").length,
     conflicts: results.filter((item) => item.status === "conflict").length,
-    errors: results.filter((item) => item.status === "error" || item.status === "conflict").map((item) => ({ logtoUserId: item.logtoUserId, email: item.email, reason: item.reason, message: item.message, candidateCount: item.candidateCount })),
+    errors: results.filter((item) => item.status === "error" || item.status === "conflict").map((item) => ({ logtoUserId: item.logtoUserId, email: item.email, reason: item.reason, message: item.message, code: item.code || null, fluentCrmStatus: item.fluentCrmStatus || null, candidateCount: item.candidateCount, payloadSummary: item.payloadSummary || null, fieldsSent: item.fieldsSent || [], missingFields: item.missingFields || [] })),
     results,
   };
   await markOrganizationSync(summary);

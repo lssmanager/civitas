@@ -11,7 +11,7 @@ const {
 test("organization payload separates Logto top-level, customData and downstream CRM metadata", () => {
   const canonical = { name: "Colegio Civitas", description: "Desc", baseAdmin: { name: "Ada Admin" } };
   const extended = { slug: "colegio-civitas", subdomain: "civitas", appBaseDomain: "socialstudies.cloud", entryUrl: "https://civitas.socialstudies.cloud", adminDomain: "colegio.edu.co", oidcRedirectUri: "https://civitas.socialstudies.cloud/callback" };
-  const crm = { companyEmail: " INFO@COLEGIO.EDU.CO ", type: "school", industry: "education", nit: "123", verificationDigit: "4", tags: [" colegios ", "colegios"], lists: [" onboarding "] };
+  const crm = { companyEmail: " INFO@COLEGIO.EDU.CO ", type: "school", industry: "education", nit: "123", verificationDigit: "4", state: " California ", department: "Legacy Department", tags: [" colegios ", "colegios"], lists: [" onboarding "] };
   const payload = buildLogtoOrganizationCreatePayload({ canonical, extended, crm });
   assert.equal(payload.name, "Colegio Civitas");
   assert.equal(payload.description, "Desc");
@@ -20,6 +20,8 @@ test("organization payload separates Logto top-level, customData and downstream 
   assert.equal(payload.customData.provisioning.appBaseDomain, "socialstudies.cloud");
   assert.equal(payload.customData.provisioning.entryUrl, "https://civitas.socialstudies.cloud");
   assert.equal(payload.customData.civitasProfile.business.nit, 123);
+  assert.equal(payload.customData.civitasProfile.business.state, "California");
+  assert.equal(payload.customData.civitasProfile.business.department, undefined);
   assert.equal(payload.customData.civitasProfile.contact.email, "info@colegio.edu.co");
   assert.deepEqual(payload.customData.civitasProfile.downstream.crm.tags, ["colegios"]);
   assert.ok(FORM_FIELD_INVENTORY["baseAdmin.position"].includes("logto.user.customData.civitasProfile.position"));
@@ -37,9 +39,11 @@ test("user payload maps Latin American names to Logto profile and customData", (
 });
 
 test("FluentCRM builders produce retryable clean snapshots for company and contacts", () => {
-  const company = buildFluentCrmCompanyPayloadFromForm({ form: { crm: { companyName: "Acme", numberOfEmployees: "25", tags: ["org"], lists: ["main"] } }, canonical: { name: "Fallback", baseAdmin: { name: "Owner" } }, extended: { adminDomain: "acme.edu" } });
+  const company = buildFluentCrmCompanyPayloadFromForm({ form: { crm: { companyName: "Acme", numberOfEmployees: "25", department: "Antioquia", tags: ["org"], lists: ["main"] } }, canonical: { name: "Fallback", baseAdmin: { name: "Owner" } }, extended: { adminDomain: "acme.edu" } });
   assert.equal(company.companyName, "Acme");
   assert.equal(company.numberOfEmployees, 25);
+  assert.equal(company.state, "Antioquia");
+  assert.equal(company.department, undefined);
   const contact = buildFluentCrmContactPayloadFromAssignment({ assignment: { logtoUserId: "u1", email: "a@b.co", name: "A B", phoneExtension: "9", roleName: "Admin-org" }, companyId: "10", organizationLists: ["main"], organizationTags: ["org"] });
   assert.equal(contact.identity.phoneExtension, "9");
   assert.deepEqual(contact.roleNames, ["Admin-org"]);
