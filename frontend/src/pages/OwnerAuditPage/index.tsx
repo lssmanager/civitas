@@ -37,7 +37,7 @@ const formatStage = (row: OwnerAuditLog) => {
 
 const formatOrganization = (row: OwnerAuditLog) => {
   if (!row.organizationId && !row.organization?.id) return "Global";
-  const id = row.organization?.id ?? row.organizationId;
+  const id = row.organization?.id ?? row.organizationId ?? "Global";
   return row.organization?.name ? `${row.organization.name} (${id})` : id;
 };
 
