@@ -42,13 +42,36 @@ function sanitizePublicRequest(request) {
   };
 }
 
+function sanitizeValidationDetails(value, depth = 0) {
+  if (value == null) return value;
+  if (depth > 3) return "[MaxDepth]";
+  if (Array.isArray(value)) return value.slice(0, 20).map((item) => sanitizeValidationDetails(item, depth + 1));
+  if (typeof value === "object") {
+    return Object.fromEntries(Object.entries(value)
+      .filter(([key]) => !SENSITIVE_KEY_PATTERN.test(key))
+      .map(([key, entry]) => [key, sanitizeValidationDetails(entry, depth + 1)]));
+  }
+  if (typeof value === "string") return value.length > 240 ? `${value.slice(0, 240)}…` : value;
+  return value;
+}
+
 function sanitizePublicErrorBody(body) {
   if (!body || typeof body !== "object") return null;
   const sanitized = {};
   if (typeof body.reason === "string" && body.reason) sanitized.reason = body.reason;
+  if (typeof body.message === "string" && body.message) sanitized.message = body.message.slice(0, 240);
+  if (typeof body.code === "string" && body.code) sanitized.code = body.code;
   if (typeof body.status === "string" || Number.isInteger(body.status)) sanitized.status = body.status;
   if (Number.isInteger(body.timeoutMs)) sanitized.timeoutMs = body.timeoutMs;
   if (Array.isArray(body.missingRoleNames) && body.missingRoleNames.length > 0) sanitized.missingRoleNames = body.missingRoleNames.slice(0, 20);
+  for (const key of ["availableRoleNames", "requiredRoleNames", "prohibitedRoleNames", "removedRoleNames", "retainedRoleNames", "unremovableRoleNames"]) {
+    if (Array.isArray(body[key])) sanitized[key] = body[key].slice(0, 20);
+  }
+  if (typeof body.existingUser === "boolean") sanitized.existingUser = body.existingUser;
+  if (typeof body.userId === "string") sanitized.userId = body.userId;
+  for (const key of ["issues", "errors", "details", "data"]) {
+    if (body[key] !== undefined) sanitized[key] = sanitizeValidationDetails(body[key]);
+  }
   return Object.keys(sanitized).length ? sanitized : null;
 }
 
@@ -116,6 +139,7 @@ async function fetchLogtoManagementApiAccessToken() {
       const timeoutError = new LogtoManagementApiError("Logto Management API token request timed out", { status: 504, body: { reason: "logto_management_token_timeout", timeoutMs: error.timeoutMs } });
       timeoutError.code = "LOGTO_MANAGEMENT_TOKEN_TIMEOUT";
       timeoutError.internalDiagnostic = `Network timeout while requesting Logto M2M token after ${error.timeoutMs}ms.`;
+      timeoutError.diagnostic = timeoutError.internalDiagnostic;
       throw timeoutError;
     }
     throw error;
@@ -201,6 +225,7 @@ async function callLogtoManagementApi(path, options = {}) {
       const timeoutError = new LogtoManagementApiError("Logto Management API request timed out", { status: 504, body: { reason: "logto_management_request_timeout", timeoutMs: error.timeoutMs }, request });
       timeoutError.code = "LOGTO_MANAGEMENT_REQUEST_TIMEOUT";
       timeoutError.internalDiagnostic = `Network timeout while calling Logto Management API ${request.method} ${path} after ${error.timeoutMs}ms.`;
+      timeoutError.diagnostic = timeoutError.internalDiagnostic;
       throw timeoutError;
     }
     throw error;
@@ -483,6 +508,7 @@ function buildProhibitedGlobalRolesError({ userId, prohibitedRoles, removedRoles
   error.internalDiagnostic = existingUser
     ? "An existing Logto user has global roles incompatible with being an organization base admin. Civitas did not mutate the existing user; choose a different base admin or remove the incompatible global roles manually after verifying ownership."
     : "Logto assigned a global role to a newly created organization user. Civitas attempted to remove unsafe default global roles; remove default global roles for regular users because owner_global must be reserved for Civitas platform owners.";
+  error.diagnostic = error.internalDiagnostic;
   return error;
 }
 
@@ -499,11 +525,35 @@ async function enforceNoProhibitedGlobalRolesForOrganizationUser({
   return result;
 }
 
+const getLogtoUserId = (user = {}) => user.id || user.userId || user.logtoUserId || null;
+const getLogtoUserEmail = (user = {}) => (user.primaryEmail || user.email || user.profile?.email || "").toLowerCase() || null;
+const getLogtoUserPhone = (user = {}) => normalizeLogtoPrimaryPhone(user.primaryPhone || user.phone || user.profile?.phoneNumber || user.profile?.phone_number || "") || null;
+const getLogtoUsername = (user = {}) => user.username || user.profile?.preferredUsername || null;
+
 async function findLogtoUserByEmail(email) {
   const normalizedEmail = typeof email === "string" ? email.trim().toLowerCase() : "";
   if (!normalizedEmail) return null;
   const users = await listLogtoUsers({ search: normalizedEmail });
-  return users.find((user) => (user.primaryEmail || user.email || user.profile?.email || "").toLowerCase() === normalizedEmail) || null;
+  return users.find((user) => getLogtoUserEmail(user) === normalizedEmail) || null;
+}
+
+async function findLogtoUserByPhone(phone) {
+  const normalizedPhone = normalizeLogtoPrimaryPhone(phone);
+  if (!normalizedPhone) return null;
+  const users = await listLogtoUsers({ search: normalizedPhone });
+  return users.find((user) => getLogtoUserPhone(user) === normalizedPhone) || null;
+}
+
+async function findLogtoUserByUsername(username) {
+  const normalizedUsername = typeof username === "string" ? username.trim() : "";
+  if (!normalizedUsername) return null;
+  const users = await listLogtoUsers({ search: normalizedUsername });
+  return users.find((user) => getLogtoUsername(user) === normalizedUsername) || null;
+}
+
+function logtoValidationMentions(error, field) {
+  const haystack = JSON.stringify(error?.internalBody || error?.body || {}).toLowerCase();
+  return haystack.includes(String(field).toLowerCase());
 }
 
 async function createLogtoUser({ email, primaryEmail, name, phone, primaryPhone, username, profile, customData }) {
@@ -523,27 +573,42 @@ async function createLogtoUser({ email, primaryEmail, name, phone, primaryPhone,
 async function createOrResolveLogtoUserByEmail({ email, primaryEmail, name, phone, primaryPhone, username, profile, customData }) {
   email = primaryEmail || email;
   phone = primaryPhone || phone;
+  const normalizedPhone = normalizeLogtoPrimaryPhone(phone);
   const existingUser = await findLogtoUserByEmail(email);
   if (existingUser) {
-    const userId = existingUser.id || existingUser.userId || existingUser.logtoUserId;
+    const userId = getLogtoUserId(existingUser);
+    // Preserve Logto as identity canonical: update only the email-owned user and omit
+    // unique fields already held by another Logto user instead of creating local mirrors.
+    const phoneOwner = normalizedPhone ? await findLogtoUserByPhone(normalizedPhone) : null;
+    const phoneConflict = phoneOwner && getLogtoUserId(phoneOwner) !== userId;
     if (userId && (name || phone || username || profile || customData)) {
-      const updated = await updateLogtoUser({ userId, email, name, phone, username, profile, customData });
-      return { user: updated || existingUser, created: false, source: "email_lookup_updated" };
+      const updated = await updateLogtoUser({ userId, email, name, phone: phoneConflict ? null : phone, username, profile, customData });
+      return { user: updated || existingUser, created: false, source: phoneConflict ? "email_lookup_updated_phone_omitted" : "email_lookup_updated", reconciliation: phoneConflict ? { omittedFields: ["primaryPhone"], reason: "primary_phone_belongs_to_different_logto_user", conflictingUserId: getLogtoUserId(phoneOwner) } : undefined };
     }
     return { user: existingUser, created: false, source: "email_lookup" };
   }
 
+  const phoneOwner = normalizedPhone ? await findLogtoUserByPhone(normalizedPhone) : null;
+  const phoneConflict = phoneOwner && getLogtoUserEmail(phoneOwner) !== String(email || "").toLowerCase();
+  const basePayload = { email, name, phone: phoneConflict ? null : phone, username, profile, customData };
+  const baseReconciliation = phoneConflict ? { omittedFields: ["primaryPhone"], reason: "primary_phone_belongs_to_different_logto_user", conflictingUserId: getLogtoUserId(phoneOwner) } : undefined;
+
   try {
-    return { user: await createLogtoUser({ email, name, phone, username, profile, customData }), created: true, source: "create_user" };
+    return { user: await createLogtoUser(basePayload), created: true, source: phoneConflict ? "create_user_phone_omitted" : "create_user", reconciliation: baseReconciliation };
   } catch (error) {
     if (error instanceof LogtoManagementApiError && [400, 409, 422].includes(error.status)) {
       const reconciledUser = await findLogtoUserByEmail(email);
       if (reconciledUser) return { user: reconciledUser, created: false, source: "post_create_email_lookup" };
+      if (normalizedPhone && !phoneConflict && logtoValidationMentions(error, "phone")) {
+        const retryPhoneOwner = await findLogtoUserByPhone(normalizedPhone);
+        const retryReconciliation = { omittedFields: ["primaryPhone"], reason: "primary_phone_rejected_by_logto_validation", conflictingUserId: getLogtoUserId(retryPhoneOwner) };
+        return { user: await createLogtoUser({ email, name, username, profile, customData }), created: true, source: "create_user_after_phone_validation_omitted", reconciliation: retryReconciliation };
+      }
       if (username) {
         for (let suffix = 1; suffix <= 20; suffix += 1) {
           try {
             const fallbackUsername = `${username}${suffix}`;
-            return { user: await createLogtoUser({ email, name, phone, username: fallbackUsername, profile: { ...(profile || {}), preferredUsername: fallbackUsername }, customData }), created: true, source: "create_user_username_suffix", username: fallbackUsername };
+            return { user: await createLogtoUser({ ...basePayload, username: fallbackUsername, profile: { ...(profile || {}), preferredUsername: fallbackUsername } }), created: true, source: "create_user_username_suffix", username: fallbackUsername, reconciliation: baseReconciliation };
           } catch (retryError) {
             if (!(retryError instanceof LogtoManagementApiError) || ![400, 409, 422].includes(retryError.status)) throw retryError;
           }
@@ -590,6 +655,8 @@ module.exports = {
   getLogtoUserById,
   getLogtoOrganizationById,
   findLogtoUserByEmail,
+  findLogtoUserByPhone,
+  findLogtoUserByUsername,
   listLogtoOrganizationRoles,
   listLogtoOrganizationUsers,
   listLogtoOrganizationUserRoles,

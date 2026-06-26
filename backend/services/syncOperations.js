@@ -101,9 +101,9 @@ function classifyOperationalError(error = {}) {
     category = category === "redis_unavailable" ? category : "db_unavailable";
   }
   if (status === 422 || code === "FLUENTCRM_VALIDATION_FAILED" || code === "FLUENTCRM_DUPLICATE_CONTACT") {
-    system = "fluentcrm";
     category = "validation_error";
     retryable = false;
+    if (code === "FLUENTCRM_VALIDATION_FAILED" || code === "FLUENTCRM_DUPLICATE_CONTACT" || system !== "logto") system = "fluentcrm";
   } else if (/CONFIG|CONTRACT|MISMATCH|DUPLICATE|CONFLICT/i.test(String(code))) {
     category = /CONFLICT|DUPLICATE/.test(String(code)) ? "conflict" : "configuration_or_contract_error";
     retryable = false;
