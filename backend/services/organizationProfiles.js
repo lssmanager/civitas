@@ -232,6 +232,12 @@ async function listOrganizationProfiles() {
   return db.select().from(organizationProfiles);
 }
 
+async function deleteOrganizationProfilesByIds(ids = []) {
+  const profileIds = [...new Set((Array.isArray(ids) ? ids : []).filter(Boolean))];
+  if (profileIds.length === 0) return [];
+  return db.delete(organizationProfiles).where(inArray(organizationProfiles.id, profileIds)).returning();
+}
+
 async function getOrganizationProfilesByLogtoIds(logtoOrganizationIds) {
   if (logtoOrganizationIds.length === 0) {
     return new Map();
@@ -250,6 +256,7 @@ module.exports = {
   LOGTO_SYNC_STATUSES,
   ORGANIZATION_PROFILE_STATUSES,
   createOrganizationProfile,
+  deleteOrganizationProfilesByIds,
   findOrganizationProfileBySlugOrAdminDomain,
   getOrganizationProfilesByLogtoIds,
   listOrganizationProfiles,

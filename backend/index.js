@@ -27,6 +27,7 @@ const {
 const {
   LOGTO_SYNC_STATUSES,
   listOrganizationProfiles,
+  deleteOrganizationProfilesByIds,
   markOrganizationProfileFluentCrmSync,
   serializeOrganizationProfile,
   upsertOrganizationProfile,
@@ -256,16 +257,12 @@ function buildLogtoOrganizationDirectory({ logtoOrganizations, profiles }) {
   const logtoOrganizationIds = new Set(logtoOrganizations.map(getLogtoOrganizationId).filter(Boolean));
   const profilesByLogtoId = new Map();
   const profilesWithoutLogtoId = [];
-  const orphanedProfiles = [];
-
   for (const profile of profiles) {
     if (profile.logtoOrganizationId) {
       if (logtoOrganizationIds.has(profile.logtoOrganizationId)) {
         const existingProfiles = profilesByLogtoId.get(profile.logtoOrganizationId) || [];
         existingProfiles.push(profile);
         profilesByLogtoId.set(profile.logtoOrganizationId, existingProfiles);
-      } else {
-        orphanedProfiles.push(profile);
       }
     } else {
       profilesWithoutLogtoId.push(profile);
@@ -329,31 +326,26 @@ function buildLogtoOrganizationDirectory({ logtoOrganizations, profiles }) {
     })
     .filter(Boolean);
 
-  const staleUnlinkedProfiles = profilesWithoutLogtoId.filter((profile) => !matchedLegacyProfileIds.has(profile.id));
-  const reconciliationIncidents = [
-    ...orphanedProfiles.map((profile) => ({
-      type: "orphaned_deleted_logto_organization",
-      policy: "archived_out_of_operational_directory",
-      profile: serializeOrganizationProfile(profile),
-      message: "Local profile references a Logto organization that no longer exists; it is retained only for audit/reconciliation.",
-    })),
-    ...staleUnlinkedProfiles.map((profile) => ({
-      type: "unlinked_legacy_profile",
-      policy: "observability_only",
-      profile: serializeOrganizationProfile(profile),
-      message: "Local profile has no Logto organization id and did not match any current Logto organization by name; it is not part of the operational directory.",
-    })),
-  ];
-
   return {
     organizations,
-    reconciliationIncidents,
-    unreconciledProfiles: reconciliationIncidents.map((incident) => incident.profile),
+    reconciliationIncidents: [],
+    unreconciledProfiles: [],
   };
 }
 
-function reconcileProfilesWithLogtoOrganizations({ profiles }) {
-  return profiles;
+async function cleanupOrphanedOrganizationProfiles({ logtoOrganizations = [], profiles = [] } = {}) {
+  const logtoOrganizationIds = new Set(logtoOrganizations.map(getLogtoOrganizationId).filter(Boolean));
+  const orphanedProfileIds = profiles
+    .filter((profile) => profile.logtoOrganizationId && !logtoOrganizationIds.has(profile.logtoOrganizationId))
+    .map((profile) => profile.id);
+  if (orphanedProfileIds.length === 0) return { deletedProfiles: [], deletedProfileIds: [] };
+  const deletedProfiles = await deleteOrganizationProfilesByIds(orphanedProfileIds);
+  return { deletedProfiles, deletedProfileIds: deletedProfiles.map((profile) => profile.id) };
+}
+
+function reconcileProfilesWithLogtoOrganizations({ logtoOrganizations = [], profiles = [] }) {
+  const logtoOrganizationIds = new Set(logtoOrganizations.map(getLogtoOrganizationId).filter(Boolean));
+  return profiles.filter((profile) => !profile.logtoOrganizationId || logtoOrganizationIds.has(profile.logtoOrganizationId));
 }
 
 async function runFluentCrmOrganizationStep({ logtoOrganization, logtoOrganizationId, canonical, extended, crmInput, administrativeContactAssignments = [], internalUser, authUser }) {
@@ -724,7 +716,8 @@ app.get("/owner/me", requireAuth(API_RESOURCE), requireOwner, async (req, res) =
 app.get("/organizations", requireAuth(API_RESOURCE), requireScope("organizations:read"), async (req, res) => {
   try {
     const [logtoOrganizations, rawProfiles] = await Promise.all([listLogtoOrganizations(), listOrganizationProfiles()]);
-    const profiles = await reconcileProfilesWithLogtoOrganizations({ logtoOrganizations, profiles: rawProfiles });
+    await cleanupOrphanedOrganizationProfiles({ logtoOrganizations, profiles: rawProfiles });
+    const profiles = reconcileProfilesWithLogtoOrganizations({ logtoOrganizations, profiles: rawProfiles });
     return res.json(buildLogtoOrganizationDirectory({ logtoOrganizations, profiles }));
   } catch (error) {
     console.error("Failed to list canonical Logto organizations", error);
