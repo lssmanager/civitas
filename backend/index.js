@@ -1645,8 +1645,9 @@ app.post("/owner/organizations/:organizationId/sync-operations/:operationId/retr
   const profile = await resolveOrganizationProfileForRequest(req.params.organizationId);
   const organizationId = profile?.logtoOrganizationId || req.params.organizationId;
   const operation = await retrySyncOperation({ operationId: req.params.operationId, organizationId });
-  await recordAuditLogBestEffort({ organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "sync_operation_retry_requested", operationId: req.params.operationId } });
-  return res.json({ status: "retry_queued", operation });
+  const [pendingAfterRetry] = await listOrganizationPendingSync({ organizationId }).then((items) => [items.find((item) => item.operationId === operation.id) || null]).catch(() => [null]);
+  await recordAuditLogBestEffort({ organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "sync_operation_retry_requested", operationId: req.params.operationId, stepName: pendingAfterRetry?.stepName || null, targetIdentity: pendingAfterRetry?.targetIdentity || null, providerCode: pendingAfterRetry?.providerCode || null, retryState: pendingAfterRetry?.retryState || "queued", humanMessage: pendingAfterRetry ? `Retry solicitado para ${pendingAfterRetry.type}` : "Retry solicitado; job en cola" } });
+  return res.json({ status: "retry_queued", operation, pending: pendingAfterRetry });
 });
 
 const buildContactSyncSettings = (profile, summary) => ({

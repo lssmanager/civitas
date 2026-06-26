@@ -46,43 +46,102 @@ function safeFunctionalMessage(message, fallback = "Hay una sincronización pend
   return message.length > 220 ? `${message.slice(0, 220)}…` : message;
 }
 
-function classifyOperation(item = {}) {
-  const type = item.operationType || item.stepName || "organization_sync";
-  if (type.includes("member")) return { label: "Sincronización de miembro", system: "FluentCRM", action: "Reintentar la propagación del miembro" };
-  if (type.includes("contact")) return { label: "Sincronización de contacto", system: "FluentCRM", action: "Reintentar contacto específico" };
-  if (type.includes("company") || type.includes("profile")) return { label: "Perfil organizacional", system: "FluentCRM", action: "Reenviar datos del perfil al CRM" };
+const STEP_CLASSIFICATIONS = [
+  { pattern: /fluentcrm[._-]company|company_profile|organization_profile_downstream/i, label: "FluentCRM company", system: "FluentCRM", action: "Reintentar sincronización de company" },
+  { pattern: /fluentcrm[._-]contact|contact_identity|member_identity/i, label: "FluentCRM contact", system: "FluentCRM", action: "Reintentar sincronización de contacto" },
+  { pattern: /branding.*css|logto_custom_css|organization_branding/i, label: "Branding Logto/CSS", system: "Logto", action: "Reintentar regeneración de branding" },
+  { pattern: /branding|logto.organization.custom_data/i, label: "Logto organization", system: "Logto", action: "Reintentar actualización en Logto" },
+];
+
+const TERMINAL_STEP_STATUSES = new Set([STEP_STATUSES.COMPLETED, STEP_STATUSES.FAILED, STEP_STATUSES.SKIPPED, "unsupported"]);
+const NON_TERMINAL_STEP_STATUSES = new Set([STEP_STATUSES.QUEUED, STEP_STATUSES.RUNNING]);
+
+function formatList(values = []) {
+  const list = (Array.isArray(values) ? values : []).filter(Boolean);
+  if (list.length <= 1) return list[0] || "";
+  return `${list.slice(0, -1).join(", ")} y ${list[list.length - 1]}`;
+}
+
+function pickVisibleStep(steps = []) {
+  const ordered = Array.isArray(steps) ? [...steps] : [];
+  return ordered.find((step) => NON_TERMINAL_STEP_STATUSES.has(step.status))
+    || [...ordered].reverse().find((step) => step.status === STEP_STATUSES.FAILED || step.lastErrorJson)
+    || ordered[ordered.length - 1]
+    || null;
+}
+
+function classifyOperation(item = {}, step = null) {
+  const type = [step?.stepName, item.operationType, item.stepName].filter(Boolean).join(" ") || "organization_sync";
+  const match = STEP_CLASSIFICATIONS.find((entry) => entry.pattern.test(type));
+  if (match) return match;
+  if (/member/i.test(type)) return { label: "FluentCRM contact", system: "FluentCRM", action: "Reintentar sincronización de contacto" };
   return { label: "Sincronización operacional", system: "Downstream", action: "Reintentar solo este pendiente" };
 }
 
+function deriveRetryState(item = {}, step = null) {
+  if (item.status === OPERATION_STATUSES.QUEUED || step?.status === STEP_STATUSES.QUEUED) return "queued";
+  if ([OPERATION_STATUSES.RUNNING, OPERATION_STATUSES.DOWNSTREAM_RUNNING].includes(item.status) || step?.status === STEP_STATUSES.RUNNING) return "running";
+  if ([OPERATION_STATUSES.FAILED, OPERATION_STATUSES.PARTIAL_FAILED].includes(item.status) || step?.status === STEP_STATUSES.FAILED) return item.retryCount > 0 ? "failed_again" : "failed";
+  if (item.status === OPERATION_STATUSES.COMPLETED || step?.status === STEP_STATUSES.COMPLETED) return "completed";
+  return item.retryCount > 0 ? "requested" : "not_requested";
+}
+
+function buildActionableMessage({ classified, details, missingFields, fieldDiffs, providerCode, providerStatus, retryState, rawError }) {
+  if (retryState === "queued") return "Reintento solicitado; job en cola";
+  if (retryState === "running") return "Reintento en ejecución";
+  if (retryState === "failed_again") return "Retry falló nuevamente";
+  if (details.humanMessage) return details.humanMessage;
+  if (providerCode === "FLUENTCRM_DUPLICATE_CONTACT") return "FluentCRM rechazó el contacto por email duplicado";
+  if (/missing_company_id|company_not_linked/i.test(String(providerCode || details.reason || rawError || ""))) return classified.label.includes("contact") ? "Falta company_id para sincronizar el contacto" : "Falta crear company en FluentCRM";
+  if (/missing_user_role/i.test(String(providerCode || details.reason || rawError || ""))) return "Falta user_role para sincronizar el contacto";
+  if (missingFields.length) return `Falta sincronizar ${formatList(missingFields)}`;
+  const diffFields = Object.keys(fieldDiffs || {});
+  if (diffFields.length) return `Hay cambios pendientes en ${formatList(diffFields)}`;
+  if (/validation|invalid/i.test(String(providerCode || providerStatus || ""))) return `${classified.label}: falló validación`;
+  if (rawError) return rawError;
+  return `${classified.label}: ${providerStatus || "pendiente"}`;
+}
+
 function serializePending(item, organizationName = null) {
-  const classified = classifyOperation(item);
-  const lastStep = Array.isArray(item.steps) ? item.steps[item.steps.length - 1] : null;
-  const stepOutput = lastStep?.outputJson?.result || lastStep?.outputJson || {};
+  const visibleStep = pickVisibleStep(item.steps);
+  const classified = classifyOperation(item, visibleStep);
+  const stepOutput = visibleStep?.outputJson?.result || visibleStep?.outputJson || {};
   const snapshot = item.resultSnapshotJson?.workerOutcome?.result || item.resultSnapshotJson || item.payloadSnapshotJson || {};
   const details = { ...snapshot, ...stepOutput };
-  const rawError = item.lastError || item.errorMessage || item.lastErrorJson?.message || lastStep?.lastErrorJson?.message || null;
-  const humanMessage = details.humanMessage || details.message || rawError || `${classified.label}: ${item.status}`;
+  const rawError = item.lastError || item.errorMessage || item.lastErrorJson?.message || visibleStep?.lastErrorJson?.message || null;
+  const fieldsSent = details.fieldsSent || details.payloadSummary?.fieldsSent || [];
+  const missingFields = details.missingFields || details.payloadSummary?.missingFields || [];
+  const fieldDiffs = details.fieldDiffs || null;
+  const providerStatus = details.providerStatus || details.status || visibleStep?.status || item.status || null;
+  const providerCode = details.providerCode || details.code || item.lastErrorJson?.providerCode || visibleStep?.lastErrorJson?.providerCode || null;
+  const retryState = deriveRetryState(item, visibleStep);
+  const humanMessage = buildActionableMessage({ classified, details, missingFields, fieldDiffs, providerCode, providerStatus, retryState, rawError });
   return {
     id: item.id,
     operationId: item.operationId || item.id,
     organizationId: item.organizationId || item.logtoOrganizationId || item.entityId || null,
     organizationName,
+    operationType: item.operationType || null,
     type: classified.label,
     affectedSystem: classified.system,
     entityType: details.entityType || item.entityType || null,
     targetIdentity: details.targetIdentity || details.identity || null,
-    fieldsSent: details.fieldsSent || details.payloadSummary?.fieldsSent || [],
-    missingFields: details.missingFields || details.payloadSummary?.missingFields || [],
-    fieldDiffs: details.fieldDiffs || null,
-    providerStatus: details.providerStatus || details.status || null,
-    providerCode: details.providerCode || details.code || null,
+    stepName: visibleStep?.stepName || item.stepName || item.operationType || null,
+    queueName: visibleStep?.queueName || null,
+    jobId: visibleStep?.jobId || null,
+    fieldsSent,
+    missingFields,
+    fieldDiffs,
+    providerStatus,
+    providerCode,
     humanMessage: safeFunctionalMessage(humanMessage),
+    retryState,
     status: item.status,
-    retryable: Boolean(item.retryable || item.lastErrorJson?.retryable || lastStep?.lastErrorJson?.retryable || ["failed", "partial_failed", "error"].includes(item.status)),
+    retryable: Boolean(item.retryable || item.lastErrorJson?.retryable || visibleStep?.lastErrorJson?.retryable || ["failed", "partial_failed", "error"].includes(item.status)),
     lastError: safeFunctionalMessage(
       rawError,
       classified.system === "FluentCRM"
-        ? "No se pudo completar la sincronización con FluentCRM. Logto conserva los datos canónicos."
+        ? humanMessage || "No se pudo completar la sincronización con FluentCRM. Logto conserva los datos canónicos."
         : undefined
     ),
     technicalErrorPresent: Boolean(rawError && TECHNICAL_ERROR_PATTERN.test(rawError)),
@@ -362,17 +421,27 @@ async function listOrganizationEvents({ organizationId, limit = 30 }) {
     db.select().from(auditLogs).where(eq(auditLogs.organizationId, organizationId)).orderBy(desc(auditLogs.createdAt)).limit(limit),
   ]);
 
+  const opsWithSteps = await Promise.all(ops.map((op) => getSyncOperationWithSteps(op.id).then((withSteps) => withSteps || op)));
+
   const events = [
-    ...ops.map((op) => ({
-      id: `op-${op.id}`,
-      at: toIso(op.updatedAt),
-      type: classifyOperation(op).label,
-      result: op.status,
-      stage: op.operationType,
-      message: serializePending(op).lastError,
-      requiresAction: serializePending(op).retryable,
-      retryOperationId: op.id,
-    })),
+    ...opsWithSteps.map((op) => {
+      const pending = serializePending(op);
+      return {
+        id: `op-${op.id}`,
+        at: toIso(op.updatedAt),
+        type: pending.type,
+        result: op.status,
+        stage: pending.stepName || op.operationType,
+        stepName: pending.stepName,
+        targetIdentity: pending.targetIdentity,
+        providerCode: pending.providerCode,
+        retryState: pending.retryState,
+        humanMessage: pending.humanMessage,
+        message: pending.humanMessage || pending.lastError,
+        requiresAction: pending.retryable,
+        retryOperationId: op.id,
+      };
+    }),
     ...logs.map((log) => ({
       id: `audit-${log.id}`,
       at: toIso(log.createdAt),
@@ -382,6 +451,11 @@ async function listOrganizationEvents({ organizationId, limit = 30 }) {
       message: safeFunctionalMessage(log.metadata?.message || log.metadata?.stage || log.action, "Evento registrado para esta organización."),
       requiresAction: log.result === "error",
       retryOperationId: null,
+      stepName: log.metadata?.stepName || null,
+      targetIdentity: log.metadata?.targetIdentity || null,
+      providerCode: log.metadata?.providerCode || null,
+      retryState: log.metadata?.retryState || null,
+      humanMessage: safeFunctionalMessage(log.metadata?.humanMessage || log.metadata?.message || log.metadata?.stage || log.action, "Evento registrado para esta organización."),
     })),
   ];
 
