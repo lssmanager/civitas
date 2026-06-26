@@ -222,25 +222,9 @@ a { color: var(--civitas-primary); }
 .civitas-audit-list .accordion-button { align-items:flex-start; border-radius:1rem !important; box-shadow:none; }
 .civitas-audit-list .accordion-button:not(.collapsed) { color:var(--civitas-text); background:var(--civitas-primary-soft); }
 .civitas-audit-item { border-color:var(--civitas-border) !important; background:var(--civitas-surface-contrast); }
-.civitas-audit-item__body { padding-top: 1rem; }
 .civitas-audit-summary { min-width:0; }
 .civitas-audit-pagination .page-link { border-color:var(--civitas-border); color:var(--civitas-primary); background:var(--civitas-surface-contrast); }
 .civitas-audit-pagination .page-item.active .page-link { border-color:var(--civitas-primary); color:#fff; background:var(--civitas-primary); }
-.civitas-audit-mode-switch { border-radius: 999px; overflow: hidden; }
-.civitas-audit-mode-switch .btn { min-width: 7rem; }
-.civitas-audit-detail-stack { display: flex; flex-direction: column; gap: 1rem; }
-.civitas-audit-overview-grid { display: grid; gap: .85rem; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
-.civitas-audit-overview-card { display: flex; flex-direction: column; gap: .35rem; padding: .95rem 1rem; border: 1px solid var(--civitas-border); border-radius: 1rem; background: linear-gradient(180deg, #ffffff 0%, #f7fbff 100%); }
-.civitas-audit-overview-card span { color: var(--civitas-muted); font-size: .78rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
-.civitas-audit-overview-card strong { color: var(--civitas-text); font-size: .98rem; line-height: 1.35; }
-.civitas-audit-detail-grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
-.civitas-audit-detail-section { padding: 1rem 1.05rem; border: 1px solid var(--civitas-border); border-radius: 1rem; background: var(--civitas-surface); }
-.civitas-audit-detail-section__title { color: var(--civitas-text); font-size: .82rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
-.civitas-audit-detail-list { display: flex; flex-direction: column; gap: .85rem; }
-.civitas-audit-detail-list__row { display: grid; gap: .35rem; }
-.civitas-audit-detail-list__row dt { color: var(--civitas-muted); font-size: .84rem; font-weight: 600; }
-.civitas-audit-detail-list__row dd { margin: 0; color: var(--civitas-text); line-height: 1.45; }
-.civitas-audit-detail-list__code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: .86rem; word-break: break-word; }
 
 [data-bs-theme="dark"] body, .theme-dark body, body.theme-dark { background:radial-gradient(circle at top right,rgba(60,173,241,.14),transparent 32rem),#08172f; }
 [data-bs-theme="dark"] .civitas-header, .theme-dark .civitas-header, body.theme-dark .civitas-header { background:rgba(10,25,47,.92); }
@@ -250,8 +234,6 @@ a { color: var(--civitas-primary); }
 [data-bs-theme="dark"] .civitas-select-card__media { background:#0c1f3a; }
 [data-bs-theme="dark"] .civitas-select-card__logo { background:#fff; }
 [data-bs-theme="dark"] .owner-system-page__check-card { background:#102748; border-color:rgba(255,255,255,.12); }
-[data-bs-theme="dark"] .civitas-audit-overview-card,
-[data-bs-theme="dark"] .civitas-audit-detail-section { background: rgba(12, 31, 58, 0.92); border-color: rgba(255,255,255,.1); }
 
 @media (max-width: 991.98px) { .civitas-page-shell__header { padding:1rem; } }
 @media (max-width: 991.98px) {
