@@ -41,8 +41,13 @@ const formatOrganization = (row: OwnerAuditLog) => {
   return row.organization?.name ? `${row.organization.name} (${id})` : id;
 };
 
+const getMetadataString = (row: OwnerAuditLog, key: string) => {
+  const value = row.metadata?.[key];
+  return typeof value === "string" ? value : null;
+};
+
 const formatLogStatement = (row: OwnerAuditLog) =>
-  `${row.result.toUpperCase()} · ${row.action} · ${formatOrganization(row)} · ${formatDate(row.createdAt)}`;
+  getMetadataString(row, "humanMessage") || `${row.result.toUpperCase()} · ${row.action} · ${formatOrganization(row)} · ${formatDate(row.createdAt)}`;
 
 const formatOptionalValue = (value: unknown) => {
   if (value === null || value === undefined || value === "") return "No disponible";
@@ -68,6 +73,14 @@ function AuditLogFormattedDetail({ row }: { row: OwnerAuditLog }) {
     { label: "Internal user id", value: row.actor?.internalUserId ?? row.actorUserId },
     { label: "Organización visible", value: formatOrganization(row) },
     { label: "Organization id", value: row.organization?.id ?? row.organizationId },
+    { label: "Step", value: row.metadata?.stepName },
+    { label: "Entidad", value: row.metadata?.entityType },
+    { label: "Target", value: row.metadata?.targetIdentity },
+    { label: "Mensaje humano", value: row.metadata?.humanMessage },
+    { label: "Cola", value: row.metadata?.queueName },
+    { label: "Job", value: row.metadata?.jobId },
+    { label: "Retry", value: row.metadata?.retryState },
+    { label: "Worker", value: row.metadata?.workerHeartbeatState },
   ];
 
   return (
@@ -113,7 +126,7 @@ function AuditLogCard({ row }: { row: OwnerAuditLog }) {
             <span className="text-secondary small">{formatDate(row.createdAt)}</span>
           </div>
           <div className="fw-semibold text-break">{formatLogStatement(row)}</div>
-          <div className="text-secondary small text-break">Actor: {formatActor(row)}</div>
+          <div className="text-secondary small text-break">Organización: {formatOrganization(row)} · Actor: {formatActor(row)}</div>
         </div>
       </Accordion.Header>
       <Accordion.Body>
