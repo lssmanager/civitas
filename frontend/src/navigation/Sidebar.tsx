@@ -1,8 +1,5 @@
 import { Accordion, Nav } from "react-bootstrap";
 import { NavLink, useLocation } from "react-router-dom";
-import { menuCapabilities } from "../authz/navigationPolicy";
-import { deriveAuthorizationCapabilities } from "../authz/capabilities";
-import { useSession } from "../session/sessionContext";
 import { useSiteLogo } from "../shared/hooks/useSiteLogo";
 import {
   ownerNavigationTree,
@@ -94,17 +91,8 @@ function NavigationBranch({
 
 export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   const location = useLocation();
-  const { me } = useSession();
-  const capabilities = deriveAuthorizationCapabilities(me);
-  const isVisible = (item: AppRoute) => {
-    const capability = menuCapabilities[item.path];
-    return capability ? capabilities[capability] : false;
-  };
-  const rootRoute = ownerNavigationTree[0] && isVisible(ownerNavigationTree[0]) ? ownerNavigationTree[0] : undefined;
-  const sectionRoutes = ownerNavigationTree
-    .slice(1)
-    .map((item) => ({ ...item, children: item.children?.filter(isVisible) }))
-    .filter((item) => !item.children || item.children.length > 0);
+  const rootRoute = ownerNavigationTree[0];
+  const sectionRoutes = ownerNavigationTree.slice(1);
   const activeOwnerSections = sectionRoutes
     .map((item, index) =>
       item.children?.some((child) => child.path === location.pathname)
@@ -127,7 +115,7 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
         </Accordion>
       </Nav>
       <Nav className="flex-column gap-2 civitas-sidebar__panel civitas-sidebar__panel--secondary mt-auto" as="nav">
-        {primaryNavigation.filter(isVisible).map((item) => (
+        {primaryNavigation.map((item) => (
           <SidebarLink key={item.path} item={item} onNavigate={onNavigate} />
         ))}
       </Nav>
