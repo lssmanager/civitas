@@ -1,4 +1,5 @@
-import { Accordion, Badge, Button, Pagination } from "react-bootstrap";
+import { useState } from "react";
+import { Accordion, Badge, Button, Pagination, ToggleButton, ToggleButtonGroup } from "react-bootstrap";
 import { useOwnerApi, type OwnerAuditLog, type OwnerAuditPagination, type OwnerAuditResponse } from "../../api/owner";
 import { useStableResource } from "../../shared/hooks/useStableResource";
 import { EmptyState, ErrorState, JsonLogBlock, LoadingState, PageCard, PageShell } from "../../shared/ui";
@@ -43,8 +44,65 @@ const formatOrganization = (row: OwnerAuditLog) => {
 const formatLogStatement = (row: OwnerAuditLog) =>
   `${row.result.toUpperCase()} · ${row.action} · ${formatOrganization(row)} · ${formatDate(row.createdAt)}`;
 
+const formatOptionalValue = (value: unknown) => {
+  if (value === null || value === undefined || value === "") return "No disponible";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
+  return JSON.stringify(value, null, 2);
+};
+
+const getMetadataEntries = (metadata: OwnerAuditLog["metadata"]) => Object.entries(metadata ?? {});
+
+type AuditLogDetailMode = "formatted" | "json";
+
+function AuditLogFormattedDetail({ row }: { row: OwnerAuditLog }) {
+  const metadataEntries = getMetadataEntries(row.metadata);
+
+  const summaryItems = [
+    { label: "Acción", value: row.action },
+    { label: "Resultado", value: row.result },
+    { label: "Fecha", value: formatDate(row.createdAt) },
+    { label: "Etapa", value: formatStage(row) },
+    { label: "Actor visible", value: formatActor(row) },
+    { label: "Email del actor", value: row.actor?.email },
+    { label: "Logto user id", value: row.actor?.logtoUserId },
+    { label: "Internal user id", value: row.actor?.internalUserId ?? row.actorUserId },
+    { label: "Organización visible", value: formatOrganization(row) },
+    { label: "Organization id", value: row.organization?.id ?? row.organizationId },
+  ];
+
+  return (
+    <div className="civitas-audit-formatted-detail">
+      <dl className="civitas-audit-formatted-grid mb-3">
+        {summaryItems.map((item) => (
+          <div key={item.label} className="civitas-audit-formatted-field">
+            <dt>{item.label}</dt>
+            <dd>{formatOptionalValue(item.value)}</dd>
+          </div>
+        ))}
+      </dl>
+
+      <section className="civitas-audit-metadata rounded-4 border p-3">
+        <h3 className="h6 mb-3">Metadata operativa</h3>
+        {metadataEntries.length === 0 ? (
+          <p className="text-secondary small mb-0">Este evento no incluye metadata operativa.</p>
+        ) : (
+          <dl className="civitas-audit-metadata-list mb-0">
+            {metadataEntries.map(([key, value]) => (
+              <div key={key} className="civitas-audit-metadata-row">
+                <dt>{key}</dt>
+                <dd>{formatOptionalValue(value)}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
+      </section>
+    </div>
+  );
+}
 
 function AuditLogCard({ row }: { row: OwnerAuditLog }) {
+  const [detailMode, setDetailMode] = useState<AuditLogDetailMode>("formatted");
+
   return (
     <Accordion.Item eventKey={row.id} className="civitas-audit-item border rounded-4 overflow-hidden">
       <Accordion.Header>
@@ -59,7 +117,24 @@ function AuditLogCard({ row }: { row: OwnerAuditLog }) {
         </div>
       </Accordion.Header>
       <Accordion.Body>
-        <JsonLogBlock value={row} />
+        <div className="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+          <span className="text-secondary small">Detalle del evento</span>
+          <ToggleButtonGroup
+            type="radio"
+            name={`audit-detail-mode-${row.id}`}
+            value={detailMode}
+            onChange={(value) => setDetailMode(value as AuditLogDetailMode)}
+            size="sm"
+          >
+            <ToggleButton id={`audit-detail-formatted-${row.id}`} value="formatted" variant="outline-primary">
+              Formatted
+            </ToggleButton>
+            <ToggleButton id={`audit-detail-json-${row.id}`} value="json" variant="outline-primary">
+              JSON
+            </ToggleButton>
+          </ToggleButtonGroup>
+        </div>
+        {detailMode === "formatted" ? <AuditLogFormattedDetail row={row} /> : <JsonLogBlock value={row} />}
       </Accordion.Body>
     </Accordion.Item>
   );
@@ -69,7 +144,7 @@ function AuditLogList({ rows }: { rows: OwnerAuditLog[] }) {
   if (rows.length === 0) return null;
 
   return (
-    <Accordion alwaysOpen defaultActiveKey={rows[0]?.id} className="civitas-audit-list d-grid gap-3">
+    <Accordion alwaysOpen className="civitas-audit-list d-grid gap-3">
       {rows.map((row) => (
         <AuditLogCard key={row.id} row={row} />
       ))}
@@ -115,7 +190,7 @@ export function OwnerAuditPage() {
     >
       <PageCard
         title="Logs operativos"
-        subtitle="Vista JSON expandible por evento para inspección y soporte."
+        subtitle="Vista expandible por evento con detalle legible y payload JSON para inspección y soporte."
         actions={
           totalPages > 1 ? (
             <Pagination size="sm" className="mb-0 civitas-audit-pagination">
@@ -127,7 +202,7 @@ export function OwnerAuditPage() {
         }
       >
         <p className="text-secondary small mb-3">
-          Mostrando {events.length} de {total} logs. Abre cada evento para ver su payload estructurado.
+          Mostrando {events.length} de {total} logs. Abre cada evento para alternar entre una vista formateada y su payload JSON completo.
         </p>
         {isLoading ? (
           <LoadingState title="Cargando logs" description="Consultando eventos owner registrados en Civitas." />
