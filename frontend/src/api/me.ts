@@ -32,6 +32,9 @@ export type AuthMetadata = {
   issuer?: string;
   audience?: string | string[];
   scopes?: string[];
+  roles?: string[];
+  globalRoles?: string[];
+  organizationRoles?: string[];
   organizationId?: string | null;
   owner?: OwnerCapabilities;
   token?: {
@@ -47,12 +50,20 @@ export type MeResponse = {
   auth?: AuthMetadata;
 };
 
+export type MeProfileResponse = {
+  identity: Record<string, unknown>;
+  authorization?: AuthMetadata;
+  sourcePolicy?: { identity: string; authorization: string; canonicalSource: string };
+  fetchedAt: string;
+};
+
 export const useMeApi = () => {
   const { fetchWithToken } = useApi();
 
   return useMemo(
     () => ({
       getMe: async (): Promise<MeResponse> => fetchWithToken("/me", { timeoutMs: APP_ENV.api.sessionBootstrapTimeoutMs }),
+      getMeProfile: async (): Promise<MeProfileResponse> => fetchWithToken("/me/profile"),
     }),
     [fetchWithToken]
   );

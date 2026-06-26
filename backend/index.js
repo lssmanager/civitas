@@ -4,6 +4,7 @@ const { eq } = require("drizzle-orm");
 require("dotenv").config();
 const { requireAuth, requireOrganizationAccess, requireScope } = require("./middleware/auth");
 const { buildOwnerCapabilities, requireOwner } = require("./middleware/owner");
+const { buildAuthorizationMetadata } = require("./services/authorizationMetadata");
 const { checkDatabaseConnection } = require("./db/connection");
 const { getIdentityFromLogtoClaims, getOrCreateInternalUser, serializeUser } = require("./services/users");
 const {
@@ -178,42 +179,6 @@ const normalizeLogtoUserToClaims = (logtoUser = {}) => ({
   name: logtoUser.name || logtoUser.profile?.name,
   username: logtoUser.username || logtoUser.profile?.username,
   picture: logtoUser.avatar || logtoUser.profile?.picture,
-});
-
-const parsePositiveIntegerEnv = (name, fallback) => {
-  const parsed = Number.parseInt(process.env[name] || "", 10);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
-};
-
-const LOGTO_IDENTITY_ENRICHMENT_TIMEOUT_MS = parsePositiveIntegerEnv("LOGTO_IDENTITY_ENRICHMENT_TIMEOUT_MS", 1200);
-
-async function getLogtoIdentityClaimsBestEffort(logtoUserId) {
-  if (!logtoUserId) return {};
-
-  const enrichment = getLogtoUserById(logtoUserId)
-    .then(normalizeLogtoUserToClaims)
-    .catch((error) => {
-      console.error("Failed to enrich identity from Logto Management API", { code: error?.code, status: error?.status, diagnostic: error?.diagnostic, message: error?.message });
-      return {};
-    });
-
-  let timeoutId;
-  const timeout = new Promise((resolve) => {
-    timeoutId = setTimeout(() => {
-      console.warn("Skipping slow Logto identity enrichment for /api/me", { timeoutMs: LOGTO_IDENTITY_ENRICHMENT_TIMEOUT_MS });
-      resolve({});
-    }, LOGTO_IDENTITY_ENRICHMENT_TIMEOUT_MS);
-  });
-
-  const claims = await Promise.race([enrichment, timeout]);
-  clearTimeout(timeoutId);
-  return claims;
-}
-
-const buildSessionTokenMetadata = (claims = {}) => ({
-  issuedAt: claims.iat ? new Date(Number(claims.iat) * 1000).toISOString() : null,
-  expiresAt: claims.exp ? new Date(Number(claims.exp) * 1000).toISOString() : null,
-  permissionFreshness: "Token claims are authoritative for this request; Logto role changes apply after token renewal or expiration.",
 });
 
 const buildRequestIdentity = (authUser, internalUser = null) => {
@@ -628,54 +593,64 @@ app.get("/auth/test", requireAuth(API_RESOURCE), (req, res) => {
   });
 });
 
+const logSessionResolutionError = (error) => {
+  console.error("Failed to resolve internal user", {
+    message: error?.message,
+    code: error?.code,
+    status: error?.status,
+    diagnostic: error?.diagnostic,
+    cause: error?.cause
+      ? {
+          code: error.cause.code,
+          detail: error.cause.detail,
+          table: error.cause.table,
+          column: error.cause.column,
+          constraint: error.cause.constraint,
+          schema: error.cause.schema,
+        }
+      : undefined,
+    stack: process.env.NODE_ENV === "production" ? undefined : error?.stack,
+  });
+};
+
+const sendSessionResolutionError = (res, error, { allowLogtoTimeout = false } = {}) => {
+  if (error.status === 401) return res.status(401).json({ error: "Unauthorized", message: error.message });
+  if (error.status === 403) return res.status(403).json({ error: "Forbidden", message: error.message });
+  const isSchemaDrift = error?.code === "DATABASE_SCHEMA_DRIFT";
+  const isLogtoTimeout = error?.code === "LOGTO_MANAGEMENT_REQUEST_TIMEOUT" || error?.code === "LOGTO_MANAGEMENT_TOKEN_TIMEOUT";
+  const status = allowLogtoTimeout && isLogtoTimeout ? 504 : error?.status || 500;
+  logSessionResolutionError(error);
+  return res.status(isSchemaDrift ? 503 : status).json({ error: isSchemaDrift ? "Service Unavailable" : status === 504 ? "Gateway Timeout" : status === 502 ? "Bad Gateway" : "Internal Server Error", message: isSchemaDrift ? "Database schema is not compatible with the running backend. Run migrations before retrying." : "Failed to resolve session", diagnostic: error?.diagnostic || undefined });
+};
+
 app.get("/me", requireAuth(API_RESOURCE), async (req, res) => {
   try {
-    const logtoIdentityClaims = await getLogtoIdentityClaimsBestEffort(req.user.sub);
-    const enrichedAuthUser = {
-      ...req.user,
-      claims: { ...(req.user.claims || {}), ...logtoIdentityClaims, sub: req.user.sub },
-    };
-    const internalUser = await getOrCreateInternalUser(enrichedAuthUser);
-
-    const identity = buildRequestIdentity(enrichedAuthUser, internalUser);
-
-    const ownerCapabilities = buildOwnerCapabilities(req.user);
-
+    const internalUser = await getOrCreateInternalUser(req.user);
     return res.json({
       user: serializeUser(internalUser),
-      identity,
-      auth: {
-        sub: req.user.sub,
-        issuer: req.user.claims?.iss,
-        audience: req.user.claims?.aud,
-        scopes: req.user.scopes,
-        organizationId: req.user.organizationId,
-        owner: ownerCapabilities,
-        token: buildSessionTokenMetadata(req.user.claims),
-      },
+      identity: buildRequestIdentity(req.user, internalUser),
+      auth: buildAuthorizationMetadata(req.user),
     });
   } catch (error) {
-    if (error.status === 401) return res.status(401).json({ error: "Unauthorized", message: error.message });
-    if (error.status === 403) return res.status(403).json({ error: "Forbidden", message: error.message });
-    const status = error?.code === "LOGTO_MANAGEMENT_REQUEST_TIMEOUT" || error?.code === "LOGTO_MANAGEMENT_TOKEN_TIMEOUT" ? 504 : 500;
-    console.error("Failed to resolve internal user", {
-      message: error?.message,
-      code: error?.code,
-      status: error?.status,
-      diagnostic: error?.diagnostic,
-      cause: error?.cause
-        ? {
-            code: error.cause.code,
-            detail: error.cause.detail,
-            table: error.cause.table,
-            column: error.cause.column,
-            constraint: error.cause.constraint,
-            schema: error.cause.schema,
-          }
-        : undefined,
-      stack: process.env.NODE_ENV === "production" ? undefined : error?.stack,
+    return sendSessionResolutionError(res, error);
+  }
+});
+
+app.get("/me/profile", requireAuth(API_RESOURCE), async (req, res) => {
+  try {
+    const logtoUser = await getLogtoUserById(req.user.sub);
+    return res.json({
+      identity: getLogtoUserIdentityFields(logtoUser),
+      authorization: buildAuthorizationMetadata(req.user),
+      sourcePolicy: {
+        identity: "logto_management_api",
+        authorization: "access_token_claims",
+        canonicalSource: "logto",
+      },
+      fetchedAt: new Date().toISOString(),
     });
-    return res.status(error?.status || status).json({ error: error?.code === "DATABASE_SCHEMA_DRIFT" ? "Service Unavailable" : status === 504 ? "Gateway Timeout" : "Internal Server Error", message: error?.code === "DATABASE_SCHEMA_DRIFT" ? "Database schema is not compatible with the running backend. Run migrations before retrying." : "Failed to resolve internal user", diagnostic: error?.diagnostic || undefined });
+  } catch (error) {
+    return sendSessionResolutionError(res, error, { allowLogtoTimeout: true });
   }
 });
 

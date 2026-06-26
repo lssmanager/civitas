@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { Alert, Badge, Button, Form, InputGroup, Table } from "react-bootstrap";
 import { type OwnerCrmRoleMapping, type OwnerWordPressRoleMapping, useOwnerApi } from "../api/owner";
+import { useAuthorization } from "../authz/useAuthorization";
 import { ErrorState, LoadingState, PageCard, PageShell } from "../shared/ui";
 import { useStableResource } from "../shared/hooks/useStableResource";
 
-function ChipEditor({ values, onChange, placeholder }: { values: string[]; onChange: (values: string[]) => void; placeholder: string }) {
+function ChipEditor({ values, onChange, placeholder, disabled = false }: { values: string[]; onChange: (values: string[]) => void; placeholder: string; disabled?: boolean }) {
   const [draft, setDraft] = useState("");
   const add = () => {
     const value = draft.trim();
@@ -15,9 +16,9 @@ function ChipEditor({ values, onChange, placeholder }: { values: string[]; onCha
   return (
     <div className="d-flex flex-column gap-2">
       <div className="d-flex flex-wrap gap-1">
-        {values.map((value) => <Badge key={value} bg="secondary" className="d-inline-flex align-items-center gap-2 text-break">{value}<button type="button" className="btn-close btn-close-white" aria-label={`Quitar ${value}`} onClick={() => onChange(values.filter((item) => item !== value))} /></Badge>)}
+        {values.map((value) => <Badge key={value} bg="secondary" className="d-inline-flex align-items-center gap-2 text-break">{value}<button type="button" className="btn-close btn-close-white" aria-label={`Quitar ${value}`} disabled={disabled} onClick={() => onChange(values.filter((item) => item !== value))} /></Badge>)}
       </div>
-      <InputGroup size="sm"><Form.Control value={draft} placeholder={placeholder} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); add(); } }} /><Button variant="outline-primary" onClick={add}>Agregar</Button></InputGroup>
+      <InputGroup size="sm"><Form.Control value={draft} placeholder={placeholder} disabled={disabled} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); add(); } }} /><Button variant="outline-primary" disabled={disabled} onClick={add}>Agregar</Button></InputGroup>
     </div>
   );
 }
@@ -33,6 +34,10 @@ function WordPressRoleSelect({ value, disabled, roles, onChange }: { value: stri
 
 export function OwnerSettingsPage() {
   const ownerApi = useOwnerApi();
+  const { canExecute } = useAuthorization();
+  const canUpdateRoleMappings = canExecute("owner.roleMappings.update");
+  const canResetRoleMappings = canExecute("owner.roleMappings.reset");
+  const readOnly = !canUpdateRoleMappings;
   const crmResource = useStableResource({ load: ownerApi.getFluentCrmRoleMappings, getKey: () => "owner-fluentcrm-role-mappings", initialParams: undefined });
   const wordpressResource = useStableResource({ load: ownerApi.getWordPressRoleMappings, getKey: () => "owner-wordpress-role-mappings", initialParams: undefined });
   const [mappings, setMappings] = useState<OwnerCrmRoleMapping[]>([]);
@@ -51,8 +56,9 @@ export function OwnerSettingsPage() {
   const crmWarnings = useMemo(() => [...new Set(crmResource.data?.warnings ?? [])].filter((warning) => warning !== crmResource.data?.envWarning), [crmResource.data]);
   const wordpressWarnings = useMemo(() => [...new Set(wordpressResource.data?.warnings ?? [])], [wordpressResource.data]);
 
-  const update = (logtoRoleId: string, patch: Partial<OwnerCrmRoleMapping>) => setMappings((items) => items.map((item) => item.logtoRoleId === logtoRoleId ? { ...item, ...patch } : item));
+  const update = (logtoRoleId: string, patch: Partial<OwnerCrmRoleMapping>) => { if (readOnly) return; setMappings((items) => items.map((item) => item.logtoRoleId === logtoRoleId ? { ...item, ...patch } : item)); };
   const updateWordPress = (crmMapping: OwnerCrmRoleMapping, wordpressRoleSlug: string) => {
+    if (readOnly) return;
     const catalogRole = wordpressCatalogBySlug.get(wordpressRoleSlug);
     setWordPressMappings((items) => {
       const existing = wordpressByLogtoId.get(crmMapping.logtoRoleId);
@@ -70,6 +76,7 @@ export function OwnerSettingsPage() {
   };
 
   const save = async () => {
+    if (!canUpdateRoleMappings) return;
     setSaving(true); setMessage(null);
     try {
       const [crmResponse, wpResponse] = await Promise.all([ownerApi.updateFluentCrmRoleMappings(mappings), ownerApi.updateWordPressRoleMappings(wordpressMappings)]);
@@ -79,6 +86,7 @@ export function OwnerSettingsPage() {
     } finally { setSaving(false); }
   };
   const reset = async () => {
+    if (!canResetRoleMappings) return;
     setSaving(true); setMessage(null);
     try {
       const [crmResponse, wpResponse] = await Promise.all([ownerApi.resetFluentCrmRoleMappings(), ownerApi.resetWordPressRoleMappings()]);
@@ -90,11 +98,11 @@ export function OwnerSettingsPage() {
 
   const renderWordPressSelect = (mapping: OwnerCrmRoleMapping) => {
     const wpMapping = wordpressByLogtoId.get(mapping.logtoRoleId);
-    return <WordPressRoleSelect roles={wordpressRoles} value={wpMapping?.wordpressRoleSlug ?? ""} disabled={wordpressCatalogDisabled} onChange={(slug) => updateWordPress(mapping, slug)} />;
+    return <WordPressRoleSelect roles={wordpressRoles} value={wpMapping?.wordpressRoleSlug ?? ""} disabled={readOnly || wordpressCatalogDisabled} onChange={(slug) => updateWordPress(mapping, slug)} />;
   };
 
   return (
-    <PageShell eyebrow="Owner settings" title="Role Mapping" description="Mapea roles organizacionales canónicos de Logto hacia segmentación CRM y, opcionalmente, hacia roles WordPress operativos. Logto sigue siendo la fuente de verdad de autorización." actions={<div className="d-flex flex-wrap gap-2"><Badge bg="info">CRM: {crmResource.data?.effectiveSource ?? "cargando"}</Badge><Badge bg="secondary">WP: {wordpressResource.data?.effectiveSource ?? "cargando"}</Badge></div>}>
+    <PageShell eyebrow="Owner settings" title="Role Mapping" description="Mapea roles organizacionales canónicos de Logto hacia segmentación CRM y, opcionalmente, hacia roles WordPress operativos. Logto sigue siendo la fuente de verdad de autorización." actions={<div className="d-flex flex-wrap gap-2"><Badge bg={readOnly ? "secondary" : "success"}>{readOnly ? "solo lectura" : "write habilitado"}</Badge><Badge bg="info">CRM: {crmResource.data?.effectiveSource ?? "cargando"}</Badge><Badge bg="secondary">WP: {wordpressResource.data?.effectiveSource ?? "cargando"}</Badge></div>}>
       {crmResource.isLoading ? <LoadingState title="Cargando roles" description="Leyendo roles desde Logto y configuración operativa desde Civitas." /> : crmResource.error ? <ErrorState title="No se pudo cargar el mapping" message={crmResource.error} action={<Button onClick={crmResource.retry}>Reintentar</Button>} /> : (
         <PageCard title="Logto → CRM / WordPress role mapping" subtitle="Civitas guarda mappings operativos subordinados a logtoRoleId; WordPress no define permisos ni roles canónicos del producto.">
           {crmResource.data?.envWarning && <Alert variant="warning">{crmResource.data.envWarning}</Alert>}
@@ -112,11 +120,11 @@ export function OwnerSettingsPage() {
               <tbody>{mappings.map((mapping) => <tr key={mapping.logtoRoleId}>
                 <td><strong>{mapping.organizationRoleName}</strong><div className="small text-muted text-break">{mapping.logtoRoleId}</div>{mapping.isCustomized && <Badge bg="primary" className="ms-2">custom CRM</Badge>}{wordpressByLogtoId.get(mapping.logtoRoleId)?.isCustomized && <Badge bg="dark" className="ms-2">custom WP</Badge>}</td>
                 <td className="civitas-table-cell--md">{renderWordPressSelect(mapping)}<div className="small text-muted mt-1">Solo sincronización; no autorización.</div></td>
-                <td className="civitas-table-cell--lg"><ChipEditor values={mapping.tags} placeholder="Nuevo tag" onChange={(tags) => update(mapping.logtoRoleId, { tags })} /></td>
-                <td className="civitas-table-cell--lg"><ChipEditor values={mapping.lists} placeholder="Nueva list" onChange={(lists) => update(mapping.logtoRoleId, { lists })} /></td>
-                <td><Form.Control size="sm" value={mapping.roleType} onChange={(event) => update(mapping.logtoRoleId, { roleType: event.target.value })} /></td>
+                <td className="civitas-table-cell--lg"><ChipEditor values={mapping.tags} placeholder="Nuevo tag" disabled={readOnly} onChange={(tags) => update(mapping.logtoRoleId, { tags })} /></td>
+                <td className="civitas-table-cell--lg"><ChipEditor values={mapping.lists} placeholder="Nueva list" disabled={readOnly} onChange={(lists) => update(mapping.logtoRoleId, { lists })} /></td>
+                <td><Form.Control size="sm" disabled={readOnly} value={mapping.roleType} onChange={(event) => update(mapping.logtoRoleId, { roleType: event.target.value })} /></td>
                 <td><Badge bg={mapping.source === "gui_override" ? "primary" : "secondary"}>{mapping.source}</Badge></td>
-                <td><Form.Check type="switch" checked={mapping.isActive} onChange={(event) => update(mapping.logtoRoleId, { isActive: event.target.checked })} /></td>
+                <td><Form.Check type="switch" disabled={readOnly} checked={mapping.isActive} onChange={(event) => update(mapping.logtoRoleId, { isActive: event.target.checked })} /></td>
               </tr>)}</tbody>
             </Table>
           </div>
@@ -125,14 +133,14 @@ export function OwnerSettingsPage() {
             {mappings.map((mapping) => <div key={mapping.logtoRoleId} className="border rounded p-3 bg-body">
               <div className="d-flex justify-content-between align-items-start gap-2 mb-3"><div><strong>{mapping.organizationRoleName}</strong><div className="small text-muted text-break">{mapping.logtoRoleId}</div></div><div className="d-flex flex-wrap gap-1 justify-content-end">{mapping.isCustomized && <Badge bg="primary">CRM</Badge>}{wordpressByLogtoId.get(mapping.logtoRoleId)?.isCustomized && <Badge bg="dark">WP</Badge>}</div></div>
               <Form.Group className="mb-3"><Form.Label>WordPress role operativo</Form.Label>{renderWordPressSelect(mapping)}<Form.Text muted>Opcional; no cambia permisos en Civitas.</Form.Text></Form.Group>
-              <Form.Group className="mb-3"><Form.Label>Tags CRM</Form.Label><ChipEditor values={mapping.tags} placeholder="Nuevo tag" onChange={(tags) => update(mapping.logtoRoleId, { tags })} /></Form.Group>
-              <Form.Group className="mb-3"><Form.Label>Lists CRM</Form.Label><ChipEditor values={mapping.lists} placeholder="Nueva list" onChange={(lists) => update(mapping.logtoRoleId, { lists })} /></Form.Group>
-              <Form.Group className="mb-3"><Form.Label>Tipo</Form.Label><Form.Control size="sm" value={mapping.roleType} onChange={(event) => update(mapping.logtoRoleId, { roleType: event.target.value })} /></Form.Group>
-              <div className="d-flex justify-content-between align-items-center"><Badge bg={mapping.source === "gui_override" ? "primary" : "secondary"}>{mapping.source}</Badge><Form.Check type="switch" label="Activo" checked={mapping.isActive} onChange={(event) => update(mapping.logtoRoleId, { isActive: event.target.checked })} /></div>
+              <Form.Group className="mb-3"><Form.Label>Tags CRM</Form.Label><ChipEditor values={mapping.tags} placeholder="Nuevo tag" disabled={readOnly} onChange={(tags) => update(mapping.logtoRoleId, { tags })} /></Form.Group>
+              <Form.Group className="mb-3"><Form.Label>Lists CRM</Form.Label><ChipEditor values={mapping.lists} placeholder="Nueva list" disabled={readOnly} onChange={(lists) => update(mapping.logtoRoleId, { lists })} /></Form.Group>
+              <Form.Group className="mb-3"><Form.Label>Tipo</Form.Label><Form.Control size="sm" disabled={readOnly} value={mapping.roleType} onChange={(event) => update(mapping.logtoRoleId, { roleType: event.target.value })} /></Form.Group>
+              <div className="d-flex justify-content-between align-items-center"><Badge bg={mapping.source === "gui_override" ? "primary" : "secondary"}>{mapping.source}</Badge><Form.Check type="switch" label="Activo" disabled={readOnly} checked={mapping.isActive} onChange={(event) => update(mapping.logtoRoleId, { isActive: event.target.checked })} /></div>
             </div>)}
           </div>
 
-          <div className="d-flex flex-column flex-sm-row gap-2 mt-3"><Button disabled={saving} onClick={save}>Guardar cambios</Button><Button disabled={saving} variant="outline-danger" onClick={reset}>Restaurar defaults</Button></div>
+          <div className="d-flex flex-column flex-sm-row gap-2 mt-3"><Button disabled={saving || !canUpdateRoleMappings} onClick={save}>{readOnly ? "Solo lectura" : "Guardar cambios"}</Button><Button disabled={saving || !canResetRoleMappings} variant="outline-danger" onClick={reset}>{canResetRoleMappings ? "Restaurar defaults" : "Solo lectura"}</Button></div>
         </PageCard>
       )}
     </PageShell>

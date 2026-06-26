@@ -1,10 +1,13 @@
 import { useRef } from "react";
-import { Button } from "react-bootstrap";
+import { Alert, Button } from "react-bootstrap";
+import { useAuthorization } from "../authz/useAuthorization";
 import { PageCard, PageShell } from "../shared/ui";
 import { resetStoredSiteLogo, setStoredSiteLogo, useSiteLogo } from "../shared/hooks/useSiteLogo";
 
 function SiteLogoSettingsCard() {
   const logoUrl = useSiteLogo();
+  const { canExecute } = useAuthorization();
+  const canUpdateBranding = canExecute("owner.branding.update");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleLogoUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -32,15 +35,16 @@ function SiteLogoSettingsCard() {
       subtitle="Actualiza el logo visible del sidebar y del favicon local de Civitas."
       actions={
         <div className="d-flex flex-wrap gap-2">
-          <Button type="button" variant="outline-primary" onClick={() => fileInputRef.current?.click()}>
+          <Button type="button" variant="outline-primary" disabled={!canUpdateBranding} onClick={() => fileInputRef.current?.click()}>
             Subir logo
           </Button>
-          <Button type="button" variant="outline-secondary" onClick={resetStoredSiteLogo}>
+          <Button type="button" variant="outline-secondary" disabled={!canUpdateBranding} onClick={resetStoredSiteLogo}>
             Restaurar
           </Button>
         </div>
       }
     >
+      {!canUpdateBranding ? <Alert variant="info">Modo solo lectura: puedes ver el branding, pero no subir ni restaurar logos.</Alert> : null}
       <div className="civitas-site-logo-settings d-flex align-items-center gap-3">
         <img className="civitas-site-logo-settings__preview" src={logoUrl} alt="Logo actual de Civitas" />
         <div>
@@ -52,6 +56,7 @@ function SiteLogoSettingsCard() {
           type="file"
           accept="image/*"
           className="visually-hidden"
+          disabled={!canUpdateBranding}
           onChange={handleLogoUpload}
         />
       </div>
