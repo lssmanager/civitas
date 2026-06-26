@@ -89,15 +89,43 @@ export type OwnerSystemMetricsResponse = {
   series?: { last8?: Array<{ at: string; redisCommandsPerMinute: number | null; bullmqJobsPerMinute: number | null; sampleWindowMinutes: number }>; throughput24h?: Array<{ at: string; redisCommandsPerMinute: number | null; bullmqJobsPerMinute: number | null; sampleCount: number }>; rollup?: Record<string, unknown> | null };
 };
 
-export type OwnerPendingSync = { id: string; operationId: string; organizationId: string | null; organizationName: string | null; operationType?: string | null; type: string; affectedSystem: string; stepName?: string | null; queueName?: string | null; jobId?: string | null; retryState?: string | null; status: string; retryable: boolean; lastError: string; suggestedAction: string; entityType?: string | null; targetIdentity?: Record<string, unknown> | null; fieldsSent?: string[]; missingFields?: string[]; fieldDiffs?: Record<string, unknown> | null; providerStatus?: string | null; providerCode?: string | null; humanMessage?: string | null; technicalErrorPresent?: boolean; };
-export type OwnerOrganizationEvent = { id: string; at: string | null; type: string; result: string; stage: string; message: string; requiresAction: boolean; retryOperationId: string | null; stepName?: string | null; targetIdentity?: Record<string, unknown> | null; humanMessage?: string | null; providerCode?: string | null; retryState?: string | null };
+export type OwnerPendingSync = {
+  id: string;
+  operationId: string;
+  organizationId: string | null;
+  organizationName: string | null;
+  operationType?: string | null;
+  type: string;
+  affectedSystem: string;
+  entityType?: string | null;
+  targetIdentity?: string | null;
+  stepName?: string | null;
+  status: string;
+  retryable: boolean;
+  lastError: string;
+  humanMessage?: string | null;
+  suggestedAction: string;
+  providerCode?: string | null;
+  providerStatus?: string | number | null;
+  fieldsSent?: string[] | null;
+  missingFields?: string[] | null;
+  fieldDiffs?: Record<string, unknown> | null;
+  queueName?: string | null;
+  jobId?: string | null;
+  retryState?: string | null;
+  enqueuedAt?: string | null;
+  lastAttemptAt?: string | null;
+  workerHeartbeatState?: string | null;
+  jobAgeSeconds?: number | null;
+};
+export type OwnerOrganizationEvent = { id: string; at: string | null; type: string; result: string; stage: string; message: string; humanMessage?: string | null; requiresAction: boolean; retryOperationId: string | null; stepName?: string | null; entityType?: string | null; targetIdentity?: string | null; providerCode?: string | null; providerStatus?: string | number | null; queueName?: string | null; jobId?: string | null; retryState?: string | null; workerHeartbeatState?: string | null; jobAgeSeconds?: number | null };
 export type OwnerOrganizationProfileResponse = {
   organization: OwnerOrganization;
   canonical: { source: "logto"; topLevelFields: string[]; customData: Record<string, unknown> };
   readModel?: { business?: Record<string, string | null>; contact?: Record<string, string | null>; branding?: Record<string, string | null>; crm?: Record<string, unknown>; sourcePriority?: string[] };
   customDataShape: { root: string; sections: string[] };
   downstreamOnly: string[];
-  sync: { pending: OwnerPendingSync[]; events: OwnerOrganizationEvent[] };
+  sync: { pending: OwnerPendingSync[]; events: OwnerOrganizationEvent[]; summary?: { logto: string; fluentcrmCompany: string; fluentcrmContact: string; lastStep: string | null; lastRetry: string | null; queueName: string | null; jobId: string | null; jobAgeSeconds: number | null; workerHeartbeatState: string | null } };
 };
 export type OwnerOrganizationDirectoryMember = {
   identity: { logtoUserId: string | null; primerNombre?: string | null; segundoNombre?: string | null; primerApellido?: string | null; segundoApellido?: string | null; name: string | null; email: string | null; phone: string | null; roles?: string[]; lastLoginAt?: string | null; mfa?: { enabled: boolean | null; method?: string | null; availability?: string }; sessions?: { availability: string; note?: string }; spentTime?: { availability: string; value: number | null; note?: string } };

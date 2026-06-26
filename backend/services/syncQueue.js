@@ -7,6 +7,10 @@ function getRedisConnectionOptions() {
   return { connection: { url: REDIS_URL, maxRetriesPerRequest: null } };
 }
 
+function getSyncJobId(operation) {
+  return operation?.id ? `sync-operation-${operation.id}` : null;
+}
+
 function getSyncQueue() {
   const options = getRedisConnectionOptions();
   if (!options) return null;
@@ -19,9 +23,28 @@ function getSyncQueue() {
 
 async function enqueueSyncOperation(operation) {
   const syncQueue = getSyncQueue();
-  if (!syncQueue || !operation?.id) return { enqueued: false, reason: "redis_not_configured" };
-  await syncQueue.add(operation.operationType || "sync_operation", { operationId: operation.id }, { jobId: `sync-operation-${operation.id}`, attempts: 1, removeOnComplete: 100, removeOnFail: 100 });
-  return { enqueued: true, queueName: QUEUE_NAME };
+  const jobId = getSyncJobId(operation);
+  const enqueuedAt = new Date().toISOString();
+  if (!syncQueue || !operation?.id || !jobId) return { enqueued: false, reason: "redis_not_configured", queueName: QUEUE_NAME, jobId, enqueuedAt };
+  await syncQueue.add(operation.operationType || "sync_operation", { operationId: operation.id }, { jobId, attempts: 1, removeOnComplete: 100, removeOnFail: 100 });
+  return { enqueued: true, queueName: QUEUE_NAME, jobId, enqueuedAt };
 }
 
-module.exports = { QUEUE_NAME, enqueueSyncOperation, getRedisConnectionOptions, getSyncQueue };
+async function getSyncJobSnapshot(operation) {
+  const syncQueue = getSyncQueue();
+  const jobId = getSyncJobId(operation);
+  if (!syncQueue || !jobId) return { queueName: QUEUE_NAME, jobId, retryState: operation?.status || "unknown", enqueuedAt: null, lastAttemptAt: null, jobAgeSeconds: null };
+  const job = await syncQueue.getJob(jobId);
+  if (!job) return { queueName: QUEUE_NAME, jobId, retryState: operation?.status || "missing", enqueuedAt: null, lastAttemptAt: null, jobAgeSeconds: null };
+  const state = await job.getState().catch(() => operation?.status || "unknown");
+  return {
+    queueName: QUEUE_NAME,
+    jobId,
+    retryState: state,
+    enqueuedAt: job.timestamp ? new Date(job.timestamp).toISOString() : null,
+    lastAttemptAt: job.processedOn ? new Date(job.processedOn).toISOString() : null,
+    jobAgeSeconds: job.timestamp ? Math.max(0, Math.floor((Date.now() - Number(job.timestamp)) / 1000)) : null,
+  };
+}
+
+module.exports = { QUEUE_NAME, enqueueSyncOperation, getRedisConnectionOptions, getSyncJobId, getSyncJobSnapshot, getSyncQueue };
