@@ -1,5 +1,4 @@
-import { useId, useState } from "react";
-import { Accordion, Badge, Button, ButtonGroup, Pagination } from "react-bootstrap";
+import { Accordion, Badge, Button, Pagination } from "react-bootstrap";
 import { useOwnerApi, type OwnerAuditLog, type OwnerAuditPagination, type OwnerAuditResponse } from "../../api/owner";
 import { useStableResource } from "../../shared/hooks/useStableResource";
 import { EmptyState, ErrorState, JsonLogBlock, LoadingState, PageCard, PageShell } from "../../shared/ui";
@@ -37,115 +36,15 @@ const formatStage = (row: OwnerAuditLog) => {
 
 const formatOrganization = (row: OwnerAuditLog) => {
   if (!row.organizationId && !row.organization?.id) return "Global";
-  const id = row.organization?.id ?? row.organizationId ?? "Global";
+  const id = row.organization?.id ?? row.organizationId;
   return row.organization?.name ? `${row.organization.name} (${id})` : id;
 };
 
 const formatLogStatement = (row: OwnerAuditLog) =>
   `${row.result.toUpperCase()} · ${row.action} · ${formatOrganization(row)} · ${formatDate(row.createdAt)}`;
 
-const formatPrimitive = (value: unknown) => {
-  if (value === null || value === undefined || value === "") return "No disponible";
-  if (typeof value === "boolean") return value ? "Sí" : "No";
-  if (typeof value === "string" || typeof value === "number") return String(value);
-  return JSON.stringify(value);
-};
-
-const toTitleCase = (value: string) =>
-  value
-    .replace(/[_-]+/g, " ")
-    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(/^\w/, (char) => char.toUpperCase());
-
-const buildMetadataRows = (metadata: Record<string, unknown> | null) => {
-  if (!metadata) return [];
-
-  return Object.entries(metadata).map(([key, value]) => ({
-    label: toTitleCase(key),
-    value: formatPrimitive(value),
-    isCode: typeof value === "object" && value !== null,
-  }));
-};
-
-type DetailRow = {
-  label: string;
-  value: string;
-  isCode?: boolean;
-};
-
-function AuditDetailList({
-  title,
-  rows,
-}: {
-  title: string;
-  rows: DetailRow[];
-}) {
-  if (rows.length === 0) return null;
-
-  return (
-    <section className="civitas-audit-detail-section">
-      <p className="civitas-audit-detail-section__title mb-2">{title}</p>
-      <dl className="civitas-audit-detail-list mb-0">
-        {rows.map((row) => (
-          <div key={`${title}-${row.label}`} className="civitas-audit-detail-list__row">
-            <dt>{row.label}</dt>
-            <dd className={row.isCode ? "civitas-audit-detail-list__code" : undefined}>{row.value}</dd>
-          </div>
-        ))}
-      </dl>
-    </section>
-  );
-}
-
-function AuditFormattedView({ row }: { row: OwnerAuditLog }) {
-  const overviewRows: DetailRow[] = [
-    { label: "Acción", value: row.action },
-    { label: "Resultado", value: row.result.toUpperCase() },
-    { label: "Etapa", value: formatStage(row) },
-    { label: "Fecha", value: formatDate(row.createdAt) },
-  ];
-
-  const actorRows: DetailRow[] = [
-    { label: "Actor visible", value: formatActor(row) },
-    { label: "Email", value: row.actor?.email ?? "No disponible" },
-    { label: "Display name", value: row.actor?.displayName ?? "No disponible" },
-    { label: "Logto user id", value: row.actor?.logtoUserId ?? "No disponible", isCode: true },
-    { label: "Internal user id", value: row.actor?.internalUserId ?? row.actorUserId ?? "No disponible", isCode: true },
-  ];
-
-  const organizationRows: DetailRow[] = [
-    { label: "Organización", value: formatOrganization(row) },
-    { label: "Organization id", value: row.organization?.id ?? row.organizationId ?? "Global", isCode: true },
-    { label: "Nombre canónico", value: row.organization?.name ?? "No disponible" },
-  ];
-
-  const metadataRows = buildMetadataRows(row.metadata);
-
-  return (
-    <div className="civitas-audit-detail-stack">
-      <div className="civitas-audit-overview-grid">
-        {overviewRows.map((item) => (
-          <div key={item.label} className="civitas-audit-overview-card">
-            <span>{item.label}</span>
-            <strong>{item.value}</strong>
-          </div>
-        ))}
-      </div>
-      <div className="civitas-audit-detail-grid">
-        <AuditDetailList title="Actor" rows={actorRows} />
-        <AuditDetailList title="Organización" rows={organizationRows} />
-      </div>
-      <AuditDetailList title="Metadata operativa" rows={metadataRows} />
-    </div>
-  );
-}
 
 function AuditLogCard({ row }: { row: OwnerAuditLog }) {
-  const [detailMode, setDetailMode] = useState<"formatted" | "json">("formatted");
-  const detailModeId = useId();
-
   return (
     <Accordion.Item eventKey={row.id} className="civitas-audit-item border rounded-4 overflow-hidden">
       <Accordion.Header>
@@ -159,46 +58,18 @@ function AuditLogCard({ row }: { row: OwnerAuditLog }) {
           <div className="text-secondary small text-break">Actor: {formatActor(row)}</div>
         </div>
       </Accordion.Header>
-      <Accordion.Body className="civitas-audit-item__body">
-        <div className="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
-          <div>
-            <p className="mb-1 fw-semibold">Detalle del evento</p>
-            <p className="mb-0 text-secondary small">
-              Usa la vista resumida para soporte rápido o cambia a JSON cuando necesites el payload completo.
-            </p>
-          </div>
-          <ButtonGroup aria-label={`Vista del log ${detailModeId}`} className="civitas-audit-mode-switch">
-            <Button
-              variant={detailMode === "formatted" ? "primary" : "outline-primary"}
-              onClick={() => setDetailMode("formatted")}
-            >
-              Formatted
-            </Button>
-            <Button
-              variant={detailMode === "json" ? "primary" : "outline-primary"}
-              onClick={() => setDetailMode("json")}
-            >
-              JSON
-            </Button>
-          </ButtonGroup>
-        </div>
-        {detailMode === "formatted" ? <AuditFormattedView row={row} /> : <JsonLogBlock value={row} />}
+      <Accordion.Body>
+        <JsonLogBlock value={row} />
       </Accordion.Body>
     </Accordion.Item>
   );
 }
 
 function AuditLogList({ rows }: { rows: OwnerAuditLog[] }) {
-  const [activeKey, setActiveKey] = useState<string | null>(null);
-
   if (rows.length === 0) return null;
 
   return (
-    <Accordion
-      activeKey={activeKey ?? undefined}
-      onSelect={(eventKey) => setActiveKey(typeof eventKey === "string" ? eventKey : null)}
-      className="civitas-audit-list d-grid gap-3"
-    >
+    <Accordion alwaysOpen defaultActiveKey={rows[0]?.id} className="civitas-audit-list d-grid gap-3">
       {rows.map((row) => (
         <AuditLogCard key={row.id} row={row} />
       ))}
@@ -244,7 +115,7 @@ export function OwnerAuditPage() {
     >
       <PageCard
         title="Logs operativos"
-        subtitle="Vista expandible por evento con lectura resumida y payload JSON."
+        subtitle="Vista JSON expandible por evento para inspección y soporte."
         actions={
           totalPages > 1 ? (
             <Pagination size="sm" className="mb-0 civitas-audit-pagination">
@@ -256,7 +127,7 @@ export function OwnerAuditPage() {
         }
       >
         <p className="text-secondary small mb-3">
-          Mostrando {events.length} de {total} logs. Cada evento entra cerrado por defecto y puedes alternar entre vista resumida y JSON.
+          Mostrando {events.length} de {total} logs. Abre cada evento para ver su payload estructurado.
         </p>
         {isLoading ? (
           <LoadingState title="Cargando logs" description="Consultando eventos owner registrados en Civitas." />
