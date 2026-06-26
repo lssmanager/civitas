@@ -189,10 +189,16 @@ function AuditLogCard({ row }: { row: OwnerAuditLog }) {
 }
 
 function AuditLogList({ rows }: { rows: OwnerAuditLog[] }) {
+  const [activeKey, setActiveKey] = useState<string | null>(null);
+
   if (rows.length === 0) return null;
 
   return (
-    <Accordion className="civitas-audit-list d-grid gap-3">
+    <Accordion
+      activeKey={activeKey ?? undefined}
+      onSelect={(eventKey) => setActiveKey(typeof eventKey === "string" ? eventKey : null)}
+      className="civitas-audit-list d-grid gap-3"
+    >
       {rows.map((row) => (
         <AuditLogCard key={row.id} row={row} />
       ))}
