@@ -7,20 +7,23 @@ const cleanObject = (obj) => Object.fromEntries(Object.entries(obj).filter(([, v
 const FORM_FIELD_INVENTORY = Object.freeze({
   "name": ["logto.organization.topLevel.name", "fluentcrm.company.companyNameFallback"],
   "description/crm.description": ["logto.organization.topLevel.description", "logto.organization.customData.civitasProfile.business.description", "fluentcrm.company.description"],
-  "slug": ["logto.organization.customData.provisioning.slug", "logto.organization.customData.civitasProfile.business.slug", "civitas.operation.payloadSnapshot"],
-  "appSubdomain/subdomain": ["logto.organization.customData.provisioning.appSubdomain", "logto.organization.customData.civitasProfile.business.appSubdomain", "civitas.organization_profiles.subdomain"],
+  // Deprecated: slug is retained only in historical payload snapshots and must not regain functional URL/routing meaning.
+  "slug (deprecated)": ["deprecated.logto.organization.customData.provisioning.slug", "deprecated.logto.organization.customData.civitasProfile.business.slug", "civitas.operation.payloadSnapshot.legacyOnly"],
+  // Deprecated: business.subdomain is a legacy alias. New code must use appSubdomain + appBaseDomain.
+  "appSubdomain/subdomain (subdomain deprecated)": ["logto.organization.customData.provisioning.appSubdomain", "logto.organization.customData.civitasProfile.business.appSubdomain", "deprecated.civitasProfile.business.subdomain", "civitas.organization_profiles.subdomain.operationalCache"],
   "appBaseDomain": ["logto.organization.customData.provisioning.appBaseDomain", "logto.organization.customData.civitasProfile.business.appBaseDomain"],
   "adminDomain/jitProvisioning.domain": ["logto.organization.customData.provisioning.institutionalDomain", "logto.jit.emailDomains", "civitas.organization_profiles.adminDomain"],
-  "baseAdmin.firstName": ["logto.user.profile.givenName", "fluentcrm.contact.firstName"],
-  "baseAdmin.middleName": ["logto.user.profile.middleName"],
-  "baseAdmin.firstSurname": ["logto.user.profile.familyName", "fluentcrm.contact.lastName"],
-  "baseAdmin.secondSurname": ["logto.user.customData.secondFamilyName"],
-  "baseAdmin.name": ["logto.user.topLevel.name", "fluentcrm.contact.full_name"],
-  "baseAdmin.email": ["logto.user.topLevel.primaryEmail", "fluentcrm.contact.email"],
-  "baseAdmin.phone": ["logto.user.topLevel.primaryPhone when no extension", "logto.user.customData.civitasProfile.phone", "fluentcrm.contact.phone"],
-  "baseAdmin.username": ["logto.user.topLevel.username", "logto.user.profile.preferredUsername"],
-  "baseAdmin.position": ["logto.user.customData.civitasProfile.position", "fluentcrm.contact.job_title"],
-  "baseAdmin.phoneExtension": ["logto.user.customData.civitasProfile.phoneExtension", "fluentcrm.contact.custom_values.phone_extension"],
+  // Deprecated: all baseAdmin.* fields are legacy creation input. administrativeContacts is the active user-seeding contract.
+  "baseAdmin.firstName (deprecated)": ["deprecated.creation.baseAdmin.firstName", "use.administrativeContacts[].firstName"],
+  "baseAdmin.middleName (deprecated)": ["deprecated.creation.baseAdmin.middleName", "use.administrativeContacts[].middleName"],
+  "baseAdmin.firstSurname (deprecated)": ["deprecated.creation.baseAdmin.firstSurname", "use.administrativeContacts[].firstSurname"],
+  "baseAdmin.secondSurname (deprecated)": ["deprecated.creation.baseAdmin.secondSurname", "use.administrativeContacts[].secondSurname"],
+  "baseAdmin.name (deprecated)": ["deprecated.creation.baseAdmin.name", "use.administrativeContacts[].name"],
+  "baseAdmin.email (deprecated)": ["deprecated.creation.baseAdmin.email", "use.administrativeContacts[].email"],
+  "baseAdmin.phone (deprecated)": ["deprecated.creation.baseAdmin.phone", "use.administrativeContacts[].phone"],
+  "baseAdmin.username (deprecated)": ["deprecated.creation.baseAdmin.username", "use.administrativeContacts[].username"],
+  "baseAdmin.position (deprecated)": ["deprecated.creation.baseAdmin.position", "use.administrativeContacts[].position"],
+  "baseAdmin.phoneExtension (deprecated)": ["deprecated.creation.baseAdmin.phoneExtension", "use.administrativeContacts[].phoneExtension"],
   "administrativeContacts.*": ["logto.user.topLevel/profile/customData (shared phone lines with extensions stay in customData)", "logto.membership.organizationRole", "fluentcrm.contact"],
   "crm.companyName/companyEmail/companyPhone/companyOwner/website/address/city/state/postalCode/country/numberOfEmployees/industry/type/about/description/nit/verificationDigit/tags/lists": ["logto.organization.customData.civitasProfile.business/contact/downstream.crm", "fluentcrm.company"],
   "adminRoleName/jitDefaultRoleName": ["logto.organizationRole", "logto.jit.defaultRoles", "civitas.operation.payloadSnapshot"],
@@ -29,8 +32,6 @@ const FORM_FIELD_INVENTORY = Object.freeze({
 function buildLogtoOrganizationCustomData({ canonical = {}, extended = {}, crm = {} } = {}) {
   const normalizedCrm = normalizeCrmCompanyInput(crm, { name: canonical.name, adminDomain: extended.adminDomain });
   const business = cleanObject({
-    slug: extended.slug,
-    subdomain: extended.subdomain,
     appSubdomain: extended.appSubdomain || extended.subdomain,
     appBaseDomain: extended.appBaseDomain,
     entryUrl: extended.entryUrl,
@@ -52,7 +53,7 @@ function buildLogtoOrganizationCustomData({ canonical = {}, extended = {}, crm =
   });
   const contact = cleanObject({ owner: normalizedCrm.companyOwner || canonical.baseAdmin?.name, email: normalizedCrm.companyEmail, phone: normalizedCrm.companyPhone });
   return cleanObject({
-    provisioning: cleanObject({ slug: extended.slug, appSubdomain: extended.appSubdomain || extended.subdomain, appBaseDomain: extended.appBaseDomain, entryUrl: extended.entryUrl, institutionalDomain: extended.adminDomain }),
+    provisioning: cleanObject({ appSubdomain: extended.appSubdomain || extended.subdomain, appBaseDomain: extended.appBaseDomain, entryUrl: extended.entryUrl, institutionalDomain: extended.adminDomain }),
     oidcRedirectUri: extended.oidcRedirectUri || null,
     civitasProfile: {
       version: 1,

@@ -15,16 +15,18 @@ test("organization payload separates Logto top-level, customData and downstream 
   const payload = buildLogtoOrganizationCreatePayload({ canonical, extended, crm });
   assert.equal(payload.name, "Colegio Civitas");
   assert.equal(payload.description, "Desc");
-  assert.equal(payload.customData.provisioning.slug, "colegio-civitas");
+  assert.equal(payload.customData.provisioning.slug, undefined);
   assert.equal(payload.customData.provisioning.appSubdomain, "civitas");
   assert.equal(payload.customData.provisioning.appBaseDomain, "socialstudies.cloud");
   assert.equal(payload.customData.provisioning.entryUrl, "https://civitas.socialstudies.cloud");
   assert.equal(payload.customData.civitasProfile.business.nit, 123);
   assert.equal(payload.customData.civitasProfile.business.state, "California");
   assert.equal(payload.customData.civitasProfile.business.department, undefined);
+  assert.equal(payload.customData.civitasProfile.business.slug, undefined);
+  assert.equal(payload.customData.civitasProfile.business.subdomain, undefined);
   assert.equal(payload.customData.civitasProfile.contact.email, "info@colegio.edu.co");
   assert.deepEqual(payload.customData.civitasProfile.downstream.crm.tags, ["colegios"]);
-  assert.ok(FORM_FIELD_INVENTORY["baseAdmin.position"].includes("logto.user.customData.civitasProfile.position"));
+  assert.ok(FORM_FIELD_INVENTORY["baseAdmin.position (deprecated)"].includes("use.administrativeContacts[].position"));
 });
 
 test("user payload maps Latin American names to Logto profile and customData", () => {

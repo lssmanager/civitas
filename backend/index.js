@@ -1480,8 +1480,8 @@ const buildCivitasCustomData = (customData = {}, patch = {}) => {
   const generatedBranding = buildLogtoOrganizationBrandingCss(incomingBranding);
   const existingBusiness = normalizeBusinessLocationState(customData.civitasProfile?.business || {});
   const business = normalizeBusinessLocationState({ ...existingBusiness, ...(patch.business || {}) });
-  const appSubdomain = business.appSubdomain || business.subdomain || customData.provisioning?.appSubdomain || null;
-  const appBaseDomain = business.appBaseDomain || customData.provisioning?.appBaseDomain || null;
+  const appSubdomain = firstValue(business.appSubdomain, customData.provisioning?.appSubdomain, business.subdomain);
+  const appBaseDomain = firstValue(business.appBaseDomain, customData.provisioning?.appBaseDomain);
   const validEntry = appSubdomain && APP_BASE_DOMAINS.includes(appBaseDomain);
   if (validEntry) business.entryUrl = buildEntryUrl(appSubdomain, appBaseDomain);
   return {
@@ -1527,24 +1527,26 @@ function buildOrganizationProfileReadModel({ logtoOrganization, profile, fluentC
   const branding = civitasProfile.branding || {};
   const crm = fluentCrmCompany && !fluentCrmCompany.unavailable ? fluentCrmCompany : {};
   const derivedEntry = deriveAppEntryFromOidcRedirectUri(typeof customData.oidcRedirectUri === "string" ? customData.oidcRedirectUri : null);
-  const readAppSubdomain = firstValue(business.appSubdomain, business.subdomain, provisioning.appSubdomain, derivedEntry.appSubdomain, profile?.subdomain);
+  const readAppSubdomain = firstValue(business.appSubdomain, provisioning.appSubdomain, derivedEntry.appSubdomain, business.subdomain, profile?.subdomain);
   const readAppBaseDomain = firstValue(business.appBaseDomain, provisioning.appBaseDomain, derivedEntry.appBaseDomain);
   const readEntryUrl = readAppSubdomain && readAppBaseDomain ? buildEntryUrl(readAppSubdomain, readAppBaseDomain) : null;
   return {
     sourcePriority: ["logto.customData.civitasProfile", "logto.customData.provisioning", "fluentcrm.company", "civitas.operational_cache"],
     business: {
+      /** @deprecated Legacy display-only identifier; never use for functional URLs/routing. */
       slug: firstValue(business.slug, provisioning.slug, profile?.slug),
       appSubdomain: readAppSubdomain,
       appBaseDomain: readAppBaseDomain,
       entryUrl: readEntryUrl,
       entryUrlInconsistency: readEntryUrl ? null : derivedEntry.inconsistency || "missing_app_entry_fields",
+      /** @deprecated Compatibility alias for appSubdomain. */
       subdomain: readAppSubdomain,
       website: firstValue(business.website, crm.website, crm.url),
       institutionalDomain: firstValue(business.institutionalDomain, provisioning.institutionalDomain, profile?.adminDomain),
       nit: firstValue(business.nit, crm.nit, crm.custom_values?.nit),
       verificationDigit: firstValue(business.verificationDigit, crm.verification_digit, crm.custom_values?.verification_digit),
       country: firstValue(business.country, crm.country),
-      state: firstValue(business.state, business.department, crm.state, crm.region),
+      state: firstValue(business.state, crm.state, business.department, crm.region),
       city: firstValue(business.city, crm.city),
       postalCode: firstValue(business.postalCode, crm.postal_code, crm.zip),
       addressLine1: firstValue(business.addressLine1, crm.address_line_1, crm.address1, crm.address),
@@ -1599,15 +1601,15 @@ app.patch("/owner/organizations/:organizationId/profile", requireAuth(API_RESOUR
     if (profile) {
       await db.update(organizationProfiles).set({
         nameCache: getLogtoOrganizationName(updated) || profile.nameCache,
-        slug: customData.civitasProfile?.business?.slug || profile.slug,
+        slug: profile.slug,
         adminDomain: customData.civitasProfile?.business?.institutionalDomain || profile.adminDomain,
-        subdomain: customData.civitasProfile?.business?.appSubdomain || customData.civitasProfile?.business?.subdomain || profile.subdomain,
+        subdomain: customData.civitasProfile?.business?.appSubdomain || profile.subdomain,
         logoUrl: customData.civitasProfile?.branding?.logoUrl || profile.logoUrl,
         primaryColor: customData.civitasProfile?.branding?.primaryColor || profile.primaryColor,
         updatedAt: new Date(),
       }).where(eq(organizationProfiles.id, profile.id));
     }
-    const operation = await createSyncOperation({ organizationId: logtoOrganizationId, operationType: "organization_profile_downstream_sync", stepName: "fluentcrm_company_profile_sync", metadata: { source: "logto_customData.civitasProfile", target: "fluentcrm", requestedBy: "owner_console" } });
+    const operation = await createSyncOperation({ operationType: "organization_profile_downstream_sync", entityType: "organization", entityId: logtoOrganizationId, logtoOrganizationId, correlationId: `owner-profile:${logtoOrganizationId}:${Date.now()}`, idempotencyKey: req.body?.idempotencyKey || `owner-profile:${logtoOrganizationId}:${JSON.stringify(customData.civitasProfile || {})}`, payloadSnapshotJson: { source: "logto_customData.civitasProfile", target: "fluentcrm", requestedBy: "owner_console", customData: customData.civitasProfile || {} } });
     await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "organization_profile_custom_data_updated", syncOperationId: operation.id, sourceOfTruth: "logto.customData" } });
     return res.json({ status: "updated_sync_queued", organization: serializeOwnerOrganization(profile, updated), syncOperation: operation });
   } catch (error) {

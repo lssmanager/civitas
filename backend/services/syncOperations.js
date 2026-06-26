@@ -56,7 +56,12 @@ function classifyOperation(item = {}) {
 
 function serializePending(item, organizationName = null) {
   const classified = classifyOperation(item);
-  const rawError = item.lastError || item.errorMessage || item.lastErrorJson?.message || null;
+  const lastStep = Array.isArray(item.steps) ? item.steps[item.steps.length - 1] : null;
+  const stepOutput = lastStep?.outputJson?.result || lastStep?.outputJson || {};
+  const snapshot = item.resultSnapshotJson?.workerOutcome?.result || item.resultSnapshotJson || item.payloadSnapshotJson || {};
+  const details = { ...snapshot, ...stepOutput };
+  const rawError = item.lastError || item.errorMessage || item.lastErrorJson?.message || lastStep?.lastErrorJson?.message || null;
+  const humanMessage = details.humanMessage || details.message || rawError || `${classified.label}: ${item.status}`;
   return {
     id: item.id,
     operationId: item.operationId || item.id,
@@ -64,8 +69,16 @@ function serializePending(item, organizationName = null) {
     organizationName,
     type: classified.label,
     affectedSystem: classified.system,
+    entityType: details.entityType || item.entityType || null,
+    targetIdentity: details.targetIdentity || details.identity || null,
+    fieldsSent: details.fieldsSent || details.payloadSummary?.fieldsSent || [],
+    missingFields: details.missingFields || details.payloadSummary?.missingFields || [],
+    fieldDiffs: details.fieldDiffs || null,
+    providerStatus: details.providerStatus || details.status || null,
+    providerCode: details.providerCode || details.code || null,
+    humanMessage: safeFunctionalMessage(humanMessage),
     status: item.status,
-    retryable: Boolean(item.retryable || item.lastErrorJson?.retryable || ["failed", "partial_failed", "error"].includes(item.status)),
+    retryable: Boolean(item.retryable || item.lastErrorJson?.retryable || lastStep?.lastErrorJson?.retryable || ["failed", "partial_failed", "error"].includes(item.status)),
     lastError: safeFunctionalMessage(
       rawError,
       classified.system === "FluentCRM"
@@ -168,6 +181,8 @@ async function createCanonicalSyncOperation({
   return operation;
 }
 
+// Deprecated compatibility shim for historic callers. New code must pass the canonical
+// operation contract (entityType, correlationId, idempotencyKey, payloadSnapshotJson).
 async function createLegacySyncOperation({
   organizationId,
   operationType,
@@ -185,6 +200,8 @@ async function createLegacySyncOperation({
     status,
     canonicalStatus: status,
     downstreamStatus: status,
+    correlationId: metadata?.correlationId || `legacy:${operationType}:${organizationId || "none"}:${Date.now()}`,
+    idempotencyKey: metadata?.idempotencyKey || `legacy:${operationType}:${organizationId || "none"}:${Date.now()}:${Math.random().toString(36).slice(2)}`,
     payloadSnapshotJson: metadata,
     resultSnapshotJson: {},
     lastErrorJson: errorMessage ? { message: errorMessage, retryable } : null,
@@ -305,8 +322,9 @@ async function listOrganizationPendingSync({ organizationId }) {
     .where(eq(syncOperations.logtoOrganizationId, organizationId))
     .orderBy(desc(syncOperations.updatedAt))
     .limit(50);
+  const operationsWithSteps = await Promise.all(operations.map((operation) => getSyncOperationWithSteps(operation.id).then((withSteps) => withSteps || operation)));
 
-  return operations
+  return operationsWithSteps
     .map((operation) => serializePending(operation))
     .filter((item) => item.status !== "completed" && item.status !== "succeeded");
 }
@@ -383,5 +401,6 @@ module.exports = {
   recordOperationStep,
   retrySyncOperation,
   safeFunctionalMessage,
+  serializePending,
   updateSyncOperation,
 };

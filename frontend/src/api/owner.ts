@@ -27,11 +27,13 @@ export type OwnerOrganization = {
     nameCache: string | null;
     type: string | null;
     status: string;
+    /** @deprecated Compatibility alias for appSubdomain. */
     subdomain: string | null;
     appSubdomain?: string | null;
     appBaseDomain?: string | null;
     entryUrl?: string | null;
     entryUrlInconsistency?: string | null;
+    /** @deprecated Historical/display-only; never functional for URLs or routing. */
     slug?: string | null;
     adminDomain?: string | null;
     branding?: { logoUrl: string | null; faviconUrl: string | null; primaryColor: string | null; primaryColorDark: string | null; lightLogoUrl?: string | null; darkLogoUrl?: string | null; lightMarkUrl?: string | null; darkMarkUrl?: string | null; lightFaviconUrl?: string | null; darkFaviconUrl?: string | null; lightPrimaryColor?: string | null; darkPrimaryColor?: string | null; };
@@ -87,7 +89,7 @@ export type OwnerSystemMetricsResponse = {
   series?: { last8?: Array<{ at: string; redisCommandsPerMinute: number | null; bullmqJobsPerMinute: number | null; sampleWindowMinutes: number }>; throughput24h?: Array<{ at: string; redisCommandsPerMinute: number | null; bullmqJobsPerMinute: number | null; sampleCount: number }>; rollup?: Record<string, unknown> | null };
 };
 
-export type OwnerPendingSync = { id: string; operationId: string; organizationId: string | null; organizationName: string | null; type: string; affectedSystem: string; status: string; retryable: boolean; lastError: string; suggestedAction: string; };
+export type OwnerPendingSync = { id: string; operationId: string; organizationId: string | null; organizationName: string | null; type: string; affectedSystem: string; status: string; retryable: boolean; lastError: string; suggestedAction: string; entityType?: string | null; targetIdentity?: Record<string, unknown> | null; fieldsSent?: string[]; missingFields?: string[]; fieldDiffs?: Record<string, unknown> | null; providerStatus?: string | null; providerCode?: string | null; humanMessage?: string | null; };
 export type OwnerOrganizationEvent = { id: string; at: string | null; type: string; result: string; stage: string; message: string; requiresAction: boolean; retryOperationId: string | null };
 export type OwnerOrganizationProfileResponse = {
   organization: OwnerOrganization;
@@ -278,10 +280,12 @@ export type CreateOwnerOrganizationInput = {
   name: string;
   description?: string;
   type?: string;
+  /** @deprecated Legacy input alias. New creation flows must send appSubdomain. */
   subdomain?: string;
   appSubdomain?: string;
   appBaseDomain?: string;
   seatTotal?: number;
+  /** @deprecated Historical/display-only; not part of the active creation contract. */
   slug?: string;
   adminDomain?: string;
   logoUrl?: string;

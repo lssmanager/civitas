@@ -202,6 +202,121 @@ function buildFluentCrmCompanyPayload(company = {}) {
   };
 }
 
+
+const COMPANY_SYNC_FIELDS = Object.freeze([
+  "name",
+  "email",
+  "phone",
+  "website",
+  "address",
+  "address_line_1",
+  "address_line_2",
+  "city",
+  "state",
+  "postal_code",
+  "country",
+  "employees_number",
+  "industry",
+  "type",
+  "owner",
+  "description",
+  "about",
+  "tags",
+  "lists",
+  "custom_values.nit",
+  "custom_values.digito_de_verificación",
+  "custom_values.address_line_1",
+  "custom_values.address_line_2",
+  "custom_values.city",
+  "custom_values.state",
+  "custom_values.postal_code",
+  "custom_values.country",
+  "custom_values.employees_number",
+]);
+
+const comparableValue = (value) => {
+  if (value == null || value === "") return null;
+  if (Array.isArray(value)) return value.map((item) => normalizeString(item)).filter(Boolean).sort();
+  if (typeof value === "number") return value;
+  return normalizeString(value);
+};
+
+function getByPath(object, path) {
+  return path.split(".").reduce((current, key) => current && current[key] !== undefined ? current[key] : undefined, object);
+}
+
+function setByPath(object, path, value) {
+  const keys = path.split(".");
+  let current = object;
+  keys.slice(0, -1).forEach((key) => {
+    if (!current[key] || typeof current[key] !== "object" || Array.isArray(current[key])) current[key] = {};
+    current = current[key];
+  });
+  current[keys[keys.length - 1]] = value;
+}
+
+function normalizeExistingCompanyForDiff(company = {}) {
+  const custom = company.custom_values || company.customValues || {};
+  return {
+    name: companyName(company),
+    email: companyEmail(company),
+    phone: company.phone || company.company_phone || null,
+    website: companyWebsite(company),
+    address: company.address || company.billing_address || null,
+    address_line_1: company.address_line_1 || custom.address_line_1 || null,
+    address_line_2: company.address_line_2 || custom.address_line_2 || null,
+    city: company.city || custom.city || null,
+    state: company.state || company.region || custom.state || null,
+    postal_code: company.postal_code || company.zip || custom.postal_code || null,
+    country: company.country || custom.country || null,
+    employees_number: normalizeInteger(company.employees_number ?? custom.employees_number),
+    industry: company.industry || null,
+    type: company.type || null,
+    owner: company.owner || company.company_owner || null,
+    description: company.description || null,
+    about: company.about || null,
+    tags: company.tags || [],
+    lists: company.lists || [],
+    custom_values: {
+      nit: normalizeInteger(custom.nit),
+      "digito_de_verificación": normalizeInteger(custom["digito_de_verificación"] ?? custom.digito_de_verificacion),
+      address_line_1: custom.address_line_1 || company.address_line_1 || null,
+      address_line_2: custom.address_line_2 || company.address_line_2 || null,
+      city: custom.city || company.city || null,
+      state: custom.state || company.state || company.region || null,
+      postal_code: custom.postal_code || company.postal_code || company.zip || null,
+      country: custom.country || company.country || null,
+      employees_number: normalizeInteger(custom.employees_number ?? company.employees_number),
+    },
+  };
+}
+
+function computeCompanyFieldDiffs(desiredPayload = {}, existingCompany = {}) {
+  const existing = normalizeExistingCompanyForDiff(existingCompany);
+  const fieldDiffs = {};
+  const patch = {};
+  for (const field of COMPANY_SYNC_FIELDS) {
+    const desired = getByPath(desiredPayload, field);
+    if (desired === undefined) continue;
+    const before = comparableValue(getByPath(existing, field));
+    const after = comparableValue(desired);
+    if (JSON.stringify(before) !== JSON.stringify(after)) {
+      fieldDiffs[field] = { before, after };
+      setByPath(patch, field, desired);
+    }
+  }
+  return { fieldDiffs, patch, fieldsSent: Object.keys(fieldDiffs) };
+}
+
+function getMissingCompanyPayloadFields(payload = {}) {
+  return ["name"].filter((field) => !payload[field]);
+}
+
+async function updateCompany(companyIdValue, fields = {}) {
+  const body = await requestFluentCrm(`/companies/${encodeURIComponent(companyIdValue)}`, { method: "PUT", body: fields });
+  return extractCompanies(body)[0] || body;
+}
+
 function companyId(company) {
   return company?.id ?? company?.ID ?? company?.company_id ?? null;
 }
@@ -753,6 +868,58 @@ async function syncOrganizationContactsToFluentCrm({ profile, members, getMember
   return summary;
 }
 
+
+async function syncCompanyFromLogtoOrganization({ profile, logtoOrganization, actorUserId = null, auditMetadata = null, markSync = markOrganizationProfileFluentCrmSync, audit = recordAuditLogBestEffort } = {}) {
+  const customData = logtoOrganization?.customData || logtoOrganization?.custom_data || {};
+  const civitasProfile = customData.civitasProfile || {};
+  const business = civitasProfile.business || {};
+  const contact = civitasProfile.contact || {};
+  const downstreamCrm = civitasProfile.downstream?.crm || {};
+  const crmCompany = normalizeCrmCompanyInput({ ...business, companyOwner: contact.owner, companyEmail: contact.email, companyPhone: contact.phone, companyName: downstreamCrm.companyName || logtoOrganization?.name || profile?.nameCache, tags: downstreamCrm.tags, lists: downstreamCrm.lists }, { ...profile, name: logtoOrganization?.name || profile?.nameCache });
+  const merged = { ...profile, ...crmCompany, name: logtoOrganization?.name || profile?.nameCache };
+  const payload = buildFluentCrmCompanyPayload(merged);
+  const missingFields = getMissingCompanyPayloadFields(payload);
+  const targetIdentity = { companyName: payload.name || null, fluentcrmCompanyId: profile?.fluentcrmCompanyId || null, logtoOrganizationId: profile?.logtoOrganizationId || null };
+  await markSync({ id: profile.id, companyId: profile.fluentcrmCompanyId, status: FLUENTCRM_SYNC_STATUSES.PENDING });
+  try {
+    const candidates = await findCompanyCandidates({ ...merged, fluentcrmCompanyId: profile.fluentcrmCompanyId });
+    const match = findReliableCompanyMatch({ ...merged, fluentcrmCompanyId: profile.fluentcrmCompanyId }, candidates);
+    if (match.status === "conflict") {
+      const result = { status: "conflict", reason: match.reason, entityType: "company", targetIdentity, fieldsSent: [], fieldDiffs: {}, missingFields, providerStatus: "conflict", providerCode: match.reason, humanMessage: `Company: conflicto ${match.reason}` };
+      await markSync({ id: profile.id, companyId: profile.fluentcrmCompanyId, status: FLUENTCRM_SYNC_STATUSES.CONFLICT, errorMessage: `Ambiguous FluentCRM company match: ${match.reason}` });
+      await audit({ actorUserId, organizationId: profile.logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_FLUENTCRM_CONFLICT, result: AUDIT_RESULTS.ERROR, metadata: { ...auditMetadata, ...result, candidateCount: match.candidates?.length || 0 } });
+      return result;
+    }
+    if (!match.company) {
+      const company = await createCompany(merged);
+      const id = companyId(company);
+      const result = { status: "created", company, entityType: "company", targetIdentity: { ...targetIdentity, fluentcrmCompanyId: id == null ? null : String(id) }, fieldsSent: Object.keys(payload).filter((key) => payload[key] !== undefined), fieldDiffs: Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined).map(([key, value]) => [key, { before: null, after: comparableValue(value) }])), missingFields, providerStatus: "created", providerCode: null, humanMessage: `Company: creado ${payload.name || "sin nombre"}` };
+      await markSync({ id: profile.id, companyId: id == null ? null : String(id), status: FLUENTCRM_SYNC_STATUSES.LINKED, synced: true });
+      await audit({ actorUserId, organizationId: profile.logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_FLUENTCRM_SYNC, result: AUDIT_RESULTS.SUCCESS, metadata: { ...auditMetadata, ...result } });
+      return result;
+    }
+    const id = companyId(match.company);
+    const { fieldDiffs, patch, fieldsSent } = computeCompanyFieldDiffs(payload, match.company);
+    if (fieldsSent.length === 0) {
+      const result = { status: "no_changes", company: match.company, entityType: "company", targetIdentity: { ...targetIdentity, fluentcrmCompanyId: id == null ? null : String(id) }, fieldsSent: [], fieldDiffs: {}, missingFields, providerStatus: "no_changes", providerCode: null, humanMessage: "Company: sin cambios para enviar" };
+      await markSync({ id: profile.id, companyId: id == null ? null : String(id), status: FLUENTCRM_SYNC_STATUSES.LINKED, synced: true });
+      await audit({ actorUserId, organizationId: profile.logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_FLUENTCRM_LINK, result: AUDIT_RESULTS.SUCCESS, metadata: { ...auditMetadata, ...result } });
+      return result;
+    }
+    const company = await updateCompany(id, patch);
+    const result = { status: "updated", company, entityType: "company", targetIdentity: { ...targetIdentity, fluentcrmCompanyId: id == null ? null : String(id) }, fieldsSent, fieldDiffs, missingFields, providerStatus: "updated", providerCode: null, humanMessage: `Company: enviado ${fieldsSent.join(", ")}` };
+    await markSync({ id: profile.id, companyId: id == null ? null : String(id), status: FLUENTCRM_SYNC_STATUSES.LINKED, synced: true });
+    await audit({ actorUserId, organizationId: profile.logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_FLUENTCRM_SYNC, result: AUDIT_RESULTS.SUCCESS, metadata: { ...auditMetadata, ...result } });
+    return result;
+  } catch (error) {
+    const result = { status: "error", entityType: "company", targetIdentity, fieldsSent: [], fieldDiffs: {}, missingFields, providerStatus: "error", providerCode: error.code || null, fluentCrmStatus: error.status || null, humanMessage: error.message };
+    error.crmCompanySync = result;
+    await markSync({ id: profile.id, companyId: profile.fluentcrmCompanyId, status: FLUENTCRM_SYNC_STATUSES.ERROR, errorMessage: error.message });
+    await audit({ actorUserId, organizationId: profile.logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_FLUENTCRM_ERROR, result: AUDIT_RESULTS.ERROR, metadata: { ...auditMetadata, ...result, error } });
+    throw error;
+  }
+}
+
 async function getOrCreateCompanyForOrganization(profile, organization = {}, { actorUserId = null, auditMetadata = null, markSync = markOrganizationProfileFluentCrmSync, audit = recordAuditLogBestEffort } = {}) {
   const crmCompany = normalizeCrmCompanyInput(organization.crm || organization, { ...profile, name: organization.name });
   const merged = { ...profile, ...organization, ...crmCompany, name: organization.name || profile.nameCache };
@@ -777,4 +944,4 @@ async function getOrCreateCompanyForOrganization(profile, organization = {}, { a
   }
 }
 
-module.exports = { CRM_CLEANUP_STRATEGIES, FluentCrmError, buildCleanupPolicy, buildFluentCrmCompanyPayload, buildOrganizationCrmTaxonomy, cleanupContactInFluentCrm, createCompany, createContact, deleteContact, ensureOrganizationTagsAndLists, findCompanyCandidates, findReliableCompanyMatch, getFluentCrmConfig, getFluentCrmDiagnostic, getFluentCrmRoleSyncMapping, getOrCreateCompanyForOrganization, mapOrganizationRolesToCrmTaxonomy, normalizeBaseUrl, normalizeCrmCompanyInput, sanitizeForDiagnostics, searchCompanies, searchContacts, validateFluentCrmConfiguration, syncOrganizationContactsToFluentCrm, updateContact, updateContactEmailAfterLogtoChange, upsertContactFromLogtoIdentity };
+module.exports = { CRM_CLEANUP_STRATEGIES, FluentCrmError, buildCleanupPolicy, buildFluentCrmCompanyPayload, computeCompanyFieldDiffs, buildOrganizationCrmTaxonomy, cleanupContactInFluentCrm, createCompany, createContact, deleteContact, ensureOrganizationTagsAndLists, findCompanyCandidates, findReliableCompanyMatch, getFluentCrmConfig, getFluentCrmDiagnostic, getFluentCrmRoleSyncMapping, getOrCreateCompanyForOrganization, mapOrganizationRolesToCrmTaxonomy, normalizeBaseUrl, normalizeCrmCompanyInput, sanitizeForDiagnostics, searchCompanies, searchContacts, validateFluentCrmConfiguration, syncCompanyFromLogtoOrganization, syncOrganizationContactsToFluentCrm, updateCompany, updateContact, updateContactEmailAfterLogtoChange, upsertContactFromLogtoIdentity };
