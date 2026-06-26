@@ -49,6 +49,7 @@ const STEP_CLASSIFICATIONS = [
 ];
 
 const TERMINAL_STEP_STATUSES = new Set([STEP_STATUSES.COMPLETED, STEP_STATUSES.FAILED, STEP_STATUSES.SKIPPED, "unsupported"]);
+const DOWNSTREAM_STEP_PATTERN = /^(fluentcrm\.|branding\.)|fluentcrm[._-](company|contact)|branding/i;
 const NON_TERMINAL_STEP_STATUSES = new Set([STEP_STATUSES.QUEUED, STEP_STATUSES.RUNNING]);
 
 function formatList(values = []) {
@@ -57,12 +58,36 @@ function formatList(values = []) {
   return `${list.slice(0, -1).join(", ")} y ${list[list.length - 1]}`;
 }
 
+function getLatestStep(item = {}) {
+  const steps = Array.isArray(item.steps) ? item.steps : [];
+  return steps[steps.length - 1] || null;
+}
+
 function pickVisibleStep(steps = []) {
   const ordered = Array.isArray(steps) ? [...steps] : [];
-  return ordered.find((step) => NON_TERMINAL_STEP_STATUSES.has(step.status))
+  const downstream = ordered.filter((step) => DOWNSTREAM_STEP_PATTERN.test(step.stepName || ""));
+  return downstream.find((step) => NON_TERMINAL_STEP_STATUSES.has(step.status))
+    || [...downstream].reverse().find((step) => step.status === STEP_STATUSES.FAILED || step.lastErrorJson)
+    || ordered.find((step) => NON_TERMINAL_STEP_STATUSES.has(step.status))
     || [...ordered].reverse().find((step) => step.status === STEP_STATUSES.FAILED || step.lastErrorJson)
+    || downstream[downstream.length - 1]
     || ordered[ordered.length - 1]
     || null;
+}
+
+function buildQueueProjection(item = {}, visibleStep = null) {
+  const snapshot = item.jobSnapshot || {};
+  const retryState = snapshot.retryState || deriveRetryState(item, visibleStep);
+  const workerHealth = item.workerHealth || {};
+  return {
+    queueName: snapshot.queueName || visibleStep?.queueName || item.queueName || QUEUE_NAME,
+    jobId: snapshot.jobId || visibleStep?.jobId || item.jobId || null,
+    retryState,
+    enqueuedAt: snapshot.enqueuedAt || item.enqueuedAt || null,
+    lastAttemptAt: snapshot.lastAttemptAt || item.lastAttemptAt || null,
+    jobAgeSeconds: snapshot.jobAgeSeconds ?? item.jobAgeSeconds ?? null,
+    workerHeartbeatState: workerHealth.workerHeartbeatState || workerHealth.state || item.workerHeartbeatState || (retryState === "queued" ? "unknown" : null),
+  };
 }
 
 function classifyOperation(item = {}, step = null) {
@@ -111,14 +136,8 @@ function serializePending(item, organizationName = null) {
   const providerStatus = details.providerStatus || details.status || visibleStep?.status || item.status || null;
   const providerCode = details.providerCode || details.code || item.lastErrorJson?.providerCode || visibleStep?.lastErrorJson?.providerCode || null;
   const retryState = deriveRetryState(item, visibleStep);
-  const humanMessage = buildActionableMessage({ classified, details, missingFields, fieldDiffs, providerCode, providerStatus, retryState, rawError });
-  const queue = buildQueueProjection(item);
-  const humanMessage = item.humanMessage || item.payloadSnapshotJson?.humanMessage || item.resultSnapshotJson?.humanMessage || safeFunctionalMessage(
-    rawError,
-    classified.system === "FluentCRM"
-      ? "No se pudo completar la sincronización con FluentCRM. Logto conserva los datos canónicos."
-      : undefined
-  );
+  const actionableMessage = item.humanMessage || item.payloadSnapshotJson?.humanMessage || item.resultSnapshotJson?.humanMessage || buildActionableMessage({ classified, details, missingFields, fieldDiffs, providerCode, providerStatus, retryState, rawError });
+  const queue = buildQueueProjection(item, visibleStep);
   return {
     id: item.pendingId || item.id,
     operationId: item.operationId || item.id,
@@ -137,23 +156,17 @@ function serializePending(item, organizationName = null) {
     fieldDiffs,
     providerStatus,
     providerCode,
-    humanMessage: safeFunctionalMessage(humanMessage),
-    retryState,
-    entityType: item.entityType || classified.entityType,
-    targetIdentity: item.targetIdentity || item.logtoOrganizationId || item.entityId || null,
-    stepName: item.stepName || step?.stepName || item.operationType,
+    humanMessage: safeFunctionalMessage(actionableMessage),
     status: item.status,
     retryable: Boolean(item.retryable || item.lastErrorJson?.retryable || visibleStep?.lastErrorJson?.retryable || ["failed", "partial_failed", "error"].includes(item.status)),
     lastError: safeFunctionalMessage(
       rawError,
       classified.system === "FluentCRM"
-        ? humanMessage || "No se pudo completar la sincronización con FluentCRM. Logto conserva los datos canónicos."
+        ? actionableMessage || "No se pudo completar la sincronización con FluentCRM. Logto conserva los datos canónicos."
         : undefined
     ),
     technicalErrorPresent: Boolean(rawError && TECHNICAL_ERROR_PATTERN.test(rawError)),
     suggestedAction: item.suggestedAction || classified.action,
-    providerCode: item.providerCode || item.lastErrorJson?.code || step?.lastErrorJson?.code || null,
-    providerStatus: item.providerStatus || item.lastErrorJson?.status || step?.lastErrorJson?.status || null,
     queueName: queue.queueName,
     jobId: queue.jobId,
     retryState: queue.retryState,
@@ -486,22 +499,49 @@ async function retrySyncOperation({ operationId, organizationId }) {
       console.error("Failed to enqueue sync retry", { operationId: operation.id, error });
       return { enqueued: false, reason: error.message };
     });
+    const withSteps = await getSyncOperationWithSteps(operation.id).catch(() => null);
+    const visibleStep = pickVisibleStep(withSteps?.steps || []);
+    const retryStepName = visibleStep?.stepName || (operation.operationType?.includes("contact") ? "fluentcrm.contact.upsert:retry" : operation.operationType?.includes("company") || operation.operationType?.includes("profile") ? "fluentcrm.company.ensure" : "sync.retry.enqueue");
     await recordOperationStep({
       operationId: operation.id,
-      stepName: operation.operationType?.includes("contact") ? "fluentcrm.contact.upsert:retry" : operation.operationType?.includes("company") || operation.operationType?.includes("profile") ? "fluentcrm.company.ensure" : "sync.retry.enqueue",
+      stepName: retryStepName,
       queueName: enqueueResult.queueName || QUEUE_NAME,
       jobId: enqueueResult.jobId || `sync-operation-${operation.id}`,
       status: STEP_STATUSES.QUEUED,
-      outputJson: { ...enqueueResult, humanMessage: "Retry encolado para operación downstream" },
+      outputJson: { ...enqueueResult, stepName: retryStepName, entityType: retryStepName.includes("contact") ? "fluentcrm.contact" : retryStepName.includes("company") ? "fluentcrm.company" : "sync.operation", humanMessage: retryStepName.includes("company") ? "Retry encolado para FluentCRM company" : retryStepName.includes("contact") ? "Retry encolado para FluentCRM contact" : "Retry encolado para operación downstream" },
     });
     return operation;
   }
 
-  return createLegacySyncOperation({
-    organizationId,
-    operationType: "manual_retry",
-    stepName: "manual_retry_requested",
-    metadata: { requestedFrom: "owner_console" },
+  // Projected CRM pendings are functional rows (for example crm-company-<org>)
+  // with no persisted sync_operations record yet. Retrying them must enqueue the
+  // downstream CRM operation directly, not a generic bootstrap/manual marker.
+  return createCanonicalSyncOperation({
+    operationType: "organization_profile_downstream_sync",
+    entityType: "fluentcrm.company",
+    entityId: organizationId,
+    logtoOrganizationId: organizationId,
+    correlationId: `owner-crm-retry:${organizationId}:${Date.now()}`,
+    idempotencyKey: `owner-crm-retry:${organizationId}:${Date.now()}`,
+    payloadSnapshotJson: {
+      requestedFrom: "owner_console",
+      requestedOperationId: operationId,
+      stepName: "fluentcrm.company.ensure",
+      entityType: "fluentcrm.company",
+      targetIdentity: organizationId,
+      humanMessage: "Retry solicitado para FluentCRM company",
+    },
+  }).then(async (created) => {
+    const enqueueResult = await enqueueSyncOperation(created).catch((error) => ({ enqueued: false, reason: error.message, queueName: QUEUE_NAME, jobId: `sync-operation-${created.id}` }));
+    await recordOperationStep({
+      operationId: created.id,
+      stepName: "fluentcrm.company.ensure",
+      queueName: enqueueResult.queueName || QUEUE_NAME,
+      jobId: enqueueResult.jobId || `sync-operation-${created.id}`,
+      status: STEP_STATUSES.QUEUED,
+      outputJson: { ...enqueueResult, entityType: "fluentcrm.company", targetIdentity: organizationId, humanMessage: "Retry encolado para FluentCRM company" },
+    });
+    return created;
   });
 }
 
