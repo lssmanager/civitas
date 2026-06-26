@@ -94,6 +94,7 @@ export type OwnerPendingSync = {
   operationId: string;
   organizationId: string | null;
   organizationName: string | null;
+  operationType?: string | null;
   type: string;
   affectedSystem: string;
   entityType?: string | null;
@@ -106,6 +107,9 @@ export type OwnerPendingSync = {
   suggestedAction: string;
   providerCode?: string | null;
   providerStatus?: string | number | null;
+  fieldsSent?: string[] | null;
+  missingFields?: string[] | null;
+  fieldDiffs?: Record<string, unknown> | null;
   queueName?: string | null;
   jobId?: string | null;
   retryState?: string | null;
@@ -114,7 +118,7 @@ export type OwnerPendingSync = {
   workerHeartbeatState?: string | null;
   jobAgeSeconds?: number | null;
 };
-export type OwnerOrganizationEvent = { id: string; at: string | null; type: string; result: string; stage: string; message: string; requiresAction: boolean; retryOperationId: string | null; stepName?: string | null; entityType?: string | null; targetIdentity?: string | null; queueName?: string | null; jobId?: string | null; retryState?: string | null; workerHeartbeatState?: string | null; jobAgeSeconds?: number | null };
+export type OwnerOrganizationEvent = { id: string; at: string | null; type: string; result: string; stage: string; message: string; humanMessage?: string | null; requiresAction: boolean; retryOperationId: string | null; stepName?: string | null; entityType?: string | null; targetIdentity?: string | null; providerCode?: string | null; providerStatus?: string | number | null; queueName?: string | null; jobId?: string | null; retryState?: string | null; workerHeartbeatState?: string | null; jobAgeSeconds?: number | null };
 export type OwnerOrganizationProfileResponse = {
   organization: OwnerOrganization;
   canonical: { source: "logto"; topLevelFields: string[]; customData: Record<string, unknown> };
