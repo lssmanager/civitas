@@ -1,15 +1,7 @@
 const { and, desc, eq } = require("drizzle-orm");
 const { db } = require("../db/client");
 const { auditLogs, organizationProfiles, syncOperationSteps, syncOperations } = require("../db/schema");
-
-let enqueueSyncOperation = async () => {};
-try {
-  ({ enqueueSyncOperation } = require("./syncQueue"));
-} catch (_error) {
-  enqueueSyncOperation = async () => {};
-}
-
-const { QUEUE_NAME, getSyncJobSnapshot } = require("./syncQueue");
+const { QUEUE_NAME, enqueueSyncOperation, getSyncJobSnapshot } = require("./syncQueue");
 const { getWorkerHealthSnapshot } = require("./operationalObservability");
 
 const TECHNICAL_ERROR_PATTERN = /(select|insert|update|delete|from|where|failed query|syntax error|relation .* does not exist|organization_bootstrap_micro_requests|SQLSTATE|postgres|duplicate key)/i;
