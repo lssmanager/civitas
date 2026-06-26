@@ -1,4 +1,5 @@
 const { randomUUID } = require("node:crypto");
+const { UnrecoverableError } = require("bullmq");
 const { QUEUE_NAMES, createQueue } = require("../queues/config");
 const { LOGTO_SYNC_STATUSES, markOrganizationProfileFluentCrmSync, upsertOrganizationProfile } = require("./organizationProfiles");
 const { normalizeCanonicalProvisioningInput, runCanonicalOrganizationBootstrap } = require("./organizationProvisioningCore");
@@ -107,7 +108,12 @@ async function processOrganizationBootstrapJob(job) {
     const canonicalCompleted = Boolean(error.provisioningState?.logtoOrganizationId);
     await updateSyncOperation({ id: operationId, status: canonicalCompleted ? OPERATION_STATUSES.PARTIAL_FAILED : OPERATION_STATUSES.FAILED, canonicalStatus: canonicalCompleted ? PHASE_STATUSES.COMPLETED : PHASE_STATUSES.FAILED, downstreamStatus: canonicalCompleted ? PHASE_STATUSES.FAILED : PHASE_STATUSES.SKIPPED, logtoOrganizationId: error.provisioningState?.logtoOrganizationId || operation.logtoOrganizationId, lastErrorJson: classified });
     log("operation failed", { operationId, jobId: job.id, queueName: QUEUE_NAMES.ORGANIZATION_BOOTSTRAP, attempt, status: "failed", error: classified });
-    if (classified.retryable === false && typeof job.discard === "function") job.discard();
+    if (classified.retryable === false) {
+      // BullMQ should retry transient infrastructure failures, but Logto/CRM 4xx
+      // validation conflicts are functional incidents: mark the job failed once so
+      // /owner/system shows executed-and-non-recoverable instead of pending work.
+      throw new UnrecoverableError(error.message || "Unrecoverable organization bootstrap failure");
+    }
     throw error;
   }
 }

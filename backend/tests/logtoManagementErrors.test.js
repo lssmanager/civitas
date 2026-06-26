@@ -30,6 +30,7 @@ test("LogtoManagementApiError exposes only a public-safe body and request shape"
     status: 424,
     timeoutMs: 8000,
     missingRoleNames: ["Admin-org", "Student-org"],
+    availableRoleNames: ["Viewer-org"],
   });
   assert.deepEqual(error.request, {
     method: "PATCH",

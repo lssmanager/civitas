@@ -57,10 +57,10 @@ class FluentCrmError extends Error {
     this.status = status;
     this.body = sanitizePublicErrorBody(body);
     this.code = code;
-    this.diagnostic = null;
+    this.diagnostic = code ? sanitizeForDiagnostics(diagnostic) : null;
     this.request = sanitizePublicRequest(request);
     this.internalBody = sanitizeForDiagnostics(body);
-    this.internalDiagnostic = diagnostic ? sanitizeForDiagnostics(diagnostic) : null;
+    this.internalDiagnostic = diagnostic || null;
     this.internalRequest = request ? sanitizeForDiagnostics(request) : null;
   }
 }

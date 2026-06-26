@@ -209,3 +209,42 @@ test("Logto Management API request timeout is controlled", async () => {
 
   delete process.env.LOGTO_MANAGEMENT_TIMEOUT_MS;
 });
+
+test("createOrResolveLogtoUserByEmail omits reused primary phone instead of failing Logto create", async () => {
+  const { createOrResolveLogtoUserByEmail } = require("../services/logtoManagement");
+  const requests = [];
+  global.fetch = async (url, options = {}) => {
+    requests.push({ url: String(url), options });
+    if (String(url).endsWith("/oidc/token")) return jsonResponse({ access_token: "token", expires_in: 3600 });
+    if (String(url).includes("/api/users?search=new%40example.edu")) return jsonResponse({ data: [] });
+    if (String(url).includes("/api/users?search=573001112233")) return jsonResponse({ data: [{ id: "user-phone", primaryEmail: "old@example.edu", primaryPhone: "573001112233" }] });
+    if (String(url).endsWith("/api/users")) return jsonResponse({ id: "user-new", primaryEmail: "new@example.edu", primaryPhone: null });
+    throw new Error(`unexpected request: ${url}`);
+  };
+
+  const result = await createOrResolveLogtoUserByEmail({ email: "new@example.edu", name: "New Admin", phone: "+57 300 111 2233", username: "new" });
+
+  const createRequest = requests.find((request) => request.url.endsWith("/api/users") && request.options.method === "POST");
+  assert.equal(JSON.parse(createRequest.options.body).primaryPhone, undefined);
+  assert.equal(result.source, "create_user_phone_omitted");
+  assert.deepEqual(result.reconciliation.omittedFields, ["primaryPhone"]);
+  assert.equal(result.reconciliation.conflictingUserId, "user-phone");
+});
+
+test("LogtoManagementApiError preserves sanitized 422 validation details", () => {
+  const { LogtoManagementApiError } = require("../services/logtoManagement");
+  const error = new LogtoManagementApiError("Logto request failed", {
+    status: 422,
+    body: {
+      code: "invalid_input",
+      message: "primaryPhone already exists",
+      issues: [{ path: ["primaryPhone"], message: "Already exists", clientSecret: "hidden" }],
+    },
+    request: { method: "POST", path: "/users", payload: { primaryPhone: "573001112233" } },
+  });
+
+  assert.equal(error.body.code, "invalid_input");
+  assert.equal(error.body.message, "primaryPhone already exists");
+  assert.deepEqual(error.body.issues, [{ path: ["primaryPhone"], message: "Already exists" }]);
+  assert.equal(error.request.path, "/users");
+});

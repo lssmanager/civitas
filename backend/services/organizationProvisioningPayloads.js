@@ -17,11 +17,11 @@ const FORM_FIELD_INVENTORY = Object.freeze({
   "baseAdmin.secondSurname": ["logto.user.customData.secondFamilyName"],
   "baseAdmin.name": ["logto.user.topLevel.name", "fluentcrm.contact.full_name"],
   "baseAdmin.email": ["logto.user.topLevel.primaryEmail", "fluentcrm.contact.email"],
-  "baseAdmin.phone": ["logto.user.topLevel.primaryPhone", "fluentcrm.contact.phone"],
+  "baseAdmin.phone": ["logto.user.topLevel.primaryPhone when no extension", "logto.user.customData.civitasProfile.phone", "fluentcrm.contact.phone"],
   "baseAdmin.username": ["logto.user.topLevel.username", "logto.user.profile.preferredUsername"],
   "baseAdmin.position": ["logto.user.customData.civitasProfile.position", "fluentcrm.contact.job_title"],
   "baseAdmin.phoneExtension": ["logto.user.customData.civitasProfile.phoneExtension", "fluentcrm.contact.custom_values.phone_extension"],
-  "administrativeContacts.*": ["logto.user.topLevel/profile/customData", "logto.membership.organizationRole", "fluentcrm.contact"],
+  "administrativeContacts.*": ["logto.user.topLevel/profile/customData (shared phone lines with extensions stay in customData)", "logto.membership.organizationRole", "fluentcrm.contact"],
   "crm.companyName/companyEmail/companyPhone/companyOwner/website/address/city/state/postalCode/country/numberOfEmployees/industry/type/about/description/nit/verificationDigit/tags/lists": ["logto.organization.customData.civitasProfile.business/contact/downstream.crm", "fluentcrm.company"],
   "adminRoleName/jitDefaultRoleName": ["logto.organizationRole", "logto.jit.defaultRoles", "civitas.operation.payloadSnapshot"],
 });
@@ -81,6 +81,7 @@ function buildLogtoUserCustomData(person = {}) {
     secondFamilyName: trim(person.secondSurname),
     civitasProfile: cleanObject({
       position: trim(person.position),
+      phone: trim(person.phone),
       phoneExtension: trim(person.phoneExtension),
       source: "owner_organization_provisioning",
     }),
@@ -89,7 +90,11 @@ function buildLogtoUserCustomData(person = {}) {
 
 function buildLogtoUserCreatePayload(person = {}) {
   const fullName = [trim(person.firstName), trim(person.middleName), trim(person.firstSurname ?? person.lastName), trim(person.secondSurname)].filter(Boolean).join(" ");
-  return cleanObject({ primaryEmail: trim(person.email)?.toLowerCase(), primaryPhone: trim(person.phone), username: trim(person.username), name: trim(person.name) || fullName || null, profile: buildLogtoUserProfile(person), customData: buildLogtoUserCustomData(person) });
+  // Logto primaryPhone is unique per user and cannot model a shared PBX/main line
+  // differentiated only by extension. Keep those organization contact details in
+  // Logto customData and FluentCRM contact data, not in Logto's unique top-level field.
+  const phoneExtension = trim(person.phoneExtension);
+  return cleanObject({ primaryEmail: trim(person.email)?.toLowerCase(), primaryPhone: phoneExtension ? null : trim(person.phone), username: trim(person.username), name: trim(person.name) || fullName || null, profile: buildLogtoUserProfile(person), customData: buildLogtoUserCustomData(person) });
 }
 
 function buildFluentCrmCompanyPayloadFromForm({ form = {}, canonical = {}, extended = {} } = {}) {

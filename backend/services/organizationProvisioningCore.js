@@ -184,7 +184,7 @@ async function resolveLogtoOrganizationForSync({ name, description, customData }
 
 async function resolveAdministrativeContactUser({ contact, logtoOrganizationId, internalUser }) {
   const resolved = await createOrResolveLogtoUserByEmail(buildLogtoUserCreatePayload(contact));
-  await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: resolved.created ? "administrative_contact_user_created" : "administrative_contact_user_resolved", administrativeContactEmail: contact.email, administrativeContactKey: contact.key, phone: contact.phone, position: contact.position, roleName: contact.organizationRoleName, source: resolved.source } });
+  await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: resolved.created ? "administrative_contact_user_created" : "administrative_contact_user_resolved", administrativeContactEmail: contact.email, administrativeContactKey: contact.key, phone: contact.phone, position: contact.position, roleName: contact.organizationRoleName, source: resolved.source, reconciliation: resolved.reconciliation || null } });
   return resolved;
 }
 
@@ -321,7 +321,7 @@ async function assignAdministrativeContactsBestEffort({ canonical, logtoOrganiza
     await addUserToLogtoOrganization({ organizationId: logtoOrganizationId, userId: logtoUserId });
     await assignOrganizationRoleToUser({ organizationId: logtoOrganizationId, userId: logtoUserId, organizationRoleId: roleId, organizationRoleName: contact.organizationRoleName });
     await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { ...auditContextBuilder({ organization: logtoOrganization }), stage: "administrative_contact_assigned", administrativeContactKey: contact.key, email: contact.email, logtoUserId, roleName: contact.organizationRoleName, roleId } });
-    assignments.push({ ...contact, status: "assigned", userCreated: Boolean(resolvedUser.created), userSource: resolvedUser.source, logtoUserId, roleName: contact.organizationRoleName, membershipAdded: true, roleAssigned: true });
+    assignments.push({ ...contact, status: "assigned", userCreated: Boolean(resolvedUser.created), userSource: resolvedUser.source, reconciliation: resolvedUser.reconciliation || null, logtoUserId, roleName: contact.organizationRoleName, membershipAdded: true, roleAssigned: true });
   }
   return assignments;
 }

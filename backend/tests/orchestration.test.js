@@ -54,3 +54,11 @@ test("configuration and conflict errors are non-retryable", () => {
   const conflict = classifyOperationalError({ message: "Duplicate contact", code: "FLUENTCRM_DUPLICATE_CONTACT" });
   assert.equal(conflict.retryable, false);
 });
+
+test("Logto 422 is classified as non-retryable canonical validation failure", () => {
+  const classified = classifyOperationalError({ message: "Logto Management API request failed", status: 422, code: "LOGTO_MANAGEMENT_VALIDATION", request: { method: "POST", path: "/users" } });
+  assert.equal(classified.system, "logto");
+  assert.equal(classified.category, "validation_error");
+  assert.equal(classified.retryable, false);
+  assert.equal(classified.request.path, "/users");
+});

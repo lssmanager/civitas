@@ -33,9 +33,17 @@ test("user payload maps Latin American names to Logto profile and customData", (
   assert.equal(payload.name, "Ana María Pérez Gómez");
   assert.deepEqual(payload.profile, { givenName: "Ana", middleName: "María", familyName: "Pérez", preferredUsername: "ana" });
   assert.equal(payload.customData.secondFamilyName, "Gómez");
+  assert.equal(payload.primaryPhone, undefined);
   assert.equal(payload.customData.civitasProfile.position, "Rectora");
+  assert.equal(payload.customData.civitasProfile.phone, "+571234567890");
   assert.equal(payload.customData.civitasProfile.phoneExtension, "123");
   assert.equal(payload.profile.position, undefined);
+});
+
+test("user payload keeps personal phones as Logto primaryPhone only when no extension is present", () => {
+  const payload = buildLogtoUserCreatePayload({ email: "mobile@example.com", phone: "+573001112233" });
+  assert.equal(payload.primaryPhone, "+573001112233");
+  assert.equal(payload.customData.civitasProfile.phone, "+573001112233");
 });
 
 test("FluentCRM builders produce retryable clean snapshots for company and contacts", () => {

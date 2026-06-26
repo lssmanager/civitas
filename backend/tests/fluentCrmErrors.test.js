@@ -43,7 +43,10 @@ test("FluentCrmError exposes only a public-safe body and request shape", () => {
     method: "POST",
     path: "/subscribers",
   });
-  assert.equal(error.diagnostic, null);
+  assert.deepEqual(error.diagnostic, {
+    likelyCauses: ["duplicate_email"],
+    fieldErrors: { email: ["Already exists"] },
+  });
 });
 
 test("FluentCrmError keeps redacted internal diagnostics for logs only", () => {
