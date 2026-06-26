@@ -1,5 +1,5 @@
 import { useId, useState } from "react";
-import { Accordion, Alert, Badge, Button, ButtonGroup, Pagination } from "react-bootstrap";
+import { Accordion, Badge, Button, ButtonGroup, Pagination } from "react-bootstrap";
 import { useOwnerApi, type OwnerAuditLog, type OwnerAuditPagination, type OwnerAuditResponse } from "../../api/owner";
 import { useStableResource } from "../../shared/hooks/useStableResource";
 import { EmptyState, ErrorState, JsonLogBlock, LoadingState, PageCard, PageShell } from "../../shared/ui";
@@ -48,7 +48,7 @@ const formatPrimitive = (value: unknown) => {
   if (value === null || value === undefined || value === "") return "No disponible";
   if (typeof value === "boolean") return value ? "Sí" : "No";
   if (typeof value === "string" || typeof value === "number") return String(value);
-  return JSON.stringify(value, null, 2);
+  return JSON.stringify(value);
 };
 
 const toTitleCase = (value: string) =>
@@ -59,146 +59,20 @@ const toTitleCase = (value: string) =>
     .trim()
     .replace(/^\w/, (char) => char.toUpperCase());
 
-const METADATA_LABELS: Record<string, string> = {
-  action: "Acción interna",
-  after: "Después",
-  before: "Antes",
-  code: "Código",
-  companyId: "Company id",
-  createdOrganizationId: "Organización creada",
-  email: "Email",
-  error: "Error",
-  errorMessage: "Mensaje de error",
-  fluentCompanyId: "FluentCRM company id",
-  httpStatus: "HTTP status",
-  internalUserId: "Internal user id",
-  logtoOrganizationId: "Logto organization id",
-  logtoUserId: "Logto user id",
-  message: "Mensaje",
-  organizationId: "Organization id",
-  reason: "Motivo",
-  requestId: "Request id",
-  response: "Respuesta",
-  role: "Rol",
-  stage: "Etapa",
-  status: "Estado",
-  syncStatus: "Estado de sincronización",
-  target: "Destino",
-  traceId: "Trace id",
-  userId: "User id",
-  wpRole: "Rol WordPress",
-};
+const buildMetadataRows = (metadata: Record<string, unknown> | null) => {
+  if (!metadata) return [];
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
-
-const isPrimitiveMetadataValue = (value: unknown) =>
-  value === null || ["string", "number", "boolean", "undefined"].includes(typeof value);
-
-const getMetadataLabel = (key: string) => METADATA_LABELS[key] ?? toTitleCase(key);
-
-const getMetadataSectionTitle = (key: string) => {
-  const normalized = key.toLowerCase();
-
-  if (["error", "err", "exception", "failure", "failed", "reason", "message", "code"].some((part) => normalized.includes(part))) {
-    return "Errores y diagnóstico";
-  }
-
-  if (["stage", "status", "state", "sync", "result", "step"].some((part) => normalized.includes(part))) {
-    return "Estado del flujo";
-  }
-
-  if (["before", "after", "change", "changes", "diff", "previous", "next"].some((part) => normalized.includes(part))) {
-    return "Cambios detectados";
-  }
-
-  if (["request", "response", "payload", "body", "headers", "api", "endpoint", "url"].some((part) => normalized.includes(part))) {
-    return "Intercambio técnico";
-  }
-
-  if (["id", "email", "logto", "fluent", "wordpress", "wp", "user", "organization", "company", "tenant", "role"].some((part) => normalized.includes(part))) {
-    return "Identificadores y referencias";
-  }
-
-  return "Metadata adicional";
-};
-
-const formatObjectPreview = (value: Record<string, unknown>) => {
-  const entries = Object.entries(value);
-  const primitiveEntries = entries.filter(([, entryValue]) => isPrimitiveMetadataValue(entryValue));
-
-  if (entries.length > 0 && primitiveEntries.length === entries.length && entries.length <= 8) {
-    return primitiveEntries
-      .map(([key, entryValue]) => `${getMetadataLabel(key)}: ${formatPrimitive(entryValue)}`)
-      .join("\n");
-  }
-
-  return JSON.stringify(value, null, 2);
-};
-
-const formatMetadataValue = (value: unknown) => {
-  if (Array.isArray(value)) {
-    if (value.length === 0) return "Sin elementos";
-    if (value.every(isPrimitiveMetadataValue)) return value.map(formatPrimitive).join(", ");
-    return JSON.stringify(value, null, 2);
-  }
-
-  if (isRecord(value)) return formatObjectPreview(value);
-
-  return formatPrimitive(value);
+  return Object.entries(metadata).map(([key, value]) => ({
+    label: toTitleCase(key),
+    value: formatPrimitive(value),
+    isCode: typeof value === "object" && value !== null,
+  }));
 };
 
 type DetailRow = {
   label: string;
   value: string;
   isCode?: boolean;
-};
-
-const buildMetadataSections = (metadata: Record<string, unknown> | null) => {
-  if (!metadata) return [];
-
-  const sections = new Map<string, DetailRow[]>();
-
-  Object.entries(metadata).forEach(([key, value]) => {
-    const title = getMetadataSectionTitle(key);
-    const currentRows = sections.get(title) ?? [];
-
-    currentRows.push({
-      label: getMetadataLabel(key),
-      value: formatMetadataValue(value),
-      isCode: !isPrimitiveMetadataValue(value),
-    });
-
-    sections.set(title, currentRows);
-  });
-
-  const preferredOrder = [
-    "Errores y diagnóstico",
-    "Estado del flujo",
-    "Cambios detectados",
-    "Identificadores y referencias",
-    "Intercambio técnico",
-    "Metadata adicional",
-  ];
-
-  return preferredOrder
-    .filter((title) => sections.has(title))
-    .map((title) => ({ title, rows: sections.get(title) ?? [] }));
-};
-
-const buildHumanSummary = (row: OwnerAuditLog) => {
-  const stage = formatStage(row);
-  const actor = formatActor(row);
-  const organization = formatOrganization(row);
-  const base = `Civitas registró ${row.action} con resultado ${row.result.toUpperCase()}.`;
-  const context = `Etapa: ${stage}. Actor: ${actor}. Alcance: ${organization}.`;
-
-  const errorCandidate = row.metadata?.errorMessage ?? row.metadata?.error ?? row.metadata?.reason ?? row.metadata?.message;
-  const errorText = typeof errorCandidate === "string" && errorCandidate.trim().length > 0
-    ? ` Diagnóstico: ${errorCandidate}`
-    : "";
-
-  return `${base} ${context}${errorText}`;
 };
 
 function AuditDetailList({
@@ -247,13 +121,10 @@ function AuditFormattedView({ row }: { row: OwnerAuditLog }) {
     { label: "Nombre canónico", value: row.organization?.name ?? "No disponible" },
   ];
 
-  const metadataSections = buildMetadataSections(row.metadata);
+  const metadataRows = buildMetadataRows(row.metadata);
 
   return (
     <div className="civitas-audit-detail-stack">
-      <Alert variant={resultVariant(row.result)} className="mb-0">
-        {buildHumanSummary(row)}
-      </Alert>
       <div className="civitas-audit-overview-grid">
         {overviewRows.map((item) => (
           <div key={item.label} className="civitas-audit-overview-card">
@@ -266,13 +137,7 @@ function AuditFormattedView({ row }: { row: OwnerAuditLog }) {
         <AuditDetailList title="Actor" rows={actorRows} />
         <AuditDetailList title="Organización" rows={organizationRows} />
       </div>
-      {metadataSections.length > 0 ? (
-        <div className="civitas-audit-detail-grid">
-          {metadataSections.map((section) => (
-            <AuditDetailList key={section.title} title={section.title} rows={section.rows} />
-          ))}
-        </div>
-      ) : null}
+      <AuditDetailList title="Metadata operativa" rows={metadataRows} />
     </div>
   );
 }
