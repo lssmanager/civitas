@@ -1573,13 +1573,28 @@ app.get("/owner/organizations/:organizationId/profile", requireAuth(API_RESOURCE
       }),
       listOrganizationEvents({ organizationId: logtoOrganizationId }).catch(() => []),
     ]);
+    const primaryPending = pending[0] || null;
     return res.json({
       organization: serializeOwnerOrganization(profile, logtoOrganization),
       canonical: { source: "logto", topLevelFields: ["id", "name", "description"], customData: getLogtoOrganizationCustomData(logtoOrganization) },
       readModel: buildOrganizationProfileReadModel({ logtoOrganization, profile, fluentCrmCompany }),
       customDataShape: { root: "customData.civitasProfile", sections: ["business", "contact", "branding", "downstream"] },
       downstreamOnly: ["fluentcrmCompanyId", "fluentcrmSyncStatus", "fluentcrmContactSync"],
-      sync: { pending, events },
+      sync: {
+        pending,
+        events,
+        summary: {
+          logto: profile?.logtoSyncStatus === "error" ? "error" : logtoOrganization ? "ok" : "missing",
+          fluentcrmCompany: primaryPending?.entityType === "fluentcrm.company" ? primaryPending.humanMessage : profile?.fluentcrmCompanyId ? profile?.fluentcrmSyncStatus || "linked" : "Falta crear company en FluentCRM",
+          fluentcrmContact: pending.find((item) => item.entityType === "fluentcrm.contact")?.humanMessage || "sin conflicto",
+          lastStep: primaryPending?.stepName || null,
+          lastRetry: primaryPending?.retryState || primaryPending?.status || null,
+          queueName: primaryPending?.queueName || null,
+          jobId: primaryPending?.jobId || null,
+          jobAgeSeconds: primaryPending?.jobAgeSeconds ?? null,
+          workerHeartbeatState: primaryPending?.workerHeartbeatState || null,
+        },
+      },
     });
   } catch (error) {
     console.error("Failed to load owner organization profile", error);
@@ -1607,7 +1622,7 @@ app.patch("/owner/organizations/:organizationId/profile", requireAuth(API_RESOUR
         updatedAt: new Date(),
       }).where(eq(organizationProfiles.id, profile.id));
     }
-    const operation = await createSyncOperation({ organizationId: logtoOrganizationId, operationType: "organization_profile_downstream_sync", stepName: "fluentcrm_company_profile_sync", metadata: { source: "logto_customData.civitasProfile", target: "fluentcrm", requestedBy: "owner_console" } });
+    const operation = await createSyncOperation({ organizationId: logtoOrganizationId, operationType: "organization_profile_downstream_sync", stepName: "fluentcrm.company.ensure", metadata: { source: "logto_customData.civitasProfile", target: "fluentcrm.company", requestedBy: "owner_console", humanMessage: "Hay cambios pendientes para la company en FluentCRM", entityType: "fluentcrm.company" } });
     await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "organization_profile_custom_data_updated", syncOperationId: operation.id, sourceOfTruth: "logto.customData" } });
     return res.json({ status: "updated_sync_queued", organization: serializeOwnerOrganization(profile, updated), syncOperation: operation });
   } catch (error) {
@@ -1632,8 +1647,10 @@ app.post("/owner/organizations/:organizationId/sync-operations/:operationId/retr
   const profile = await resolveOrganizationProfileForRequest(req.params.organizationId);
   const organizationId = profile?.logtoOrganizationId || req.params.organizationId;
   const operation = await retrySyncOperation({ operationId: req.params.operationId, organizationId });
-  await recordAuditLogBestEffort({ organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "sync_operation_retry_requested", operationId: req.params.operationId } });
-  return res.json({ status: "retry_queued", operation });
+  const pending = (await listOrganizationPendingSync({ organizationId }).catch(() => [])).find((item) => item.operationId === operation.id) || null;
+  await recordAuditLogBestEffort({ organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "retry requested", operationId: req.params.operationId, stepName: pending?.stepName || operation.operationType, entityType: pending?.entityType || "sync.operation", targetIdentity: pending?.targetIdentity || organizationId, humanMessage: pending?.entityType === "fluentcrm.company" ? "Retry solicitado para FluentCRM company" : pending?.entityType === "fluentcrm.contact" ? "Retry solicitado para FluentCRM contact" : "Retry solicitado para operación downstream", providerCode: pending?.providerCode || null, providerStatus: pending?.providerStatus || null, queueName: pending?.queueName || null, jobId: pending?.jobId || null, retryState: pending?.retryState || operation.status, enqueuedAt: pending?.enqueuedAt || null, workerHeartbeatState: pending?.workerHeartbeatState || null, jobAgeSeconds: pending?.jobAgeSeconds ?? null } });
+  await recordAuditLogBestEffort({ organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "retry enqueued", operationId: operation.id, stepName: pending?.stepName || operation.operationType, entityType: pending?.entityType || "sync.operation", targetIdentity: pending?.targetIdentity || organizationId, humanMessage: pending?.entityType === "fluentcrm.company" ? "Retry encolado para FluentCRM company" : pending?.entityType === "fluentcrm.contact" ? "Retry encolado para FluentCRM contact" : "Retry encolado para operación downstream", queueName: pending?.queueName || null, jobId: pending?.jobId || null, retryState: pending?.retryState || "queued", enqueuedAt: pending?.enqueuedAt || null, workerHeartbeatState: pending?.workerHeartbeatState || null, jobAgeSeconds: pending?.jobAgeSeconds ?? null } });
+  return res.json({ status: "retry_queued", operation, pending });
 });
 
 const buildContactSyncSettings = (profile, summary) => ({

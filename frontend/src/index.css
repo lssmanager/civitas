@@ -265,3 +265,41 @@ a { color: var(--civitas-primary); }
 .civitas-select-card__status .civitas-status-badge--warning, .badge.bg-warning { border-color: rgba(243,183,35,.3) !important; background: rgba(243,183,35,.2) !important; color: #6f4b00 !important; }
 .civitas-select-card__status .civitas-status-badge--danger { border-color: rgba(220,53,69,.2) !important; background: rgba(220,53,69,.1) !important; color: #8f2633 !important; }
 .civitas-site-logo-settings__preview { width: 4rem; height: 4rem; object-fit: contain; border: 1px solid var(--civitas-border); border-radius: 1rem; background: #fff; padding: .35rem; }
+
+.civitas-audit-formatted-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0.85rem;
+}
+.civitas-audit-formatted-field,
+.civitas-audit-metadata-row {
+  min-width: 0;
+  padding: 0.85rem;
+  border: 1px solid var(--civitas-border);
+  border-radius: 0.9rem;
+  background: linear-gradient(180deg, var(--civitas-surface-contrast) 0%, var(--civitas-surface) 100%);
+}
+.civitas-audit-formatted-field dt,
+.civitas-audit-metadata-row dt {
+  margin-bottom: 0.35rem;
+  color: var(--civitas-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.civitas-audit-formatted-field dd,
+.civitas-audit-metadata-row dd {
+  margin-bottom: 0;
+  color: var(--civitas-text);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.civitas-audit-metadata {
+  border-color: var(--civitas-border) !important;
+  background: rgba(25, 132, 238, 0.035);
+}
+.civitas-audit-metadata-list {
+  display: grid;
+  gap: 0.75rem;
+}
