@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from "react";
 import { Accordion, Nav } from "react-bootstrap";
 import { NavLink, useLocation } from "react-router-dom";
 import { menuCapabilities } from "../authz/navigationPolicy";
@@ -105,13 +106,23 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
     .slice(1)
     .map((item) => ({ ...item, children: item.children?.filter(isVisible) }))
     .filter((item) => !item.children || item.children.length > 0);
-  const activeOwnerSections = sectionRoutes
-    .map((item, index) =>
-      item.children?.some((child) => child.path === location.pathname)
-        ? `owner-section-${index}`
-        : undefined,
-    )
-    .filter((key): key is string => Boolean(key));
+
+  const routeActiveSection = useMemo(
+    () =>
+      sectionRoutes.findIndex((item) => item.children?.some((child) => child.path === location.pathname)),
+    [location.pathname, sectionRoutes],
+  );
+
+  const [openSection, setOpenSection] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (routeActiveSection >= 0) {
+      setOpenSection(`owner-section-${routeActiveSection}`);
+      return;
+    }
+
+    setOpenSection(null);
+  }, [routeActiveSection]);
 
   return (
     <div className="civitas-sidebar__nav flex-grow-1 d-flex flex-column p-3 gap-3">
@@ -120,7 +131,7 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
           <p className="mb-1 fw-semibold civitas-sidebar__panel-title">Owner</p>
         </div>
         {rootRoute ? <SidebarLink item={rootRoute} onNavigate={onNavigate} /> : null}
-        <Accordion activeKey={activeOwnerSections} alwaysOpen>
+        <Accordion activeKey={openSection ?? undefined} onSelect={(eventKey) => setOpenSection(typeof eventKey === "string" ? eventKey : null)}>
           {sectionRoutes.map((item, index) => (
             <NavigationBranch key={item.path} item={item} index={index} onNavigate={onNavigate} />
           ))}
