@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Alert, Badge, ListGroup, Spinner } from "react-bootstrap";
 import { useMeApi, type MeProfileResponse } from "../../api/me";
 import { deriveAuthorizationCapabilities } from "../../authz/capabilities";
+import { useAuthorization } from "../../authz/useAuthorization";
 import { isLogtoAuthEnabled } from "../../authConfig";
 import { useSession } from "../../session/sessionContext";
 import { ErrorState, PageCard, PageShell } from "../../shared/ui";
@@ -11,6 +12,8 @@ const formatDate = (value?: string | null) => (value ? new Date(value).toLocaleS
 function LogtoAccountDetails() {
   const { error, idTokenClaims, me, refresh } = useSession();
   const { getMeProfile } = useMeApi();
+  const { canExecute } = useAuthorization();
+  const canLoadProfile = canExecute("account.profile.load");
   const [profile, setProfile] = useState<MeProfileResponse>();
   const [profileError, setProfileError] = useState<string>();
   const [isProfileLoading, setIsProfileLoading] = useState(false);
@@ -18,6 +21,7 @@ function LogtoAccountDetails() {
 
   useEffect(() => {
     let isMounted = true;
+    if (!canLoadProfile) return;
     setIsProfileLoading(true);
     setProfileError(undefined);
     getMeProfile()
@@ -25,7 +29,7 @@ function LogtoAccountDetails() {
       .catch((profileLoadError) => { if (isMounted) setProfileError(profileLoadError instanceof Error ? profileLoadError.message : "No se pudo cargar el perfil enriquecido."); })
       .finally(() => { if (isMounted) setIsProfileLoading(false); });
     return () => { isMounted = false; };
-  }, [getMeProfile]);
+  }, [canLoadProfile, getMeProfile]);
   const email = me?.identity?.email ?? me?.user.email ?? idTokenClaims?.email ?? "No disponible";
   const displayName = me?.identity?.displayName ?? me?.identity?.username ?? idTokenClaims?.name ?? idTokenClaims?.username ?? idTokenClaims?.sub ?? "No disponible";
 

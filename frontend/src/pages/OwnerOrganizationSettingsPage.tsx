@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Alert, Badge, Button, Form, Nav } from "react-bootstrap";
 import { useOwnerApi } from "../api/owner";
+import { useAuthorization } from "../authz/useAuthorization";
 import { useStableResource } from "../shared/hooks/useStableResource";
 import { ErrorState, LoadingState, PageCard, PageShell } from "../shared/ui";
 
@@ -24,6 +25,10 @@ const getBrandingValue = (branding: Record<string, string | null | undefined> | 
 export function OwnerOrganizationSettingsPage() {
   const { organizationId = "" } = useParams();
   const ownerApi = useOwnerApi();
+  const { canExecute } = useAuthorization();
+  const canManageIntegrations = canExecute("owner.integrations.manage");
+  const canSyncCommercial = canExecute("owner.organization.commercial.sync");
+  const canDeprovisionMember = canExecute("owner.organization.member.deprovision");
   const [crmForm, setCrmForm] = useState({ companyName: "", companyEmail: "", companyPhone: "", about: "", website: "", numberOfEmployees: "", industry: "", type: "", companyOwner: "", description: "" });
   const [crmSubmitStatus, setCrmSubmitStatus] = useState<string | null>(null);
   const [crmSubmitError, setCrmSubmitError] = useState<string | null>(null);
@@ -53,7 +58,7 @@ export function OwnerOrganizationSettingsPage() {
   const requiresResume = Boolean(provisioningState?.requiresResume);
   const updateCrmForm = (field: keyof typeof crmForm, value: string) => setCrmForm((current) => ({ ...current, [field]: value }));
   const handleContactSync = async () => {
-    if (!profile?.id && !organization?.logtoOrganizationId) return;
+    if (!canManageIntegrations || (!profile?.id && !organization?.logtoOrganizationId)) return;
     setContactSyncStatus(null);
     setContactSyncError(null);
     try {
@@ -67,7 +72,7 @@ export function OwnerOrganizationSettingsPage() {
 
   const handleCrmSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!profile?.id && !organization?.logtoOrganizationId) return;
+    if (!canSyncCommercial || (!profile?.id && !organization?.logtoOrganizationId)) return;
     setCrmSubmitStatus(null);
     setCrmSubmitError(null);
     try {
@@ -84,7 +89,7 @@ export function OwnerOrganizationSettingsPage() {
   const handleDeprovisionSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const targetOrganizationId = profile?.id || organization?.logtoOrganizationId || "";
-    if (!targetOrganizationId || !deprovisionUserId.trim()) return;
+    if (!canDeprovisionMember || !targetOrganizationId || !deprovisionUserId.trim()) return;
     setDeprovisionStatus(null);
     setDeprovisionError(null);
     try {
@@ -178,7 +183,7 @@ export function OwnerOrganizationSettingsPage() {
                 {profile?.fluentcrmSyncError ? <><dt>Error CRM</dt><dd className="text-break text-danger">{profile.fluentcrmSyncError}</dd></> : null}
               </dl>
 
-              <Form onSubmit={handleCrmSubmit} className="mt-3 d-flex flex-column gap-2">
+              <Form onSubmit={handleCrmSubmit} className="mt-3 d-flex flex-column gap-2"><fieldset disabled={!canSyncCommercial} className="d-flex flex-column gap-2">
                 <Form.Group controlId="settingsCrmCompanyName"><Form.Label>Company Name</Form.Label><Form.Control value={crmForm.companyName} onChange={(event) => updateCrmForm("companyName", event.target.value)} placeholder={organization.name ?? profile?.nameCache ?? ""} /></Form.Group>
                 <div className="row g-2">
                   <Form.Group className="col-12 col-lg-6" controlId="settingsCrmCompanyEmail"><Form.Label>Company Email</Form.Label><Form.Control type="email" value={crmForm.companyEmail} onChange={(event) => updateCrmForm("companyEmail", event.target.value)} /></Form.Group>
@@ -197,10 +202,10 @@ export function OwnerOrganizationSettingsPage() {
                 <Form.Group controlId="settingsCrmDescription"><Form.Label>Description</Form.Label><Form.Control as="textarea" rows={2} value={crmForm.description} onChange={(event) => updateCrmForm("description", event.target.value)} /></Form.Group>
                 {crmSubmitStatus ? <Alert variant="success" className="mb-0">Estado FluentCRM: {crmSubmitStatus}</Alert> : null}
                 {crmSubmitError ? <Alert variant="danger" className="mb-0">{crmSubmitError}</Alert> : null}
-                <Button type="submit" variant="outline-primary">Crear o vincular Company en FluentCRM</Button>
+                </fieldset><Button type="submit" variant="outline-primary" disabled={!canSyncCommercial}>{canSyncCommercial ? "Crear o vincular Company en FluentCRM" : "Solo lectura"}</Button>
               </Form>
               <div className="mt-3 d-flex flex-column gap-2">
-                <Button type="button" variant="outline-secondary" onClick={handleContactSync}>Sincronizar contactos por roles Logto</Button>
+                <Button type="button" variant="outline-secondary" disabled={!canManageIntegrations} onClick={handleContactSync}>{canManageIntegrations ? "Sincronizar contactos por roles Logto" : "Solo lectura"}</Button>
                 <small className="text-secondary">Las tags/lists CRM son segmentación de comunicación; los permisos siguen viniendo de roles organizacionales en Logto.</small>
                 {contactSyncStatus ? <Alert variant="success" className="mb-0">{contactSyncStatus}</Alert> : null}
                 {contactSyncError ? <Alert variant="danger" className="mb-0">{contactSyncError}</Alert> : null}
@@ -230,13 +235,13 @@ export function OwnerOrganizationSettingsPage() {
           </div>
           <div className="col-12 col-lg-6">
             <PageCard title="Baja de usuario y limpieza CRM" subtitle="Acción explícita y auditable: Logto baja la membresía; FluentCRM recibe limpieza downstream sin convertirse en autoridad de permisos.">
-              <Form onSubmit={handleDeprovisionSubmit} className="d-flex flex-column gap-2">
+              <Form onSubmit={handleDeprovisionSubmit} className="d-flex flex-column gap-2"><fieldset disabled={!canDeprovisionMember} className="d-flex flex-column gap-2">
                 <Form.Group controlId="settingsDeprovisionLogtoUserId">
                   <Form.Label>Logto user id</Form.Label>
                   <Form.Control value={deprovisionUserId} onChange={(event) => setDeprovisionUserId(event.target.value)} placeholder="user_..." />
                   <Form.Text>La baja no muta roles globales como owner_global. Si FluentCRM solo permite disociar, Civitas no mostrará “datos eliminados”.</Form.Text>
                 </Form.Group>
-                <Button type="submit" variant="outline-danger" disabled={!deprovisionUserId.trim()}>Dar de baja y limpiar CRM</Button>
+                </fieldset><Button type="submit" variant="outline-danger" disabled={!canDeprovisionMember || !deprovisionUserId.trim()}>{canDeprovisionMember ? "Dar de baja y limpiar CRM" : "Solo lectura"}</Button>
                 {deprovisionStatus ? <Alert variant="success" className="mb-0">{deprovisionStatus}</Alert> : null}
                 {deprovisionError ? <Alert variant="danger" className="mb-0">cleanup failed: {deprovisionError}</Alert> : null}
               </Form>

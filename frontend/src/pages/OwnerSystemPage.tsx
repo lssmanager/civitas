@@ -8,6 +8,7 @@ import {
   type OwnerSystemMetric,
   type OwnerWorkerHealth,
 } from "../api/owner";
+import { useAuthorization } from "../authz/useAuthorization";
 import { useStableResource } from "../shared/hooks/useStableResource";
 import {
   DashboardPanel,
@@ -188,6 +189,8 @@ const queueTotals = (workerHealth?: OwnerWorkerHealth) =>
 
 export function OwnerSystemPage() {
   const ownerApi = useOwnerApi();
+  const { canExecute } = useAuthorization();
+  const canRefreshSystem = canExecute("owner.system.refresh");
   const [integrationsEnabled, setIntegrationsEnabled] = useState(false);
   const [metricsEnabled, setMetricsEnabled] = useState(false);
   const workerResource = useStableResource({
@@ -211,7 +214,7 @@ export function OwnerSystemPage() {
   const secondaryResourcesAreLoading =
     integrationsResource.isLoading || metricsResource.isLoading;
   const refreshAllIsDisabled =
-    workerResource.isLoading || secondaryResourcesAreLoading;
+    !canRefreshSystem || workerResource.isLoading || secondaryResourcesAreLoading;
 
   useEffect(() => {
     if (
@@ -255,7 +258,7 @@ export function OwnerSystemPage() {
   };
 
   const retryIntegrations = () => {
-    if (integrationsResource.isLoading) {
+    if (!canRefreshSystem || integrationsResource.isLoading) {
       return;
     }
 
@@ -264,7 +267,7 @@ export function OwnerSystemPage() {
   };
 
   const retryMetrics = () => {
-    if (metricsResource.isLoading) {
+    if (!canRefreshSystem || metricsResource.isLoading) {
       return;
     }
 
@@ -328,8 +331,8 @@ export function OwnerSystemPage() {
           title="No se pudieron cargar integraciones"
           message={integrationsResource.error}
           action={
-            <Button onClick={retryIntegrations}>
-              Reintentar integraciones
+            <Button disabled={!canRefreshSystem} onClick={retryIntegrations}>
+              {canRefreshSystem ? "Reintentar integraciones" : "Solo lectura"}
             </Button>
           }
         />
@@ -338,7 +341,7 @@ export function OwnerSystemPage() {
         <ErrorState
           title="No se pudieron cargar métricas Redis/BullMQ"
           message={metricsResource.error}
-          action={<Button onClick={retryMetrics}>Reintentar métricas</Button>}
+          action={<Button disabled={!canRefreshSystem} onClick={retryMetrics}>{canRefreshSystem ? "Reintentar métricas" : "Solo lectura"}</Button>}
         />
       ) : null}
 
@@ -361,7 +364,7 @@ export function OwnerSystemPage() {
               variant="outline-primary"
               onClick={retryIntegrations}
               disabled={
-                workerResource.isLoading || integrationsResource.isLoading
+                !canRefreshSystem || workerResource.isLoading || integrationsResource.isLoading
               }
             >
               Verificar conexión CRM

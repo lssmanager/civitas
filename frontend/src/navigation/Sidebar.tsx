@@ -98,7 +98,7 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   const capabilities = deriveAuthorizationCapabilities(me);
   const isVisible = (item: AppRoute) => {
     const capability = menuCapabilities[item.path];
-    return capability ? capabilities[capability] : true;
+    return capability ? capabilities[capability] : false;
   };
   const rootRoute = ownerNavigationTree[0] && isVisible(ownerNavigationTree[0]) ? ownerNavigationTree[0] : undefined;
   const sectionRoutes = ownerNavigationTree.slice(1).map((item) => ({ ...item, children: item.children?.filter(isVisible) })).filter((item) => !item.children || item.children.length > 0);
