@@ -271,6 +271,28 @@ const operationalMetricSnapshots = pgTable(
     createdAtIdx: index("operational_metric_snapshots_created_at_idx").on(table.createdAt),
   })
 );
+const manualSyncResolutions = pgTable(
+  "manual_sync_resolutions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    operationId: uuid("operation_id").notNull().references(() => syncOperations.id, { onDelete: "cascade" }),
+    stepId: uuid("step_id").references(() => syncOperationSteps.id, { onDelete: "set null" }),
+    organizationId: varchar("organization_id", { length: 255 }),
+    resolutionType: varchar("resolution_type", { length: 64 }).notNull(),
+    resolutionReason: text("resolution_reason"),
+    resolvedByUserId: uuid("resolved_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }).notNull().defaultNow(),
+    notes: text("notes"),
+    appliesUntil: timestamp("applies_until", { withTimezone: true }),
+    metadata: jsonb("metadata").notNull().default({}),
+  },
+  (table) => ({
+    operationIdx: index("manual_sync_resolutions_operation_idx").on(table.operationId),
+    stepIdx: index("manual_sync_resolutions_step_idx").on(table.stepId),
+    organizationIdx: index("manual_sync_resolutions_org_idx").on(table.organizationId),
+    resolvedAtIdx: index("manual_sync_resolutions_resolved_at_idx").on(table.resolvedAt),
+  })
+);
 
 const auditLogs = pgTable(
   "audit_logs",
@@ -296,6 +318,7 @@ module.exports = {
   commercialEvents,
   crmRoleMappings,
   healthChecks,
+  manualSyncResolutions,
   organizationBootstrapMicroRequests,
   organizationBootstrapOperations,
   operationalMetricSnapshots,
