@@ -26,7 +26,7 @@ export type OrganizationReconciliationIncident = {
 
 export type OperationalStatusComponent = { key: string; label: string; state: "failure" | "pending" | string; detail?: string | null };
 
-export type OperationalStatusSummary = { base: string; summary: string; text: string; components: OperationalStatusComponent[] };
+export type OperationalStatusSummary = { base: string; summary: string; text: string; components: OperationalStatusComponent[]; projected?: boolean; sourceLabel?: string; verificationLevel?: string; providerVerification?: string; providerVerificationLabel?: string };
 
 export type SelectableOrganization = OwnerOrganization & {
   logtoOrganizationId: string;

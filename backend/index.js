@@ -74,6 +74,7 @@ const { getWorkerHealthSnapshot, loadOperationsSummary, loadOwnerSystemMetrics }
 const {
   createSyncOperation,
   listOrganizationEvents,
+  listOperationalLogs,
   listOrganizationPendingSync,
   retrySyncOperation,
   recordOperationStep,
@@ -167,7 +168,7 @@ const serializeLogtoOwnerOrganization = (logtoOrganization = null, fallbackLogto
 });
 
 
-const STATUS_COMPONENT_LABELS = Object.freeze({ logto: "Logto", branding: "Branding", users: "Usuarios", crm: "CRM" });
+const STATUS_COMPONENT_LABELS = Object.freeze({ logto: "Logto", branding: "Branding", users: "FluentCRM contact", crm: "FluentCRM company", retry: "Retry", human: "Acción humana", downstream: "Downstream" });
 const FAILURE_STATUSES = new Set(["error", "failed", "partial_failed", "conflict", "unavailable"]);
 const PENDING_STATUSES = new Set(["pending", "queued", "running", "partial_error", "not_linked", "metadata_missing", "creator_membership_pending", "creator_role_pending", "logto_created"]);
 const OK_LOGTO_STATUSES = new Set(["bootstrapped", "synced", "reconciled", "completed"]);
@@ -185,26 +186,60 @@ const pushOperationalComponent = (components, key, state, detail = null) => {
   components.push({ key, label: STATUS_COMPONENT_LABELS[key] || key, state, detail });
 };
 
-const buildOperationalStatusSummary = ({ profile = null, hasConflict = false } = {}) => {
+const summarizeOperationalProjection = ({ profile = null, hasConflict = false, pending = [] } = {}) => {
   const base = profile?.status === "suspended" ? "Suspendida" : "Activa";
   const components = [];
-  if (hasConflict) pushOperationalComponent(components, "logto", "failure", "duplicate_profiles");
-  if (profile) {
-    pushOperationalComponent(components, "logto", getOperationalComponentState(profile.logtoSyncStatus, OK_LOGTO_STATUSES), profile.logtoSyncError);
-    pushOperationalComponent(components, "crm", getOperationalComponentState(profile.fluentcrmSyncStatus, OK_CRM_STATUSES), profile.fluentcrmSyncError);
-    const settings = profile.settings && typeof profile.settings === "object" ? profile.settings : {};
-    const brandingStatus = settings.brandingSyncStatus || settings.branding?.syncStatus || settings.logtoCustomCssSyncStatus;
-    pushOperationalComponent(components, "branding", getOperationalComponentState(brandingStatus, new Set(["synced", "completed", "generated"])), settings.brandingSyncError || settings.branding?.syncError || null);
-    const contactStatus = settings.fluentcrmContactSync?.status || settings.contactSyncStatus || settings.usersSyncStatus;
-    pushOperationalComponent(components, "users", getOperationalComponentState(contactStatus, new Set(["synced", "completed"])), settings.fluentcrmContactSync?.reason || settings.contactSyncError || settings.usersSyncError || null);
+  const add = (key, state, detail = null, extra = {}) => pushOperationalComponent(components, key, state, detail || null) || Object.assign(components[components.length - 1] || {}, extra);
+  const hasProjection = Boolean(profile || pending.length || hasConflict);
+
+  if (!hasProjection) return { base, baseStatus: base, summary: "estado operativo no proyectado", text: `${base} · estado operativo no proyectado`, components: [], primaryIssue: null, retryState: null, requiresHumanAction: false, source: "none", sourceLabel: "Estado operativo reconciliado localmente", verificationLevel: "not_projected", providerVerification: "not_live_verified", providerVerificationLabel: "No verificado en vivo contra FluentCRM/WordPress", derivedFromOperationIds: [], projected: false };
+  if (hasConflict) add("human", "failure", "duplicate_profiles");
+
+  for (const item of pending) {
+    const key = item.entityType?.includes("contact") ? "users" : item.entityType?.includes("company") ? "crm" : item.entityType?.includes("branding") ? "branding" : item.retryState ? "retry" : "downstream";
+    if (item.requiresHumanAction) add("human", "failure", item.humanMessage || item.suggestedAction || item.stepName);
+    if (["failed", "partial_failed", "error", "conflict"].includes(item.status)) add(key, "failure", item.humanMessage || item.lastError || item.stepName);
+    if (["queued", "running", "failed_again", "requested", "retry_requested", "retry_enqueued"].includes(item.retryState || "")) add("retry", "pending", item.retryState);
+    if (!["completed", "succeeded"].includes(item.status) && !["failed", "partial_failed", "error", "conflict"].includes(item.status)) add(key, "pending", item.humanMessage || item.stepName);
   }
-  const failures = components.filter((component) => component.state === "failure");
-  const pending = components.filter((component) => component.state === "pending");
-  const joinLabels = (items) => items.map((item) => item.label).join(" y ");
-  const parts = [];
-  if (failures.length) parts.push(`falla ${joinLabels(failures)}`);
-  if (pending.length) parts.push(`pendiente ${joinLabels(pending)}`);
-  return { base, summary: parts.join(" · ") || "ok", text: `${base} · ${parts.join(" · ") || "ok"}`, components };
+
+  if (profile) {
+    const settings = profile.settings && typeof profile.settings === "object" ? profile.settings : {};
+    if (getOperationalComponentState(profile.logtoSyncStatus, OK_LOGTO_STATUSES)) add("logto", getOperationalComponentState(profile.logtoSyncStatus, OK_LOGTO_STATUSES), profile.logtoSyncError || profile.logtoSyncStatus);
+    if (!pending.some((item) => item.entityType === "fluentcrm.company") && getOperationalComponentState(profile.fluentcrmSyncStatus, OK_CRM_STATUSES)) add("crm", getOperationalComponentState(profile.fluentcrmSyncStatus, OK_CRM_STATUSES), profile.fluentcrmSyncError || profile.fluentcrmSyncStatus);
+    const brandingStatus = settings.brandingSyncStatus || settings.branding?.syncStatus || settings.logtoCustomCssSyncStatus;
+    if (getOperationalComponentState(brandingStatus, new Set(["synced", "completed", "generated"]))) add("branding", getOperationalComponentState(brandingStatus, new Set(["synced", "completed", "generated"])), settings.brandingSyncError || brandingStatus);
+    const contactStatus = settings.fluentcrmContactSync?.status || settings.contactSyncStatus || settings.usersSyncStatus;
+    if (getOperationalComponentState(contactStatus, new Set(["synced", "completed"]))) add("users", getOperationalComponentState(contactStatus, new Set(["synced", "completed"])), settings.fluentcrmContactSync?.reason || settings.contactSyncError || settings.usersSyncError || contactStatus);
+  }
+
+  const priority = [
+    () => components.find((component) => component.key === "human"),
+    () => components.find((component) => component.state === "failure" && ["crm", "users", "branding", "downstream"].includes(component.key)),
+    () => components.find((component) => component.key === "retry"),
+    () => components.find((component) => component.key === "crm" && component.state === "pending"),
+    () => components.find((component) => component.key === "users" && component.state === "pending"),
+    () => components.find((component) => component.key === "branding" && component.state === "pending"),
+  ];
+  const selected = priority.map((pick) => pick()).find(Boolean);
+  const summary = selected ? selected.key === "human" ? "requiere acción humana" : selected.key === "retry" ? `retry ${selected.detail || "pendiente"}` : `${selected.state === "failure" ? "falla" : "pendiente"} ${selected.label}` : "ok";
+  return {
+    base,
+    baseStatus: base,
+    summary,
+    text: `${base} · ${summary}`,
+    components,
+    primaryIssue: selected || null,
+    retryState: components.find((component) => component.key === "retry")?.detail || null,
+    requiresHumanAction: components.some((component) => component.key === "human"),
+    source: "organization_profile+sync_operations+sync_operation_steps+projected_crm_pending",
+    sourceLabel: "Estado operativo reconciliado localmente",
+    verificationLevel: "local_reconciled",
+    providerVerification: "not_live_verified",
+    providerVerificationLabel: "No verificado en vivo contra FluentCRM/WordPress; deriva de perfiles, operaciones, steps y pendientes proyectados en Civitas.",
+    derivedFromOperationIds: [...new Set(pending.map((item) => item.operationId).filter(Boolean))],
+    projected: true,
+  };
 };
 
 const toMillis = (value) => {
@@ -255,7 +290,16 @@ const buildOrganizationNamesById = (logtoOrganizations = []) =>
       .filter(([id]) => Boolean(id))
   );
 
-function buildLogtoOrganizationDirectory({ logtoOrganizations, profiles }) {
+async function buildDirectoryOperationalStatus({ profile = null, hasConflict = false, logtoOrganizationId = null } = {}) {
+  const organizationId = profile?.logtoOrganizationId || logtoOrganizationId;
+  const pending = organizationId ? await listOrganizationPendingSync({ organizationId }).catch((error) => {
+    console.error("Failed to project organization operational status", { organizationId, error });
+    return [];
+  }) : [];
+  return summarizeOperationalProjection({ profile, hasConflict, pending });
+}
+
+async function buildLogtoOrganizationDirectory({ logtoOrganizations, profiles }) {
   const logtoOrganizationIds = new Set(logtoOrganizations.map(getLogtoOrganizationId).filter(Boolean));
   const profilesByLogtoId = new Map();
   const profilesWithoutLogtoId = [];
@@ -277,8 +321,8 @@ function buildLogtoOrganizationDirectory({ logtoOrganizations, profiles }) {
     return counts;
   }, new Map());
   const matchedLegacyProfileIds = new Set();
-  const organizations = logtoOrganizations
-    .map((logtoOrganization) => {
+  const organizations = (await Promise.all(logtoOrganizations
+    .map(async (logtoOrganization) => {
       const logtoOrganizationId = getLogtoOrganizationId(logtoOrganization);
       if (!logtoOrganizationId) return null;
 
@@ -315,7 +359,7 @@ function buildLogtoOrganizationDirectory({ logtoOrganizations, profiles }) {
         syncError: hasConflict
           ? "Multiple internal profiles match this Logto organization; only the newest profile is used for operational state and the rest are reconciliation incidents."
           : profile?.logtoSyncError || null,
-        operationalStatus: buildOperationalStatusSummary({ profile, hasConflict }),
+        operationalStatus: await buildDirectoryOperationalStatus({ profile, hasConflict, logtoOrganizationId }),
         reconciliation: {
           status: reconciliationStatus,
           profileCount: associatedProfiles.length,
@@ -325,7 +369,7 @@ function buildLogtoOrganizationDirectory({ logtoOrganizations, profiles }) {
           duplicateProfileIds,
         },
       };
-    })
+    })))
     .filter(Boolean);
 
   return {
@@ -735,7 +779,7 @@ app.get("/organizations", requireAuth(API_RESOURCE), requireScope("organizations
     const [logtoOrganizations, rawProfiles] = await Promise.all([listLogtoOrganizations(), listOrganizationProfiles()]);
     await cleanupOrphanedOrganizationProfiles({ logtoOrganizations, profiles: rawProfiles });
     const profiles = reconcileProfilesWithLogtoOrganizations({ logtoOrganizations, profiles: rawProfiles });
-    return res.json(buildLogtoOrganizationDirectory({ logtoOrganizations, profiles }));
+    return res.json(await buildLogtoOrganizationDirectory({ logtoOrganizations, profiles }));
   } catch (error) {
     console.error("Failed to list canonical Logto organizations", error);
     return res.status(502).json({ error: "Bad Gateway", message: "Failed to list organizations from Logto" });
@@ -933,7 +977,7 @@ app.get("/owner/organizations", requireAuth(API_RESOURCE), requireOwner, async (
     const logtoOrganizations = await listLogtoOrganizations();
     const rawProfiles = await listOrganizationProfiles();
     const profiles = await reconcileProfilesWithLogtoOrganizations({ logtoOrganizations, profiles: rawProfiles });
-    const directory = buildLogtoOrganizationDirectory({ logtoOrganizations, profiles });
+    const directory = await buildLogtoOrganizationDirectory({ logtoOrganizations, profiles });
     return res.json({ organizations: directory.organizations, reconciliationIncidents: directory.reconciliationIncidents, unreconciledProfiles: directory.unreconciledProfiles });
   } catch (error) {
     console.error("Failed to list owner organizations from Logto", error);
@@ -1741,6 +1785,36 @@ app.get("/organizations/:organizationId/directory", requireOrganizationAccess({ 
   }
 });
 
+app.get("/owner/operational-logs", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  try {
+    await getOrCreateInternalUser(req.user);
+    return res.json(await listOperationalLogs({
+      limit: req.query.limit,
+      offset: req.query.offset,
+      organizationId: req.query.organizationId,
+      organizationName: req.query.organizationName,
+      entityType: req.query.entityType,
+      stepName: req.query.stepName,
+      affectedSystem: req.query.affectedSystem || req.query.system,
+      system: req.query.system,
+      status: req.query.status,
+      retryState: req.query.retryState,
+      retryable: req.query.retryable,
+      requiresHumanAction: req.query.requiresHumanAction,
+      requiresAction: req.query.requiresAction,
+      downstream: req.query.downstream,
+      microAction: req.query.microAction,
+      queueName: req.query.queueName,
+      q: req.query.q,
+      from: req.query.from,
+      to: req.query.to,
+    }));
+  } catch (error) {
+    console.error("Failed to list operational logs", error);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to list operational logs" });
+  }
+});
+
 app.get("/owner/audit", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
   try {
     await getOrCreateInternalUser(req.user);
@@ -1749,7 +1823,7 @@ app.get("/owner/audit", requireAuth(API_RESOURCE), requireOwner, async (req, res
       return [];
     });
     const result = await listAuditLogs(
-      { limit: req.query.limit, offset: req.query.offset },
+      { limit: req.query.limit, offset: req.query.offset, organizationId: req.query.organizationId, organizationName: req.query.organizationName, entityType: req.query.entityType, stepName: req.query.stepName, affectedSystem: req.query.affectedSystem || req.query.system, system: req.query.system, status: req.query.status, retryState: req.query.retryState, retryable: req.query.retryable, requiresHumanAction: req.query.requiresHumanAction, requiresAction: req.query.requiresAction, downstream: req.query.downstream, microAction: req.query.microAction, queueName: req.query.queueName, q: req.query.q, from: req.query.from, to: req.query.to },
       { organizationNamesById: buildOrganizationNamesById(logtoOrganizations) }
     );
     return res.json(result);

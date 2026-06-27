@@ -158,6 +158,7 @@ function serializePending(item, organizationName = null) {
     providerCode,
     humanMessage: safeFunctionalMessage(actionableMessage),
     status: item.status,
+    requiresHumanAction: Boolean(item.requiresHumanAction || item.payloadSnapshotJson?.requiresHumanAction || details.requiresHumanAction),
     retryable: Boolean(item.retryable || item.lastErrorJson?.retryable || visibleStep?.lastErrorJson?.retryable || ["failed", "partial_failed", "error"].includes(item.status)),
     lastError: safeFunctionalMessage(
       rawError,
@@ -166,7 +167,7 @@ function serializePending(item, organizationName = null) {
         : undefined
     ),
     technicalErrorPresent: Boolean(rawError && TECHNICAL_ERROR_PATTERN.test(rawError)),
-    suggestedAction: item.suggestedAction || classified.action,
+    suggestedAction: item.suggestedAction || details.suggestedAction || classified.action,
     queueName: queue.queueName,
     jobId: queue.jobId,
     retryState: queue.retryState,
@@ -251,11 +252,11 @@ function buildProjectedCrmPending(profile, latestOperation = null, workerHealth 
   const logtoOk = LOGTO_OK_STATUSES.has(profile.logtoSyncStatus) || Boolean(profile.logtoSyncedAt);
   if (!logtoOk || !CRM_PENDING_STATUSES.has(profile.fluentcrmSyncStatus)) return null;
   const missingFields = !profile.fluentcrmCompanyId ? getMissingCompanyFields(profile) : [];
-  const stepName = profile.fluentcrmCompanyId ? "fluentcrm.company.patch" : "fluentcrm.company.ensure";
+  const stepName = profile.fluentcrmCompanyId ? "fluentcrm.company.patch" : "fluentcrm.company.create";
   const humanMessage = !profile.fluentcrmCompanyId
     ? missingFields.length
       ? `Faltan campos para crear la company: ${missingFields.join(", ")}`
-      : "Falta crear company en FluentCRM"
+      : "Microacción encolada: crear company en FluentCRM"
     : profile.fluentcrmSyncStatus === "error"
       ? "La company en FluentCRM falló al sincronizar"
       : "Hay cambios pendientes para la company en FluentCRM";
@@ -274,11 +275,12 @@ function buildProjectedCrmPending(profile, latestOperation = null, workerHealth 
     status: profile.fluentcrmSyncStatus === "not_linked" ? "pending" : profile.fluentcrmSyncStatus,
     retryable: true,
     humanMessage,
-    suggestedAction: profile.fluentcrmCompanyId ? "Reenviar cambios a FluentCRM" : "Crear company en FluentCRM",
+    suggestedAction: profile.fluentcrmCompanyId ? "Reenviar datos a CRM" : missingFields.length ? "Revisar campos faltantes" : "Reintentar create company",
+    requiresHumanAction: Boolean(missingFields.length),
     providerCode: profile.fluentcrmSyncStatus === "not_linked" ? "FLUENTCRM_COMPANY_MISSING" : null,
     providerStatus: profile.fluentcrmSyncStatus,
     metadata: { missingFields, fluentcrmCompanyId: profile.fluentcrmCompanyId, logtoStatus: profile.logtoSyncStatus, crmStatus: profile.fluentcrmSyncStatus },
-    payloadSnapshotJson: { humanMessage, missingFields, logtoStatus: profile.logtoSyncStatus, crmStatus: profile.fluentcrmSyncStatus },
+    payloadSnapshotJson: { humanMessage, missingFields, logtoStatus: profile.logtoSyncStatus, crmStatus: profile.fluentcrmSyncStatus, fieldsSent: Object.keys((profile.settings?.civitasProfile?.business || profile.settings?.business || {})), affectedSystem: "FluentCRM" },
     workerHealth,
     createdAt: latestOperation?.createdAt || profile.updatedAt,
     updatedAt: latestOperation?.updatedAt || profile.updatedAt,
@@ -600,6 +602,211 @@ async function listOrganizationEvents({ organizationId, limit = 30 }) {
   return events.sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0)).slice(0, limit);
 }
 
+const normalizeMicroAction = (stepName = "") => {
+  const value = String(stepName || "");
+  if (/detect_missing/.test(value)) return "detect_missing";
+  if (/company\.create/.test(value)) return "create_company";
+  if (/company\.patch/.test(value)) return "patch_company";
+  if (/company\.ensure/.test(value)) return "ensure_company";
+  if (/contact\.upsert/.test(value)) return "upsert_contact";
+  if (/retry.*enqueue|retry_enqueued/.test(value)) return "retry_enqueued";
+  if (/retry/.test(value)) return "retry";
+  if (/branding/.test(value)) return "generate_branding";
+  return value || "sync_operation";
+};
+
+const getOperationalRowType = ({ microAction = "", source = "", retryState = null, requiresHumanAction = false } = {}) => {
+  if (/retry/.test(String(microAction)) || retryState) return "retry_event";
+  if (requiresHumanAction) return "projected_pending";
+  if (source === "sync_operation_step") return "operational_step";
+  return "projected_pending";
+};
+
+function serializeStepOperationalLog({ operation, step, organizationName = null, workerHealth = {} }) {
+  const output = step.outputJson || {};
+  const lastError = step.lastErrorJson || {};
+  const entityType = output.entityType || operation.entityType || null;
+  const system = output.affectedSystem || output.system || (entityType?.includes("fluentcrm") ? "fluentcrm" : entityType?.includes("branding") ? "branding" : "sync");
+  const queue = buildQueueProjection({ ...operation, workerHealth }, step);
+  const metadata = {
+    source: "sync_operation_step",
+    operationId: operation.id,
+    stepId: step.id,
+    system,
+    affectedSystem: system,
+    microAction: normalizeMicroAction(step.stepName),
+    stepName: step.stepName,
+    entityType,
+    targetIdentity: output.targetIdentity || operation.entityId || operation.logtoOrganizationId || null,
+    humanMessage: safeFunctionalMessage(output.humanMessage || lastError.message || `${step.stepName} ${step.status}`),
+    fieldsSent: output.fieldsSent || output.result?.fieldsSent || output.payloadSummary?.fieldsSent || [],
+    missingFields: output.missingFields || output.result?.missingFields || output.payloadSummary?.missingFields || [],
+    fieldDiffs: output.fieldDiffs || output.result?.fieldDiffs || null,
+    providerCode: output.providerCode || output.code || lastError.code || null,
+    providerStatus: output.providerStatus || output.status || lastError.status || step.status,
+    queueName: queue.queueName,
+    jobId: queue.jobId,
+    retryState: deriveRetryState(operation, step),
+    retryable: Boolean(lastError.retryable || output.retryable || ["failed", "partial_failed", "error"].includes(operation.status)),
+    requiresHumanAction: Boolean(output.requiresHumanAction || lastError.requiresHumanAction || lastError.hitl),
+    suggestedAction: output.suggestedAction || (lastError.retryable ? "Reintentar" : null),
+    jobAgeSeconds: queue.jobAgeSeconds,
+    workerHeartbeatState: queue.workerHeartbeatState,
+  };
+  const rowType = getOperationalRowType(metadata);
+  return {
+    id: `step-${step.id}`,
+    rowType,
+    actorUserId: null,
+    actor: null,
+    organizationId: operation.logtoOrganizationId || operation.entityId || null,
+    organization: { id: operation.logtoOrganizationId || operation.entityId || null, name: organizationName },
+    action: metadata.microAction,
+    result: step.status,
+    system: metadata.system,
+    microAction: metadata.microAction,
+    stepName: metadata.stepName,
+    entityType: metadata.entityType,
+    targetIdentity: metadata.targetIdentity,
+    humanMessage: metadata.humanMessage,
+    missingFields: metadata.missingFields,
+    fieldDiffs: metadata.fieldDiffs,
+    providerCode: metadata.providerCode,
+    providerStatus: metadata.providerStatus,
+    queueName: metadata.queueName,
+    jobId: metadata.jobId,
+    retryState: metadata.retryState,
+    retryable: metadata.retryable,
+    requiresHumanAction: metadata.requiresHumanAction,
+    availableActions: [
+      ...(metadata.retryable ? ["retry"] : []),
+      ...(metadata.requiresHumanAction ? ["manual_review_required"] : []),
+      "open_organization",
+    ],
+    metadata,
+    createdAt: toIso(step.updatedAt || step.createdAt || operation.updatedAt),
+  };
+}
+
+function serializeOperationOperationalLog({ operation, organizationName = null, workerHealth = {} }) {
+  const pending = serializePending({ ...operation, workerHealth }, organizationName);
+  const metadata = {
+    source: "sync_operation",
+    operationId: operation.id,
+    system: pending.affectedSystem,
+    affectedSystem: pending.affectedSystem,
+    microAction: normalizeMicroAction(pending.stepName || operation.operationType),
+    stepName: pending.stepName || operation.operationType,
+    entityType: pending.entityType,
+    targetIdentity: pending.targetIdentity,
+    humanMessage: pending.humanMessage || pending.lastError,
+    fieldsSent: pending.fieldsSent,
+    missingFields: pending.missingFields,
+    fieldDiffs: pending.fieldDiffs,
+    providerCode: pending.providerCode,
+    providerStatus: pending.providerStatus,
+    queueName: pending.queueName,
+    jobId: pending.jobId,
+    retryState: pending.retryState,
+    retryable: pending.retryable,
+    requiresHumanAction: pending.requiresHumanAction,
+    suggestedAction: pending.suggestedAction,
+    jobAgeSeconds: pending.jobAgeSeconds,
+    workerHeartbeatState: pending.workerHeartbeatState,
+  };
+  const rowType = getOperationalRowType(metadata);
+  return {
+    id: `operation-${operation.id}`,
+    rowType,
+    actorUserId: null,
+    actor: null,
+    organizationId: pending.organizationId,
+    organization: { id: pending.organizationId, name: organizationName },
+    action: metadata.microAction,
+    result: operation.status,
+    system: metadata.system,
+    microAction: metadata.microAction,
+    stepName: metadata.stepName,
+    entityType: metadata.entityType,
+    targetIdentity: metadata.targetIdentity,
+    humanMessage: metadata.humanMessage,
+    missingFields: metadata.missingFields,
+    fieldDiffs: metadata.fieldDiffs,
+    providerCode: metadata.providerCode,
+    providerStatus: metadata.providerStatus,
+    queueName: metadata.queueName,
+    jobId: metadata.jobId,
+    retryState: metadata.retryState,
+    retryable: metadata.retryable,
+    requiresHumanAction: metadata.requiresHumanAction,
+    availableActions: [
+      ...(metadata.retryable ? ["retry"] : []),
+      ...(metadata.requiresHumanAction ? ["manual_review_required"] : []),
+      "open_organization",
+    ],
+    metadata,
+    createdAt: toIso(operation.updatedAt || operation.createdAt),
+  };
+}
+
+function operationalLogMatches(row, filters = {}) {
+  const metadata = row.metadata || {};
+  const includes = (value, expected) => !expected || String(value || "").toLowerCase().includes(String(expected).toLowerCase());
+  if (!includes(row.organizationId, filters.organizationId)) return false;
+  if (!includes(row.organization?.name, filters.organizationName)) return false;
+  if (!includes(metadata.entityType, filters.entityType)) return false;
+  if (!includes(metadata.stepName, filters.stepName)) return false;
+  if (!includes(metadata.affectedSystem || metadata.system, filters.affectedSystem || filters.system)) return false;
+  if (!includes(metadata.queueName, filters.queueName)) return false;
+  if (!includes(metadata.microAction, filters.microAction)) return false;
+  if (!includes(row.result, filters.status) && !includes(metadata.providerStatus, filters.status)) return false;
+  if (!includes(metadata.retryState, filters.retryState)) return false;
+  if (filters.retryable === "true" && !metadata.retryable) return false;
+  if (filters.retryable === "false" && metadata.retryable) return false;
+  if (filters.requiresHumanAction === "true" && !metadata.requiresHumanAction) return false;
+  if (filters.requiresHumanAction === "false" && metadata.requiresHumanAction) return false;
+  if (filters.requiresAction === "true" && !(metadata.requiresHumanAction || metadata.retryable || ["failed", "partial_failed", "error", "conflict"].includes(row.result))) return false;
+  if (filters.requiresAction === "false" && (metadata.requiresHumanAction || metadata.retryable || ["failed", "partial_failed", "error", "conflict"].includes(row.result))) return false;
+  if (filters.downstream === "true" && !/fluentcrm|wordpress|branding|downstream|sync/i.test(String(metadata.entityType || metadata.stepName || metadata.affectedSystem || metadata.system || row.action || ""))) return false;
+  if (filters.q && !includes([metadata.humanMessage, metadata.stepName, metadata.entityType, metadata.targetIdentity, metadata.providerCode, row.action, row.organization?.name].filter(Boolean).join(" "), filters.q)) return false;
+  const createdAt = new Date(row.createdAt || 0).getTime();
+  const from = filters.from ? new Date(filters.from).getTime() : null;
+  const to = filters.to ? new Date(filters.to).getTime() : null;
+  if (from && Number.isFinite(from) && createdAt < from) return false;
+  if (to && Number.isFinite(to) && createdAt > to) return false;
+  return true;
+}
+
+async function listOperationalLogs(filters = {}) {
+  const limit = Math.min(Math.max(Number.parseInt(filters.limit, 10) || 25, 1), 100);
+  const offset = Math.max(Number.parseInt(filters.offset, 10) || 0, 0);
+  const scanLimit = Math.min(Math.max(Number.parseInt(filters.scanLimit, 10) || Number.parseInt(process.env.OWNER_OPERATIONAL_LOG_SCAN_LIMIT || "5000", 10), 100), 20000);
+  const [operations, profiles, workerHealth] = await Promise.all([
+    db.select().from(syncOperations).orderBy(desc(syncOperations.updatedAt)).limit(scanLimit),
+    db.select().from(organizationProfiles).limit(500),
+    getWorkerHealthSnapshot().catch(() => ({})),
+  ]);
+  const namesByOrg = new Map(profiles.map((profile) => [profile.logtoOrganizationId, profile.nameCache]).filter(([id]) => Boolean(id)));
+  const withSteps = await Promise.all(operations.map((operation) => getSyncOperationWithSteps(operation.id).then((value) => value || { ...operation, steps: [] })));
+  const rows = withSteps.flatMap((operation) => {
+    const organizationName = namesByOrg.get(operation.logtoOrganizationId) || null;
+    const stepRows = (operation.steps || []).map((step) => serializeStepOperationalLog({ operation, step, organizationName, workerHealth }));
+    return [serializeOperationOperationalLog({ operation, organizationName, workerHealth }), ...stepRows];
+  }).sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  const filtered = rows.filter((row) => operationalLogMatches(row, filters));
+  return {
+    auditLogs: filtered.slice(offset, offset + limit),
+    pagination: { limit, offset, total: filtered.length },
+    source: {
+      primary: "sync_operations+sync_operation_steps",
+      administrativeEvents: "separate_audit_endpoint",
+      workerState: "operationalObservability.workerHealthSnapshot",
+      scanLimit,
+      scope: "operational rows are scanned from sync operation tables before pagination; increase OWNER_OPERATIONAL_LOG_SCAN_LIMIT if the dataset exceeds the configured operational history window",
+    },
+  };
+}
+
 module.exports = {
   OPERATION_STATUSES,
   PHASE_STATUSES,
@@ -609,6 +816,7 @@ module.exports = {
   getLatestOperationForOrganization,
   getSyncOperationWithSteps,
   listOrganizationEvents,
+  listOperationalLogs,
   listOrganizationPendingSync,
   recordOperationStep,
   retrySyncOperation,

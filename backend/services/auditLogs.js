@@ -1,4 +1,4 @@
-const { count, desc, eq } = require("drizzle-orm");
+const { desc, eq } = require("drizzle-orm");
 const { db } = require("../db/client");
 const { auditLogs, users } = require("../db/schema");
 
@@ -162,20 +162,62 @@ async function recordAuditLogBestEffort(event) {
 
 async function listAuditLogs(paginationInput = {}, enrichment = {}) {
   const pagination = normalizePagination(paginationInput);
-  const [totalRow] = await db.select({ value: count() }).from(auditLogs);
-  const rows = await db
+  const filters = {
+    organizationId: paginationInput.organizationId,
+    organizationName: paginationInput.organizationName,
+    entityType: paginationInput.entityType,
+    stepName: paginationInput.stepName,
+    affectedSystem: paginationInput.affectedSystem,
+    status: paginationInput.status,
+    retryState: paginationInput.retryState,
+    requiresAction: paginationInput.requiresAction,
+    retryable: paginationInput.retryable,
+    requiresHumanAction: paginationInput.requiresHumanAction,
+    downstream: paginationInput.downstream,
+    system: paginationInput.system,
+    microAction: paginationInput.microAction,
+    queueName: paginationInput.queueName,
+    q: paginationInput.q,
+  };
+  const allRows = await db
     .select({ auditLog: auditLogs, actor: users })
     .from(auditLogs)
     .leftJoin(users, eq(auditLogs.actorUserId, users.id))
     .orderBy(desc(auditLogs.createdAt), desc(auditLogs.id))
-    .limit(pagination.limit)
-    .offset(pagination.offset);
+    .limit(1000);
+
+  const matches = (row) => {
+    const log = row.auditLog || row;
+    const metadata = log.metadata || {};
+    const organizationName = log.organizationId ? enrichment.organizationNamesById?.get?.(log.organizationId) : null;
+    const includes = (value, expected) => !expected || String(value || "").toLowerCase().includes(String(expected).toLowerCase());
+    if (!includes(log.organizationId, filters.organizationId)) return false;
+    if (!includes(organizationName, filters.organizationName)) return false;
+    if (!includes(metadata.entityType, filters.entityType)) return false;
+    if (!includes(metadata.stepName, filters.stepName)) return false;
+    if (!includes(metadata.affectedSystem || metadata.system, filters.affectedSystem || filters.system)) return false;
+    if (!includes(metadata.queueName, filters.queueName)) return false;
+    if (filters.microAction && !includes([metadata.microAction, metadata.stepName, metadata.humanMessage, log.action].filter(Boolean).join(" "), filters.microAction)) return false;
+    if (filters.q && !includes([metadata.humanMessage, metadata.stepName, metadata.entityType, metadata.targetIdentity, metadata.providerCode, log.action, organizationName].filter(Boolean).join(" "), filters.q)) return false;
+    if (!includes(log.result, filters.status) && !includes(metadata.status || metadata.providerStatus, filters.status)) return false;
+    if (!includes(metadata.retryState, filters.retryState)) return false;
+    if (filters.retryable === "true" && !metadata.retryable) return false;
+    if (filters.retryable === "false" && metadata.retryable) return false;
+    if (filters.requiresHumanAction === "true" && !metadata.requiresHumanAction) return false;
+    if (filters.requiresHumanAction === "false" && metadata.requiresHumanAction) return false;
+    if (filters.downstream === "true" && !/fluentcrm|wordpress|branding|downstream|sync/i.test(String(metadata.entityType || metadata.stepName || metadata.affectedSystem || metadata.system || log.action || ""))) return false;
+    if (filters.requiresAction === "true" && !(log.result === AUDIT_RESULTS.ERROR || metadata.requiresAction || metadata.requiresHumanAction || metadata.retryable)) return false;
+    if (filters.requiresAction === "false" && (log.result === AUDIT_RESULTS.ERROR || metadata.requiresAction || metadata.requiresHumanAction || metadata.retryable)) return false;
+    return true;
+  };
+  const filteredRows = allRows.filter(matches);
+  const rows = filteredRows.slice(pagination.offset, pagination.offset + pagination.limit);
 
   return {
     auditLogs: rows.map((row) => serializeAuditLog(row, enrichment)),
     pagination: {
       ...pagination,
-      total: Number(totalRow?.value ?? 0),
+      total: filteredRows.length,
     },
   };
 }

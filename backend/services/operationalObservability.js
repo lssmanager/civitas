@@ -256,16 +256,18 @@ function summarizeOrganization(profile) {
 }
 
 function buildOperationsSummary({ operations = [], steps = [], profiles = [], technicalHealth, incidentsLimit = 5 } = {}) {
-  const counts = { queued: 0, running: 0, partialFailed: 0, failed: 0, retryable: 0, organizationsWithPendingDownstreamSync: 0 };
+  const counts = { queued: 0, running: 0, partialFailed: 0, failed: 0, retryable: 0, requiresHumanAction: 0, organizationsWithPendingDownstreamSync: 0 };
   for (const operation of operations) {
     const status = operation.status;
     if (QUEUED.has(status)) counts.queued += 1;
     if (RUNNING.has(status)) counts.running += 1;
     if (PARTIAL_FAILED.has(status)) counts.partialFailed += 1;
     if (FAILED.has(status)) counts.failed += 1;
-    if (operation.retryable || operation.nextRetryAt) counts.retryable += 1;
+    if (operation.retryable || operation.nextRetryAt || operation.lastErrorJson?.retryable) counts.retryable += 1;
+    if (operation.requiresHumanAction || operation.lastErrorJson?.requiresHumanAction || operation.lastErrorJson?.hitl || operation.status === "hitl_required") counts.requiresHumanAction += 1;
   }
   const organizations = profiles.map(summarizeOrganization);
+  counts.requiresHumanAction += steps.filter((step) => step.requiresHumanAction || step.lastErrorJson?.requiresHumanAction || step.lastErrorJson?.hitl).length;
   counts.organizationsWithPendingDownstreamSync = organizations.filter((org) => org.currentStep === "downstream" && org.downstreamStatus !== "linked" && org.downstreamStatus !== "synced").length;
   const incidents = [
     ...organizations
@@ -670,13 +672,16 @@ async function loadOwnerSystemMetrics() {
 }
 
 async function loadOperationsSummary() {
+  const operationalScanLimit = Math.min(Math.max(Number.parseInt(process.env.OWNER_OPERATIONAL_LOG_SCAN_LIMIT || "5000", 10), 100), 20000);
   const [profiles, operations, steps, technicalHealth] = await Promise.all([
     db.select().from(organizationProfiles),
-    syncOperations ? db.select().from(syncOperations).orderBy(desc(syncOperations.updatedAt)).limit(100).catch(() => []) : [],
-    syncOperationSteps ? db.select().from(syncOperationSteps).orderBy(desc(syncOperationSteps.updatedAt)).limit(100).catch(() => []) : [],
+    syncOperations ? db.select().from(syncOperations).orderBy(desc(syncOperations.updatedAt)).limit(operationalScanLimit).catch(() => []) : [],
+    syncOperationSteps ? db.select().from(syncOperationSteps).orderBy(desc(syncOperationSteps.updatedAt)).limit(operationalScanLimit).catch(() => []) : [],
     loadWorkerHealthSnapshot(),
   ]);
-  return buildOperationsSummary({ profiles, operations, steps, technicalHealth });
+  const summary = buildOperationsSummary({ profiles, operations, steps, technicalHealth });
+  summary.source = { primary: "sync_operations+sync_operation_steps+organization_profiles", operationalScanLimit, drilldownBasePath: "/owner/logs" };
+  return summary;
 }
 
 void refreshWorkerHealthSnapshot().catch(() => null);

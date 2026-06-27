@@ -1,13 +1,18 @@
-import { useState } from "react";
-import { Accordion, Badge, Button, Pagination, ToggleButton, ToggleButtonGroup } from "react-bootstrap";
+import { useMemo, useState } from "react";
+import { Accordion, Badge, Button, Form, Pagination, ToggleButton, ToggleButtonGroup } from "react-bootstrap";
+import { Link, useSearchParams } from "react-router-dom";
 import { useOwnerApi, type OwnerAuditLog, type OwnerAuditPagination, type OwnerAuditResponse } from "../../api/owner";
 import { useStableResource } from "../../shared/hooks/useStableResource";
 import { EmptyState, ErrorState, JsonLogBlock, LoadingState, PageCard, PageShell } from "../../shared/ui";
 
 const PAGE_SIZE = 25;
-const INITIAL_AUDIT_PARAMS: Required<OwnerAuditPagination> = { limit: PAGE_SIZE, offset: 0 };
+type AuditFilterParams = Required<Pick<OwnerAuditPagination, "limit" | "offset">> & Omit<OwnerAuditPagination, "limit" | "offset">;
 
-const getAuditParamsKey = (params: Required<OwnerAuditPagination>) => `${params.limit}:${params.offset}`;
+const getAuditParamsKey = (params: AuditFilterParams) => JSON.stringify(params);
+
+const compactFilters = (params: AuditFilterParams): AuditFilterParams => Object.fromEntries(
+  Object.entries(params).filter(([, value]) => value !== undefined && value !== "")
+) as AuditFilterParams;
 
 const formatDate = (value: string) =>
   new Intl.DateTimeFormat("es", {
@@ -16,6 +21,8 @@ const formatDate = (value: string) =>
   }).format(new Date(value));
 
 const resultVariant = (result: string) => {
+  if (["completed", "success", "succeeded"].includes(result)) return "success";
+  if (["queued", "pending", "running"].includes(result)) return "warning";
   if (result === "success") return "success";
   if (result === "denied") return "warning";
   return "danger";
@@ -31,7 +38,7 @@ const formatActor = (row: OwnerAuditLog) => {
 };
 
 const formatStage = (row: OwnerAuditLog) => {
-  const stage = row.metadata?.stage;
+  const stage = row.stepName || row.metadata?.stepName || row.metadata?.stage;
   return typeof stage === "string" ? stage : "Sin etapa";
 };
 
@@ -47,7 +54,7 @@ const getMetadataString = (row: OwnerAuditLog, key: string) => {
 };
 
 const formatLogStatement = (row: OwnerAuditLog) =>
-  getMetadataString(row, "humanMessage") || `${row.result.toUpperCase()} · ${row.action} · ${formatOrganization(row)} · ${formatDate(row.createdAt)}`;
+  row.humanMessage || getMetadataString(row, "humanMessage") || `${row.result.toUpperCase()} · ${row.microAction || row.action} · ${formatOrganization(row)} · ${formatDate(row.createdAt)}`;
 
 const formatOptionalValue = (value: unknown) => {
   if (value === null || value === undefined || value === "") return "No disponible";
@@ -63,6 +70,9 @@ function AuditLogFormattedDetail({ row }: { row: OwnerAuditLog }) {
   const metadataEntries = getMetadataEntries(row.metadata);
 
   const summaryItems = [
+    { label: "Tipo de fila", value: row.rowType },
+    { label: "Sistema", value: row.system || row.metadata?.affectedSystem },
+    { label: "Microacción", value: row.microAction || row.action },
     { label: "Acción", value: row.action },
     { label: "Resultado", value: row.result },
     { label: "Fecha", value: formatDate(row.createdAt) },
@@ -73,14 +83,23 @@ function AuditLogFormattedDetail({ row }: { row: OwnerAuditLog }) {
     { label: "Internal user id", value: row.actor?.internalUserId ?? row.actorUserId },
     { label: "Organización visible", value: formatOrganization(row) },
     { label: "Organization id", value: row.organization?.id ?? row.organizationId },
-    { label: "Step", value: row.metadata?.stepName },
-    { label: "Entidad", value: row.metadata?.entityType },
-    { label: "Target", value: row.metadata?.targetIdentity },
-    { label: "Mensaje humano", value: row.metadata?.humanMessage },
-    { label: "Cola", value: row.metadata?.queueName },
-    { label: "Job", value: row.metadata?.jobId },
-    { label: "Retry", value: row.metadata?.retryState },
+    { label: "Step", value: row.stepName || row.metadata?.stepName },
+    { label: "Entidad", value: row.entityType || row.metadata?.entityType },
+    { label: "Target", value: row.targetIdentity || row.metadata?.targetIdentity },
+    { label: "Mensaje humano", value: row.humanMessage || row.metadata?.humanMessage },
+    { label: "Cola", value: row.queueName || row.metadata?.queueName },
+    { label: "Job", value: row.jobId || row.metadata?.jobId },
+    { label: "Retry", value: row.retryState || row.metadata?.retryState },
     { label: "Worker", value: row.metadata?.workerHeartbeatState },
+    { label: "Sistema afectado", value: row.system || row.metadata?.affectedSystem },
+    { label: "Campos enviados", value: row.metadata?.fieldsSent },
+    { label: "Campos faltantes", value: row.missingFields || row.metadata?.missingFields },
+    { label: "Diff campos", value: row.fieldDiffs || row.metadata?.fieldDiffs },
+    { label: "Provider code", value: row.providerCode || row.metadata?.providerCode },
+    { label: "Provider status", value: row.providerStatus || row.metadata?.providerStatus },
+    { label: "Acción sugerida", value: row.metadata?.suggestedAction },
+    { label: "Requiere humano", value: row.requiresHumanAction ?? row.metadata?.requiresHumanAction },
+    { label: "Retryable", value: row.retryable ?? row.metadata?.retryable },
   ];
 
   return (
@@ -113,15 +132,22 @@ function AuditLogFormattedDetail({ row }: { row: OwnerAuditLog }) {
   );
 }
 
-function AuditLogCard({ row }: { row: OwnerAuditLog }) {
+function AuditLogCard({ row, onRetry }: { row: OwnerAuditLog; onRetry: () => void }) {
   const [detailMode, setDetailMode] = useState<AuditLogDetailMode>("formatted");
+  const ownerApi = useOwnerApi();
+  const operationId = typeof row.metadata?.operationId === "string" ? row.metadata.operationId : null;
+  const organizationId = row.organization?.id ?? row.organizationId;
+  const canRetry = Boolean(operationId && organizationId && (row.retryable || row.metadata?.retryable || row.result === "error" || row.result === "failed"));
+  const needsHuman = Boolean(row.requiresHumanAction || row.metadata?.requiresHumanAction);
 
   return (
     <Accordion.Item eventKey={row.id} className="civitas-audit-item border rounded-4 overflow-hidden">
       <Accordion.Header>
         <div className="civitas-audit-summary w-100 pe-3">
           <div className="d-flex flex-wrap align-items-center gap-2 mb-2">
+            <Badge bg="secondary">{row.rowType || "operational_step"}</Badge>
             <Badge bg={resultVariant(row.result)}>{row.result}</Badge>
+            {row.system ? <Badge bg="light" text="dark">{row.system}</Badge> : null}
             <Badge bg="info" text="dark">{formatStage(row)}</Badge>
             <span className="text-secondary small">{formatDate(row.createdAt)}</span>
           </div>
@@ -147,26 +173,54 @@ function AuditLogCard({ row }: { row: OwnerAuditLog }) {
             </ToggleButton>
           </ToggleButtonGroup>
         </div>
+        <div className="d-flex flex-wrap gap-2 mb-3">
+          {organizationId ? <Link className="btn btn-outline-secondary btn-sm" to={`/owner/organizations/${encodeURIComponent(organizationId)}`}>Abrir organización</Link> : null}
+          {canRetry ? <Button size="sm" variant="outline-primary" onClick={() => ownerApi.retrySyncOperation(organizationId!, operationId!).then(onRetry)}>Reintentar</Button> : null}
+          {operationId ? <Button size="sm" variant="outline-secondary" disabled>Reenviar payload: pendiente de implementación</Button> : null}
+          {needsHuman ? <Button size="sm" variant="outline-warning" disabled>Resolver manualmente: requiere revisión</Button> : null}
+        </div>
         {detailMode === "formatted" ? <AuditLogFormattedDetail row={row} /> : <JsonLogBlock value={row} />}
       </Accordion.Body>
     </Accordion.Item>
   );
 }
 
-function AuditLogList({ rows }: { rows: OwnerAuditLog[] }) {
+function AuditLogList({ rows, onRetry }: { rows: OwnerAuditLog[]; onRetry: () => void }) {
   if (rows.length === 0) return null;
 
   return (
     <Accordion alwaysOpen className="civitas-audit-list d-grid gap-3">
       {rows.map((row) => (
-        <AuditLogCard key={row.id} row={row} />
+        <AuditLogCard key={row.id} row={row} onRetry={onRetry} />
       ))}
     </Accordion>
   );
 }
 
 export function OwnerAuditPage() {
-  const { getAuditLogs } = useOwnerApi();
+  const { getOperationalLogs } = useOwnerApi();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialParams = useMemo<AuditFilterParams>(() => compactFilters({
+    limit: PAGE_SIZE,
+    offset: 0,
+    organizationId: searchParams.get("organizationId") || undefined,
+    organizationName: searchParams.get("organizationName") || undefined,
+    entityType: searchParams.get("entityType") || undefined,
+    stepName: searchParams.get("stepName") || undefined,
+    affectedSystem: searchParams.get("affectedSystem") || searchParams.get("system") || undefined,
+    system: searchParams.get("system") || undefined,
+    status: searchParams.get("status") || undefined,
+    retryState: searchParams.get("retryState") || undefined,
+    retryable: searchParams.get("retryable") || undefined,
+    requiresHumanAction: searchParams.get("requiresHumanAction") || undefined,
+    downstream: searchParams.get("downstream") || undefined,
+    microAction: searchParams.get("microAction") || undefined,
+    queueName: searchParams.get("queueName") || undefined,
+    q: searchParams.get("q") || undefined,
+    from: searchParams.get("from") || undefined,
+    to: searchParams.get("to") || undefined,
+    requiresAction: searchParams.get("requiresAction") || undefined,
+  }), []);
   const {
     data,
     error,
@@ -174,16 +228,16 @@ export function OwnerAuditPage() {
     params,
     reload,
     retry,
-  } = useStableResource<OwnerAuditResponse, Required<OwnerAuditPagination>>({
-    initialParams: INITIAL_AUDIT_PARAMS,
-    load: getAuditLogs,
+  } = useStableResource<OwnerAuditResponse, AuditFilterParams>({
+    initialParams,
+    load: getOperationalLogs,
     getKey: getAuditParamsKey,
     getErrorMessage: getAuditErrorMessage,
   });
 
   const events = data?.auditLogs ?? [];
   const total = data?.pagination.total ?? 0;
-  const offset = params.offset;
+  const offset = params.offset ?? 0;
   const currentPage = Math.floor(offset / PAGE_SIZE) + 1;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const hasPrevious = offset > 0;
@@ -194,16 +248,22 @@ export function OwnerAuditPage() {
     reload((current) => ({ ...current, offset: nextOffset }));
   };
 
+  const updateFilter = (key: keyof OwnerAuditPagination, value: string) => {
+    const next = compactFilters({ ...params, limit: params.limit ?? PAGE_SIZE, [key]: value || undefined, offset: 0 });
+    setSearchParams(Object.fromEntries(Object.entries(next).filter(([entryKey]) => !["limit", "offset"].includes(entryKey)).map(([entryKey, entryValue]) => [entryKey, String(entryValue)])));
+    reload(() => next);
+  };
+
   return (
     <PageShell
       eyebrow="Owner"
-      title="Logs owner"
-      description="Eventos operativos enriquecidos con identidad Logto del actor y organización canónica cuando está disponible."
+      title="Centro operativo owner"
+      description="Microacciones, retries y pendientes derivados de sync_operations/sync_operation_steps. La auditoría administrativa queda separada del flujo operativo."
       actions={<Badge bg="success">owner:read</Badge>}
     >
       <PageCard
-        title="Logs operativos"
-        subtitle="Vista expandible por evento con detalle legible y payload JSON para inspección y soporte."
+        title="Centro operativo"
+        subtitle="Filtra por organización, sistema, microacción, estado, retry, cola o texto para encontrar trabajo real y actuar."
         actions={
           totalPages > 1 ? (
             <Pagination size="sm" className="mb-0 civitas-audit-pagination">
@@ -214,11 +274,63 @@ export function OwnerAuditPage() {
           ) : undefined
         }
       >
+        <Form className="row g-2 mb-3">
+          {[
+            ["organizationId", "Organization ID"],
+            ["organizationName", "Organización"],
+            ["q", "Búsqueda"],
+            ["affectedSystem", "Sistema"],
+            ["microAction", "Microacción"],
+            ["status", "Estado"],
+            ["retryState", "Retry"],
+            ["queueName", "Cola"],
+            ["from", "Desde"],
+            ["to", "Hasta"],
+            ["stepName", "Step técnico"],
+            ["entityType", "Entidad técnica"],
+          ].map(([key, label]) => (
+            <Form.Group className="col-12 col-md-3" key={key}>
+              <Form.Label>{label}</Form.Label>
+              <Form.Control size="sm" value={String(params[key as keyof OwnerAuditPagination] ?? "")} onChange={(event) => updateFilter(key as keyof OwnerAuditPagination, event.target.value)} />
+            </Form.Group>
+          ))}
+          <Form.Group className="col-12 col-md-3">
+            <Form.Label>Retryable</Form.Label>
+            <Form.Select size="sm" value={params.retryable ?? ""} onChange={(event) => updateFilter("retryable", event.target.value)}>
+              <option value="">Todos</option>
+              <option value="true">Sí</option>
+              <option value="false">No</option>
+            </Form.Select>
+          </Form.Group>
+          <Form.Group className="col-12 col-md-3">
+            <Form.Label>Acción humana</Form.Label>
+            <Form.Select size="sm" value={params.requiresHumanAction ?? ""} onChange={(event) => updateFilter("requiresHumanAction", event.target.value)}>
+              <option value="">Todos</option>
+              <option value="true">Sí</option>
+              <option value="false">No</option>
+            </Form.Select>
+          </Form.Group>
+          <Form.Group className="col-12 col-md-3">
+            <Form.Label>Downstream</Form.Label>
+            <Form.Select size="sm" value={params.downstream ?? ""} onChange={(event) => updateFilter("downstream", event.target.value)}>
+              <option value="">Todos</option>
+              <option value="true">Sí</option>
+            </Form.Select>
+          </Form.Group>
+          <Form.Group className="col-12 col-md-3">
+            <Form.Label>Requiere acción</Form.Label>
+            <Form.Select size="sm" value={params.requiresAction ?? ""} onChange={(event) => updateFilter("requiresAction", event.target.value)}>
+              <option value="">Todos</option>
+              <option value="true">Sí</option>
+              <option value="false">No</option>
+            </Form.Select>
+          </Form.Group>
+        </Form>
         <p className="text-secondary small mb-3">
-          Mostrando {events.length} de {total} logs. Abre cada evento para alternar entre una vista formateada y su payload JSON completo.
+          Mostrando {events.length} de {total} filas operativas. Las microacciones aparecen como campos de primer nivel; el JSON queda solo como detalle técnico.
         </p>
         {isLoading ? (
-          <LoadingState title="Cargando logs" description="Consultando eventos owner registrados en Civitas." />
+          <LoadingState title="Cargando centro operativo" description="Consultando sync_operations, sync_operation_steps y estado de worker/cola." />
         ) : error ? (
           <ErrorState
             title="No se pudieron cargar los logs"
@@ -227,11 +339,11 @@ export function OwnerAuditPage() {
           />
         ) : events.length === 0 ? (
           <EmptyState
-            title="Sin logs"
-            description="Cuando un owner cree organizaciones o falle una creación relevante, los eventos aparecerán aquí."
+            title="Sin filas operativas"
+            description="Cuando existan microacciones, retries o pendientes de sincronización, aparecerán aquí filtrables por organización."
           />
         ) : (
-          <AuditLogList rows={events} />
+          <AuditLogList rows={events} onRetry={retry} />
         )}
       </PageCard>
     </PageShell>

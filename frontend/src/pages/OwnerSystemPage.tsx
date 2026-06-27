@@ -301,7 +301,7 @@ export function OwnerSystemPage() {
     <PageShell
       eyebrow="Owner / sistema"
       title="System KPI"
-      description="Dashboard operativo compacto para Redis, BullMQ, worker e integraciones críticas."
+      description="Observabilidad técnica pura de Redis, BullMQ, worker e integraciones. El estado funcional por organización vive en Logs y Organizaciones."
       className="civitas-owner-system-page"
     >
       {workerResource.isLoading && !workerResource.data ? (
@@ -311,7 +311,7 @@ export function OwnerSystemPage() {
         />
       ) : null}
       <Alert variant="secondary" className="mb-0">
-        Aquí ves el estado técnico de colas, Redis y worker. El detalle funcional por organización —step, campos faltantes, proveedor y retry— está en la consola de cada organización.
+        Aquí ves estado técnico de colas, Redis y worker; el detalle funcional y las acciones por organización están en Logs y Organizaciones.
       </Alert>
       {secondaryResourcesAreLoading ? (
         <Alert variant="info" className="mb-0">

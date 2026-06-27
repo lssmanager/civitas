@@ -16,7 +16,9 @@ const OPERATION_TYPES = Object.freeze({
 });
 
 const STEP_NAMES = Object.freeze({
+  FLUENTCRM_COMPANY_DETECT_MISSING: "fluentcrm.company.detect_missing",
   FLUENTCRM_COMPANY_ENSURE: "fluentcrm.company.ensure",
+  FLUENTCRM_COMPANY_CREATE: "fluentcrm.company.create",
   FLUENTCRM_COMPANY_PATCH: "fluentcrm.company.patch",
   FLUENTCRM_CONTACT_UPSERT: "fluentcrm.contact.upsert:identity",
   LOGTO_MEMBER_RESET_PASSWORD: "logto.member.reset_password",
@@ -77,19 +79,20 @@ async function processOrganizationProfileDownstreamSync(operation) {
   const organizationId = organizationIdFor(operation);
   const profile = await getProfileForOperation(operation);
   if (!profile) throw Object.assign(new Error("Organization profile not found for downstream sync"), { code: "INVALID_PAYLOAD" });
-  const stepName = profile.fluentcrmCompanyId ? STEP_NAMES.FLUENTCRM_COMPANY_PATCH : STEP_NAMES.FLUENTCRM_COMPANY_ENSURE;
-  await recordStep({ operation, stepName, status: STEP_STATUSES.RUNNING, metadata: { entityType: "fluentcrm.company", targetIdentity: profile.fluentcrmCompanyId || organizationId, humanMessage: `Worker inició ${profile.fluentcrmCompanyId ? "FluentCRM company patch" : "FluentCRM company sync"}` } });
-  await recordAuditLogBestEffort({ organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_FLUENTCRM_SYNC, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "retry started", stepName, entityType: "fluentcrm.company", targetIdentity: profile.fluentcrmCompanyId || organizationId, humanMessage: "Worker inició FluentCRM company sync", queueName: QUEUE_NAME, jobId: getSyncJobId(operation) } });
+  const stepName = profile.fluentcrmCompanyId ? STEP_NAMES.FLUENTCRM_COMPANY_PATCH : STEP_NAMES.FLUENTCRM_COMPANY_CREATE;
+  if (!profile.fluentcrmCompanyId) await recordStep({ operation, stepName: STEP_NAMES.FLUENTCRM_COMPANY_DETECT_MISSING, status: STEP_STATUSES.COMPLETED, metadata: { entityType: "fluentcrm.company", affectedSystem: "FluentCRM", targetIdentity: organizationId, humanMessage: "FluentCRM company detectada como faltante", suggestedAction: "Reintentar create company", retryable: true } });
+  await recordStep({ operation, stepName, status: STEP_STATUSES.RUNNING, metadata: { entityType: "fluentcrm.company", targetIdentity: profile.fluentcrmCompanyId || organizationId, humanMessage: `Worker inició ${profile.fluentcrmCompanyId ? "FluentCRM company patch" : "create company"}`, affectedSystem: "FluentCRM", suggestedAction: profile.fluentcrmCompanyId ? "Reenviar datos a CRM" : "Reintentar create company", retryable: true } });
+  await recordAuditLogBestEffort({ organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_FLUENTCRM_SYNC, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "retry started", stepName, entityType: "fluentcrm.company", targetIdentity: profile.fluentcrmCompanyId || organizationId, humanMessage: profile.fluentcrmCompanyId ? "Worker inició FluentCRM company patch" : "Worker inició create company", affectedSystem: "FluentCRM", suggestedAction: profile.fluentcrmCompanyId ? "Reenviar datos a CRM" : "Reintentar create company", retryable: true, queueName: QUEUE_NAME, jobId: getSyncJobId(operation) } });
   const logtoOrganization = await getLogtoOrganizationById(profile.logtoOrganizationId || organizationId);
   const customData = logtoOrganization.customData || logtoOrganization.custom_data || {};
   const civitasProfile = customData.civitasProfile || {};
   const organizationSnapshot = { name: logtoOrganization.name || profile.nameCache, crm: { ...(civitasProfile.business || {}), ...(civitasProfile.contact || {}), ...(civitasProfile.branding || {}) } };
   const result = await getOrCreateCompanyForOrganization(profile, organizationSnapshot);
   const status = result.status === "conflict" ? "partial_failed" : "completed";
-  const humanMessage = status === "completed" ? "FluentCRM company creada/actualizada correctamente" : safeFunctionalMessage(result.message, "FluentCRM company sync falló");
+  const humanMessage = status === "completed" ? (profile.fluentcrmCompanyId ? "FluentCRM company actualizada correctamente" : "Create company completado") : safeFunctionalMessage(result.message, "FluentCRM company sync falló");
   if (status === "partial_failed") await updateOperation(operation.id, { status, downstreamStatus: "failed", lastErrorJson: { message: humanMessage, retryable: false, code: result.code || "FLUENTCRM_CONFLICT", status: result.status || null } });
-  await recordStep({ operation, stepName, status: status === "completed" ? STEP_STATUSES.COMPLETED : STEP_STATUSES.FAILED, retryable: status !== "completed", errorMessage: status === "completed" ? null : humanMessage, metadata: { result, entityType: "fluentcrm.company", targetIdentity: result.companyId || profile.fluentcrmCompanyId || organizationId, humanMessage } });
-  await recordAuditLogBestEffort({ organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_FLUENTCRM_SYNC, result: status === "completed" ? AUDIT_RESULTS.SUCCESS : AUDIT_RESULTS.ERROR, metadata: { stage: status === "completed" ? "retry completed" : "retry failed", stepName, entityType: "fluentcrm.company", targetIdentity: result.companyId || profile.fluentcrmCompanyId || organizationId, humanMessage, providerCode: result.code || null, providerStatus: result.status || status, queueName: QUEUE_NAME, jobId: getSyncJobId(operation), result } });
+  await recordStep({ operation, stepName, status: status === "completed" ? STEP_STATUSES.COMPLETED : STEP_STATUSES.FAILED, retryable: status !== "completed", errorMessage: status === "completed" ? null : humanMessage, metadata: { result, affectedSystem: "FluentCRM", entityType: "fluentcrm.company", targetIdentity: result.companyId || profile.fluentcrmCompanyId || organizationId, humanMessage } });
+  await recordAuditLogBestEffort({ organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_FLUENTCRM_SYNC, result: status === "completed" ? AUDIT_RESULTS.SUCCESS : AUDIT_RESULTS.ERROR, metadata: { affectedSystem: "FluentCRM", stage: status === "completed" ? "retry completed" : "retry failed", stepName, entityType: "fluentcrm.company", targetIdentity: result.companyId || profile.fluentcrmCompanyId || organizationId, humanMessage, providerCode: result.code || null, providerStatus: result.status || status, queueName: QUEUE_NAME, jobId: getSyncJobId(operation), result } });
   return { status, result, humanMessage };
 }
 
@@ -137,7 +140,7 @@ async function processSyncOperation(operationOrId) {
     const classification = classifyError(error);
     const partial = error instanceof FluentCrmError || classification.category.startsWith("downstream") || classification.category === "timeout";
     const status = partial ? "partial_failed" : "failed";
-    const stepName = operation.operationType === OPERATION_TYPES.MEMBER_IDENTITY_DOWNSTREAM_SYNC ? STEP_NAMES.FLUENTCRM_CONTACT_UPSERT : operation.operationType === OPERATION_TYPES.ORGANIZATION_PROFILE_DOWNSTREAM_SYNC ? STEP_NAMES.FLUENTCRM_COMPANY_ENSURE : `${operation.operationType}.failed`;
+    const stepName = operation.operationType === OPERATION_TYPES.MEMBER_IDENTITY_DOWNSTREAM_SYNC ? STEP_NAMES.FLUENTCRM_CONTACT_UPSERT : operation.operationType === OPERATION_TYPES.ORGANIZATION_PROFILE_DOWNSTREAM_SYNC ? STEP_NAMES.FLUENTCRM_COMPANY_CREATE : `${operation.operationType}.failed`;
     const message = safeFunctionalMessage(error.message);
     await recordStep({ operation, stepName, status: STEP_STATUSES.FAILED, retryable: classification.retryable, errorMessage: message, metadata: { category: classification.category, code: error.code || null, status: error.status || null, providerCode: error.code || null, providerStatus: error.status || null, humanMessage: `FluentCRM sync falló por ${classification.category}` } });
     await updateOperation(operation.id, { status, downstreamStatus: "failed", lastErrorJson: { message, retryable: classification.retryable, code: error.code || null, status: error.status || null }, resultSnapshotJson: { ...(operation.resultSnapshotJson || {}), errorCategory: classification.category } });
