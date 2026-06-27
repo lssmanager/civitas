@@ -137,8 +137,11 @@ function AuditLogCard({ row, onRetry }: { row: OwnerAuditLog; onRetry: () => voi
   const ownerApi = useOwnerApi();
   const operationId = typeof row.metadata?.operationId === "string" ? row.metadata.operationId : null;
   const organizationId = row.organization?.id ?? row.organizationId;
-  const canRetry = Boolean(operationId && organizationId && (row.retryable || row.metadata?.retryable || row.result === "error" || row.result === "failed"));
-  const needsHuman = Boolean(row.requiresHumanAction || row.metadata?.requiresHumanAction);
+  const canRetry = Boolean(operationId && organizationId && (row.retryable || row.metadata?.retryable || row.result === "error" || row.result === "failed" || row.availableActions?.includes("retry")));
+  const canResend = Boolean(operationId && organizationId && row.availableActions?.includes("resend_payload"));
+  const canVerify = Boolean(operationId && organizationId && row.availableActions?.includes("verify_provider"));
+  const needsHuman = Boolean(row.requiresHumanAction || row.metadata?.requiresHumanAction || row.availableActions?.includes("manual_review_required") || row.availableActions?.includes("manual_resolution"));
+  const canCorrect = Boolean(row.suggestedRoute && row.availableActions?.includes("correct_data"));
 
   return (
     <Accordion.Item eventKey={row.id} className="civitas-audit-item border rounded-4 overflow-hidden">
@@ -175,9 +178,11 @@ function AuditLogCard({ row, onRetry }: { row: OwnerAuditLog; onRetry: () => voi
         </div>
         <div className="d-flex flex-wrap gap-2 mb-3">
           {organizationId ? <Link className="btn btn-outline-secondary btn-sm" to={`/owner/organizations/${encodeURIComponent(organizationId)}`}>Abrir organización</Link> : null}
+          {canCorrect ? <Link className="btn btn-primary btn-sm" to={`${row.suggestedRoute}${row.suggestedSection ? `#${row.suggestedSection}` : ""}`}>{row.suggestedAction || "Corregir datos"}</Link> : null}
           {canRetry ? <Button size="sm" variant="outline-primary" onClick={() => ownerApi.retrySyncOperation(organizationId!, operationId!).then(onRetry)}>Reintentar</Button> : null}
-          {operationId ? <Button size="sm" variant="outline-secondary" disabled>Reenviar payload: pendiente de implementación</Button> : null}
-          {needsHuman ? <Button size="sm" variant="outline-warning" disabled>Resolver manualmente: requiere revisión</Button> : null}
+          {canResend ? <Button size="sm" variant="outline-secondary" onClick={() => ownerApi.resendSyncOperationPayload(organizationId!, operationId!).then(onRetry)}>Reenviar payload</Button> : null}
+          {canVerify ? <Button size="sm" variant="outline-info" onClick={() => ownerApi.verifySyncOperationProvider(organizationId!, operationId!).then(onRetry)}>Verificar en proveedor</Button> : null}
+          {needsHuman ? <Button size="sm" variant="outline-warning" onClick={() => ownerApi.manualResolveSyncOperation(organizationId!, operationId!, { resolutionType: "reviewed_no_action", resolutionReason: "owner_reviewed_from_operational_center" }).then(onRetry)}>Marcar revisado</Button> : null}
         </div>
         {detailMode === "formatted" ? <AuditLogFormattedDetail row={row} /> : <JsonLogBlock value={row} />}
       </Accordion.Body>

@@ -1,6 +1,6 @@
-const { and, desc, eq } = require("drizzle-orm");
+const { and, desc, eq, notInArray } = require("drizzle-orm");
 const { db } = require("../db/client");
-const { auditLogs, organizationProfiles, syncOperationSteps, syncOperations } = require("../db/schema");
+const { auditLogs, organizationProfiles, syncOperationSteps, syncOperations, manualSyncResolutions } = require("../db/schema");
 const { QUEUE_NAME, enqueueSyncOperation, getSyncJobSnapshot } = require("./syncQueue");
 const { getWorkerHealthSnapshot } = require("./operationalObservability");
 
@@ -33,6 +33,8 @@ const STEP_STATUSES = Object.freeze({
 });
 
 const safeJson = (value) => (value === undefined ? null : value);
+const safeObject = (value) => (value && typeof value === "object" && !Array.isArray(value) ? value : {});
+const safeArray = (value) => (Array.isArray(value) ? value : []);
 const toIso = (value) => value?.toISOString?.() ?? value ?? null;
 
 function safeFunctionalMessage(message, fallback = "Hay una sincronización pendiente que requiere revisión.") {
@@ -49,6 +51,9 @@ const STEP_CLASSIFICATIONS = [
 ];
 
 const TERMINAL_STEP_STATUSES = new Set([STEP_STATUSES.COMPLETED, STEP_STATUSES.FAILED, STEP_STATUSES.SKIPPED, "unsupported"]);
+const TERMINAL_OPERATION_STATUSES = new Set([OPERATION_STATUSES.COMPLETED, OPERATION_STATUSES.FAILED, OPERATION_STATUSES.PARTIAL_FAILED, "succeeded", "success", "skipped"]);
+const RESENDABLE_STEP_PATTERN = /^(fluentcrm\.company\.(create|patch)|fluentcrm\.contact\.upsert)$/i;
+const MANUAL_RESOLUTION_TYPES = new Set(["reviewed_no_action", "accepted_risk", "resolved_externally", "ignored_known_issue"]);
 const DOWNSTREAM_STEP_PATTERN = /^(fluentcrm\.|branding\.)|fluentcrm[._-](company|contact)|branding/i;
 const NON_TERMINAL_STEP_STATUSES = new Set([STEP_STATUSES.QUEUED, STEP_STATUSES.RUNNING]);
 
@@ -59,7 +64,7 @@ function formatList(values = []) {
 }
 
 function getLatestStep(item = {}) {
-  const steps = Array.isArray(item.steps) ? item.steps : [];
+  const steps = safeArray(item.steps);
   return steps[steps.length - 1] || null;
 }
 
@@ -547,6 +552,39 @@ async function retrySyncOperation({ operationId, organizationId }) {
   });
 }
 
+async function resendSyncOperationPayload({ operationId, organizationId, actorUserId = null }) {
+  const operation = await getSyncOperationWithSteps(operationId);
+  if (!operation) { const e = new Error("Sync operation not found for payload resend"); e.status = 404; throw e; }
+  if (organizationId && operation.logtoOrganizationId && operation.logtoOrganizationId !== organizationId) { const e = new Error("Operation does not belong to organization"); e.status = 404; throw e; }
+  const visibleStep = pickVisibleStep(operation.steps);
+  const stepName = visibleStep?.stepName || operation.operationType;
+  if (!RESENDABLE_STEP_PATTERN.test(String(stepName))) { const e = new Error(`Microacción no segura para reenviar payload: ${stepName || "unknown"}`); e.status = 409; e.reason = "microaction_not_whitelisted"; throw e; }
+  const payloadSnapshotJson = safeObject(operation.payloadSnapshotJson);
+  if (!Object.keys(payloadSnapshotJson).length) { const e = new Error("No hay payloadSnapshotJson seguro para reenviar"); e.status = 409; e.reason = "missing_payload_snapshot"; throw e; }
+  const resent = await createCanonicalSyncOperation({ operationType: operation.operationType, entityType: operation.entityType, entityId: operation.entityId || operation.logtoOrganizationId, logtoOrganizationId: operation.logtoOrganizationId || organizationId, logtoUserId: operation.logtoUserId, correlationId: `owner-resend-payload:${operationId}:${Date.now()}`, idempotencyKey: `owner-resend-payload:${operationId}:${Date.now()}`, payloadSnapshotJson: { ...payloadSnapshotJson, requestedFrom: "owner_console", resendOfOperationId: operationId, resendOfStepId: visibleStep?.id || null, requestedByUserId: actorUserId, stepName, humanMessage: "Reenvío de payload solicitado por owner" } });
+  const enqueueResult = await enqueueSyncOperation(resent).catch((error) => ({ enqueued: false, reason: error.message, queueName: QUEUE_NAME, jobId: `sync-operation-${resent.id}` }));
+  await recordOperationStep({ operationId: resent.id, stepName, queueName: enqueueResult.queueName || QUEUE_NAME, jobId: enqueueResult.jobId || `sync-operation-${resent.id}`, status: STEP_STATUSES.QUEUED, outputJson: { ...enqueueResult, entityType: operation.entityType, targetIdentity: operation.entityId || operation.logtoOrganizationId, humanMessage: "Payload reenviado y microacción encolada", retryState: "queued" } });
+  return { operation: resent, originalOperation: operation, stepName, enqueueResult };
+}
+
+async function manualResolveSyncOperation({ operationId, stepId = null, organizationId, resolutionType, resolutionReason = null, notes = null, appliesUntil = null, resolvedByUserId = null }) {
+  if (!MANUAL_RESOLUTION_TYPES.has(resolutionType)) { const e = new Error("Invalid manual resolution type"); e.status = 400; throw e; }
+  const operation = await getSyncOperationWithSteps(operationId);
+  if (!operation) { const e = new Error("Sync operation not found for manual resolution"); e.status = 404; throw e; }
+  const targetStep = stepId ? safeArray(operation.steps).find((step) => step.id === stepId) : pickVisibleStep(operation.steps);
+  const [resolution] = await db.insert(manualSyncResolutions).values({ operationId, stepId: targetStep?.id || null, organizationId: organizationId || operation.logtoOrganizationId || operation.entityId || null, resolutionType, resolutionReason, resolvedByUserId, notes, appliesUntil: appliesUntil ? new Date(appliesUntil) : null, metadata: { sourceOfTruth: "civitas.operational_manual_decision", doesNotAssertProviderSuccess: true } }).returning();
+  await recordOperationStep({ operationId, stepName: "manual_resolution.recorded", queueName: "owner-operational-center", jobId: resolution.id, status: STEP_STATUSES.COMPLETED, outputJson: { entityType: operation.entityType, targetIdentity: operation.entityId || operation.logtoOrganizationId, resolutionType, humanMessage: "Resolución manual registrada; no afirma éxito downstream", requiresHumanAction: false } });
+  return { resolution, operation };
+}
+
+async function verifySyncOperationProvider({ operationId, organizationId, actorUserId = null }) {
+  const operation = await getSyncOperationWithSteps(operationId).catch(() => null);
+  const orgId = operation?.logtoOrganizationId || organizationId;
+  const created = await createCanonicalSyncOperation({ operationType: "provider_verification", entityType: operation?.entityType || "fluentcrm.company", entityId: operation?.entityId || orgId, logtoOrganizationId: orgId, correlationId: `owner-provider-verification:${operationId}:${Date.now()}`, idempotencyKey: `owner-provider-verification:${operationId}:${Date.now()}`, payloadSnapshotJson: { requestedFrom: "owner_console", requestedByUserId: actorUserId, verificationOfOperationId: operationId, provider: "fluentcrm_wordpress", humanMessage: "Verificación live de proveedor solicitada" } });
+  await recordOperationStep({ operationId: created.id, stepName: "provider_verification.started", queueName: "owner-operational-center", jobId: created.id, status: STEP_STATUSES.COMPLETED, outputJson: { entityType: created.entityType, targetIdentity: created.entityId, providerStatus: "queued_for_controlled_check", humanMessage: "Verificación live solicitada; resultado distinguido de reconciliación local" } });
+  return { operation: created, providerVerification: { status: "requested", level: "live_requested_not_local_projection" } };
+}
+
 async function listOrganizationEvents({ organizationId, limit = 30 }) {
   const [ops, logs] = await Promise.all([
     db.select().from(syncOperations).where(eq(syncOperations.logtoOrganizationId, organizationId)).orderBy(desc(syncOperations.updatedAt)).limit(limit),
@@ -623,8 +661,8 @@ const getOperationalRowType = ({ microAction = "", source = "", retryState = nul
 };
 
 function serializeStepOperationalLog({ operation, step, organizationName = null, workerHealth = {} }) {
-  const output = step.outputJson || {};
-  const lastError = step.lastErrorJson || {};
+  const output = safeObject(step?.outputJson);
+  const lastError = safeObject(step?.lastErrorJson);
   const entityType = output.entityType || operation.entityType || null;
   const system = output.affectedSystem || output.system || (entityType?.includes("fluentcrm") ? "fluentcrm" : entityType?.includes("branding") ? "branding" : "sync");
   const queue = buildQueueProjection({ ...operation, workerHealth }, step);
@@ -689,7 +727,7 @@ function serializeStepOperationalLog({ operation, step, organizationName = null,
 }
 
 function serializeOperationOperationalLog({ operation, organizationName = null, workerHealth = {} }) {
-  const pending = serializePending({ ...operation, workerHealth }, organizationName);
+  const pending = serializePending({ ...safeObject(operation), workerHealth }, organizationName);
   const metadata = {
     source: "sync_operation",
     operationId: operation.id,
@@ -750,7 +788,8 @@ function serializeOperationOperationalLog({ operation, organizationName = null, 
 }
 
 function operationalLogMatches(row, filters = {}) {
-  const metadata = row.metadata || {};
+  row = safeObject(row);
+  const metadata = safeObject(row.metadata);
   const includes = (value, expected) => !expected || String(value || "").toLowerCase().includes(String(expected).toLowerCase());
   if (!includes(row.organizationId, filters.organizationId)) return false;
   if (!includes(row.organization?.name, filters.organizationName)) return false;
@@ -777,23 +816,93 @@ function operationalLogMatches(row, filters = {}) {
   return true;
 }
 
+function buildSerializationFallbackRow({ operation = {}, step = null, organizationName = null, error }) {
+  const operationId = operation?.id || step?.operationId || null;
+  const organizationId = operation?.logtoOrganizationId || operation?.entityId || null;
+  const stepId = step?.id || null;
+  const stepName = step?.stepName || operation?.operationType || "unknown";
+  return {
+    id: stepId ? `step-${stepId}-partial` : `operation-${operationId || Date.now()}-partial`,
+    rowType: "serialization_partial",
+    actorUserId: null,
+    actor: null,
+    organizationId,
+    organization: { id: organizationId, name: organizationName },
+    action: normalizeMicroAction(stepName),
+    result: step?.status || operation?.status || "unknown",
+    system: "sync",
+    microAction: normalizeMicroAction(stepName),
+    stepName,
+    entityType: operation?.entityType || null,
+    targetIdentity: operation?.entityId || organizationId,
+    humanMessage: "Fila operativa parcial: datos legacy/corruptos no impiden cargar el centro operativo.",
+    missingFields: [],
+    fieldDiffs: null,
+    retryable: false,
+    requiresHumanAction: true,
+    availableActions: ["open_organization", "manual_review_required"],
+    metadata: { source: stepId ? "sync_operation_step" : "sync_operation", operationId, stepId, stepName, serializationError: error?.message || String(error || "unknown") },
+    createdAt: toIso(step?.updatedAt || step?.createdAt || operation?.updatedAt || operation?.createdAt || new Date()),
+  };
+}
+
+function pushOperationalRow(rows, context, serializer) {
+  try {
+    rows.push(serializer());
+  } catch (error) {
+    console.error("Failed to serialize operational log row", { operationId: context.operation?.id || context.step?.operationId || null, stepId: context.step?.id || null, organizationId: context.operation?.logtoOrganizationId || context.operation?.entityId || null, stepName: context.step?.stepName || context.operation?.operationType || null, error });
+    rows.push(buildSerializationFallbackRow({ ...context, error }));
+  }
+}
+
+function enrichOperationalRow(row) {
+  const missingFields = safeArray(row.missingFields || row.metadata?.missingFields);
+  const fieldDiffs = safeObject(row.fieldDiffs || row.metadata?.fieldDiffs);
+  const hasDiffs = Object.keys(fieldDiffs).length > 0;
+  let suggestedRoute = row.organizationId ? `/owner/organizations/${encodeURIComponent(row.organizationId)}` : null;
+  let suggestedSection = "profile";
+  let suggestedAction = row.metadata?.suggestedAction || row.suggestedAction || null;
+  if (missingFields.some((field) => /logo|color|brand|css|favicon/i.test(String(field))) || /branding/i.test(String(row.entityType || row.stepName || ""))) { suggestedSection = "branding"; suggestedAction = suggestedAction || "Ir a branding"; }
+  else if (/contact|member|user/i.test(String(row.entityType || row.stepName || ""))) { suggestedSection = "members"; suggestedAction = suggestedAction || "Ir a miembros"; }
+  else if (missingFields.length || hasDiffs) { suggestedSection = "organization-profile"; suggestedAction = suggestedAction || "Corregir datos"; }
+  const availableActions = new Set(safeArray(row.availableActions));
+  if (row.retryable) availableActions.add("retry");
+  if (row.organizationId) availableActions.add("open_organization");
+  if (missingFields.length || hasDiffs) availableActions.add("correct_data");
+  if (RESENDABLE_STEP_PATTERN.test(String(row.stepName || row.metadata?.stepName || ""))) availableActions.add("resend_payload");
+  availableActions.add("verify_provider");
+  if (row.requiresHumanAction) availableActions.add("manual_resolution");
+  return { ...row, suggestedAction, suggestedRoute, suggestedSection, availableActions: [...availableActions], metadata: { ...safeObject(row.metadata), suggestedAction, suggestedRoute, suggestedSection } };
+}
+
 async function listOperationalLogs(filters = {}) {
   const limit = Math.min(Math.max(Number.parseInt(filters.limit, 10) || 25, 1), 100);
   const offset = Math.max(Number.parseInt(filters.offset, 10) || 0, 0);
   const scanLimit = Math.min(Math.max(Number.parseInt(filters.scanLimit, 10) || Number.parseInt(process.env.OWNER_OPERATIONAL_LOG_SCAN_LIMIT || "5000", 10), 100), 20000);
-  const [operations, profiles, workerHealth] = await Promise.all([
+  const [recentOperations, openOperations, profiles, workerHealth] = await Promise.all([
     db.select().from(syncOperations).orderBy(desc(syncOperations.updatedAt)).limit(scanLimit),
+    db.select().from(syncOperations).where(notInArray(syncOperations.status, [...TERMINAL_OPERATION_STATUSES])).orderBy(desc(syncOperations.updatedAt)).limit(20000),
     db.select().from(organizationProfiles).limit(500),
-    getWorkerHealthSnapshot().catch(() => ({})),
+    getWorkerHealthSnapshot().catch((error) => ({ error: error.message })),
   ]);
+  const operationMap = new Map([...recentOperations, ...openOperations].map((operation) => [operation.id, operation]));
+  const operations = [...operationMap.values()];
   const namesByOrg = new Map(profiles.map((profile) => [profile.logtoOrganizationId, profile.nameCache]).filter(([id]) => Boolean(id)));
-  const withSteps = await Promise.all(operations.map((operation) => getSyncOperationWithSteps(operation.id).then((value) => value || { ...operation, steps: [] })));
-  const rows = withSteps.flatMap((operation) => {
+  const withSteps = await Promise.all(operations.map((operation) => getSyncOperationWithSteps(operation.id).then((value) => value || { ...operation, steps: [] }).catch((error) => {
+    console.error("Failed to load sync operation steps for operational logs", { operationId: operation.id, organizationId: operation.logtoOrganizationId, error });
+    return { ...operation, steps: [], stepLoadError: error.message };
+  })));
+  const rows = [];
+  for (const operation of withSteps) {
     const organizationName = namesByOrg.get(operation.logtoOrganizationId) || null;
-    const stepRows = (operation.steps || []).map((step) => serializeStepOperationalLog({ operation, step, organizationName, workerHealth }));
-    return [serializeOperationOperationalLog({ operation, organizationName, workerHealth }), ...stepRows];
-  }).sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
-  const filtered = rows.filter((row) => operationalLogMatches(row, filters));
+    for (const step of safeArray(operation.steps)) {
+      pushOperationalRow(rows, { operation, step, organizationName }, () => serializeStepOperationalLog({ operation, step, organizationName, workerHealth }));
+    }
+    pushOperationalRow(rows, { operation, organizationName }, () => serializeOperationOperationalLog({ operation, organizationName, workerHealth }));
+  }
+  const enrichedRows = rows.map(enrichOperationalRow);
+  const sortedRows = enrichedRows.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  const filtered = sortedRows.filter((row) => { try { return operationalLogMatches(row, filters); } catch (error) { console.error("Failed to match operational log row", { rowId: row?.id, operationId: row?.metadata?.operationId, error }); return false; } });
   return {
     auditLogs: filtered.slice(offset, offset + limit),
     pagination: { limit, offset, total: filtered.length },
@@ -802,7 +911,7 @@ async function listOperationalLogs(filters = {}) {
       administrativeEvents: "separate_audit_endpoint",
       workerState: "operationalObservability.workerHealthSnapshot",
       scanLimit,
-      scope: "operational rows are scanned from sync operation tables before pagination; increase OWNER_OPERATIONAL_LOG_SCAN_LIMIT if the dataset exceeds the configured operational history window",
+      scope: "recent rows honor OWNER_OPERATIONAL_LOG_SCAN_LIMIT, and all non-terminal open operations are force-included so pending work is never hidden by age",
     },
   };
 }
@@ -819,6 +928,9 @@ module.exports = {
   listOperationalLogs,
   listOrganizationPendingSync,
   recordOperationStep,
+  manualResolveSyncOperation,
+  resendSyncOperationPayload,
+  verifySyncOperationProvider,
   retrySyncOperation,
   safeFunctionalMessage,
   serializePending,

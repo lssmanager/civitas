@@ -77,6 +77,9 @@ const {
   listOperationalLogs,
   listOrganizationPendingSync,
   retrySyncOperation,
+  resendSyncOperationPayload,
+  manualResolveSyncOperation,
+  verifySyncOperationProvider,
   recordOperationStep,
   updateSyncOperation,
   safeFunctionalMessage,
@@ -1710,6 +1713,51 @@ app.post("/owner/organizations/:organizationId/sync-operations/:operationId/retr
   return res.json({ status: "retry_queued", operation, pending });
 });
 
+app.post("/owner/organizations/:organizationId/sync-operations/:operationId/resend-payload", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  let internalUser = null;
+  try {
+    internalUser = await getOrCreateInternalUser(req.user);
+    const profile = await resolveOrganizationProfileForRequest(req.params.organizationId);
+    const organizationId = profile?.logtoOrganizationId || req.params.organizationId;
+    const result = await resendSyncOperationPayload({ operationId: req.params.operationId, organizationId, actorUserId: internalUser.id });
+    await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "resend_payload.enqueued", originalOperationId: req.params.operationId, operationId: result.operation.id, stepName: result.stepName, targetIdentity: result.operation.entityId || organizationId, queueName: result.enqueueResult.queueName || null, jobId: result.enqueueResult.jobId || null, humanMessage: "Payload reenviado por owner y microacción encolada" } });
+    return res.json({ status: "payload_resend_queued", operation: result.operation, originalOperationId: req.params.operationId, stepName: result.stepName });
+  } catch (error) {
+    await recordAuditLogBestEffort({ actorUserId: internalUser?.id ?? null, organizationId: req.params.organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.ERROR, metadata: { stage: "resend_payload.failed", operationId: req.params.operationId, reason: error.reason || error.message } });
+    return res.status(error.status || 500).json({ error: "Payload resend failed", message: safeFunctionalMessage(getSafeErrorMessage(error), "No se pudo reenviar el payload."), reason: error.reason || null });
+  }
+});
+
+app.post("/owner/organizations/:organizationId/sync-operations/:operationId/manual-resolution", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  let internalUser = null;
+  try {
+    internalUser = await getOrCreateInternalUser(req.user);
+    const profile = await resolveOrganizationProfileForRequest(req.params.organizationId);
+    const organizationId = profile?.logtoOrganizationId || req.params.organizationId;
+    const result = await manualResolveSyncOperation({ operationId: req.params.operationId, stepId: req.body?.stepId || null, organizationId, resolutionType: req.body?.resolutionType, resolutionReason: req.body?.resolutionReason || null, notes: req.body?.notes || null, appliesUntil: req.body?.appliesUntil || null, resolvedByUserId: internalUser.id });
+    await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "manual_resolution.recorded", operationId: req.params.operationId, resolutionId: result.resolution.id, resolutionType: result.resolution.resolutionType, humanMessage: "Resolución manual registrada sin afirmar éxito downstream" } });
+    return res.json({ status: "manual_resolution_recorded", resolution: result.resolution });
+  } catch (error) {
+    await recordAuditLogBestEffort({ actorUserId: internalUser?.id ?? null, organizationId: req.params.organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.ERROR, metadata: { stage: "manual_resolution.failed", operationId: req.params.operationId, reason: error.message } });
+    return res.status(error.status || 500).json({ error: "Manual resolution failed", message: safeFunctionalMessage(getSafeErrorMessage(error), "No se pudo registrar la resolución manual.") });
+  }
+});
+
+app.post("/owner/organizations/:organizationId/sync-operations/:operationId/provider-verification", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  let internalUser = null;
+  try {
+    internalUser = await getOrCreateInternalUser(req.user);
+    const profile = await resolveOrganizationProfileForRequest(req.params.organizationId);
+    const organizationId = profile?.logtoOrganizationId || req.params.organizationId;
+    const result = await verifySyncOperationProvider({ operationId: req.params.operationId, organizationId, actorUserId: internalUser.id });
+    await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "provider_verification.started", operationId: result.operation.id, verificationOfOperationId: req.params.operationId, humanMessage: "Verificación live de proveedor solicitada explícitamente" } });
+    return res.json({ status: "provider_verification_requested", operation: result.operation, providerVerification: result.providerVerification });
+  } catch (error) {
+    await recordAuditLogBestEffort({ actorUserId: internalUser?.id ?? null, organizationId: req.params.organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.ERROR, metadata: { stage: "provider_verification.failed", operationId: req.params.operationId, reason: error.message } });
+    return res.status(error.status || 500).json({ error: "Provider verification failed", message: safeFunctionalMessage(getSafeErrorMessage(error), "No se pudo solicitar la verificación live del proveedor.") });
+  }
+});
+
 const buildContactSyncSettings = (profile, summary) => ({
   ...(profile.settings || {}),
   fluentcrmContactSync: {
@@ -1810,8 +1858,8 @@ app.get("/owner/operational-logs", requireAuth(API_RESOURCE), requireOwner, asyn
       to: req.query.to,
     }));
   } catch (error) {
-    console.error("Failed to list operational logs", error);
-    return res.status(500).json({ error: "Internal Server Error", message: "Failed to list operational logs" });
+    console.error("Failed to list operational logs", { error, query: req.query, stage: "listOperationalLogs" });
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to list operational logs", diagnostic: { stage: "listOperationalLogs", reason: error.message } });
   }
 });
 
