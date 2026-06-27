@@ -1,0 +1,341 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://civitas.local/contracts/operational/consolidated-operational-response.schema.json",
+  "title": "ConsolidatedOperationalResponse",
+  "type": "object",
+  "required": [
+    "contractVersion",
+    "generatedAt",
+    "organization",
+    "summary",
+    "canonical",
+    "fluentcrm",
+    "wordpress",
+    "worker",
+    "liveVerification",
+    "contactProgress",
+    "polling",
+    "latestEventIds"
+  ],
+  "properties": {
+    "contractVersion": {
+      "type": "string"
+    },
+    "generatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "organization": {
+      "type": "object",
+      "required": [
+        "logtoOrganizationId",
+        "name",
+        "sourceAnchors"
+      ],
+      "properties": {
+        "logtoOrganizationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "profileId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sourceAnchors": {
+          "type": "object",
+          "required": [
+            "logtoOrganizationId"
+          ],
+          "properties": {
+            "logtoOrganizationId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "logtoUserId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "summary": {
+      "$ref": "#/$defs/summary"
+    },
+    "canonical": {
+      "$ref": "#/$defs/block"
+    },
+    "fluentcrm": {
+      "$ref": "#/$defs/block"
+    },
+    "wordpress": {
+      "$ref": "#/$defs/block"
+    },
+    "worker": {
+      "$ref": "#/$defs/block"
+    },
+    "liveVerification": {
+      "$ref": "#/$defs/block"
+    },
+    "contactProgress": {
+      "$ref": "#/$defs/block"
+    },
+    "polling": {
+      "type": "object",
+      "required": [
+        "shouldPoll",
+        "intervalSeconds",
+        "reason",
+        "activeOperationIds"
+      ],
+      "properties": {
+        "shouldPoll": {
+          "type": "boolean"
+        },
+        "intervalSeconds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reason": {
+          "type": "string"
+        },
+        "activeOperationIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "latestEventIds": {
+      "type": "object",
+      "additionalProperties": {
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "$defs": {
+    "summary": {
+      "type": "object",
+      "required": [
+        "status",
+        "severity",
+        "humanMessage",
+        "dominantSource",
+        "nextAction",
+        "availableActions"
+      ],
+      "properties": {
+        "status": {
+          "type": "string"
+        },
+        "severity": {
+          "type": "string"
+        },
+        "humanMessage": {
+          "type": "string"
+        },
+        "dominantSource": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "live_provider_check",
+            "worker_runtime",
+            "local_reconciled",
+            "persisted_snapshot",
+            null
+          ]
+        },
+        "nextAction": {
+          "$ref": "#/$defs/action"
+        },
+        "availableActions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/action"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "action": {
+      "type": "string",
+      "description": "Known phase-1 actions: retry, verify_provider, open_organization, wait_first_wordpress_login, manual_retry_required, human_action_required, none. Consumers must tolerate additive future actions."
+    },
+    "freshness": {
+      "type": "object",
+      "required": [
+        "source",
+        "checkedAt",
+        "staleAfterSeconds",
+        "isStale",
+        "shouldAutoRefresh",
+        "refreshReason"
+      ],
+      "properties": {
+        "source": {
+          "type": "string",
+          "enum": [
+            "live_provider_check",
+            "worker_runtime",
+            "local_reconciled",
+            "persisted_snapshot"
+          ]
+        },
+        "checkedAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "staleAfterSeconds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "isStale": {
+          "type": "boolean"
+        },
+        "shouldAutoRefresh": {
+          "type": "boolean"
+        },
+        "refreshReason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "invalidation": {
+      "type": "object",
+      "required": [
+        "invalidateOnOperationIds",
+        "invalidateOnStatuses",
+        "invalidatedAt",
+        "lastEventId"
+      ],
+      "properties": {
+        "invalidateOnOperationIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "invalidateOnStatuses": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "invalidatedAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "lastEventId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "block": {
+      "type": "object",
+      "required": [
+        "status",
+        "severity",
+        "humanMessage",
+        "providerCode",
+        "providerStatus",
+        "nextAction",
+        "availableActions",
+        "freshness",
+        "invalidation"
+      ],
+      "properties": {
+        "status": {
+          "type": "string"
+        },
+        "severity": {
+          "type": "string"
+        },
+        "humanMessage": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "providerCode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "providerStatus": {
+          "type": [
+            "string",
+            "number",
+            "null"
+          ]
+        },
+        "nextAction": {
+          "$ref": "#/$defs/action"
+        },
+        "availableActions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/action"
+          }
+        },
+        "freshness": {
+          "$ref": "#/$defs/freshness"
+        },
+        "invalidation": {
+          "$ref": "#/$defs/invalidation"
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "runtime": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

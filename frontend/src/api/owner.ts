@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useApi } from "./base";
+import type { ConsolidatedOperationalResponse } from "../contracts/operational";
 
 export type OwnerAuthorization = {
   logtoUserId: string;
@@ -414,6 +415,8 @@ export const useOwnerApi = () => {
       getSystemMetrics: async (): Promise<OwnerSystemMetricsResponse> => fetchWithToken("/owner/system/metrics"),
       getOrganizationProfile: async (organizationId: string): Promise<OwnerOrganizationProfileResponse> =>
         fetchWithToken(`/owner/organizations/${encodeURIComponent(organizationId)}/profile`),
+      getOrganizationOperationalState: async (organizationId: string): Promise<ConsolidatedOperationalResponse> =>
+        fetchWithToken(`/owner/organizations/${encodeURIComponent(organizationId)}/operational-state`),
       updateOrganizationProfile: async (organizationId: string, data: Record<string, unknown>): Promise<{ status: string; organization: OwnerOrganization; syncOperation: Record<string, unknown> }> =>
         fetchWithToken(`/owner/organizations/${encodeURIComponent(organizationId)}/profile`, { method: "PATCH", body: JSON.stringify(data) }),
       retrySyncOperation: async (organizationId: string, operationId: string): Promise<{ status: string; operation: Record<string, unknown> }> =>
