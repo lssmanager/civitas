@@ -15,6 +15,7 @@ const OWNER_SYSTEM_METRICS_WINDOW = "1m";
 const RAW_SNAPSHOT_RETENTION_MS = Number(process.env.OPERATIONAL_METRICS_RAW_RETENTION_MS || 2 * 60 * 60 * 1000);
 const HOURLY_SNAPSHOT_RETENTION_MS = Number(process.env.OPERATIONAL_METRICS_HOURLY_RETENTION_MS || 48 * 60 * 60 * 1000);
 const SLOW_OPERATION_THRESHOLD_MS = Number(process.env.OPERATIONAL_METRICS_SLOW_OPERATION_MS || 50);
+const WORKER_HEARTBEAT_SOURCE = "sync_worker_heartbeat";
 
 let workerHealthSnapshotCacheAt = 0;
 let workerHealthSnapshotCache = null;
@@ -109,6 +110,31 @@ function buildFallbackWorkerHealthSnapshot() {
   };
 }
 
+async function readLatestWorkerHeartbeat() {
+  if (!operationalMetricSnapshots) return null;
+  try {
+    const [row] = await db
+      .select()
+      .from(operationalMetricSnapshots)
+      .where(eq(operationalMetricSnapshots.source, WORKER_HEARTBEAT_SOURCE))
+      .orderBy(desc(operationalMetricSnapshots.createdAt))
+      .limit(1);
+    return row || null;
+  } catch (error) {
+    return null;
+  }
+}
+
+async function recordWorkerHeartbeat({ workerId = process.env.HOSTNAME || `worker-${process.pid}`, queues = [], status = "alive" } = {}) {
+  const now = new Date();
+  return persistOperationalSnapshot({
+    bucket: "minute",
+    bucketStartedAt: toMinuteBucket(now),
+    source: WORKER_HEARTBEAT_SOURCE,
+    metrics: { workerId, queues, status, heartbeatAt: now.toISOString(), pid: process.pid },
+  });
+}
+
 async function loadQueueSnapshot(queueName, connection) {
   const queue = createQueue(queueName, connection);
   const counts = await queue.getJobCounts(...QUEUE_JOB_TYPES);
@@ -133,11 +159,24 @@ async function loadQueueSnapshot(queueName, connection) {
 async function loadRealWorkerHealthSnapshot() {
   const fallback = buildFallbackWorkerHealthSnapshot();
   const redisUrl = getRedisUrl({ required: false });
+  const heartbeat = await readLatestWorkerHeartbeat();
+  const heartbeatAt = heartbeat?.metrics?.heartbeatAt || heartbeat?.createdAt?.toISOString?.() || null;
+  const heartbeatStale = heartbeatAt
+    ? Date.now() - new Date(heartbeatAt).getTime() > Number(process.env.SYNC_WORKER_HEARTBEAT_STALE_MS || 120000)
+    : true;
+  const worker = {
+    heartbeatAt,
+    heartbeatStale,
+    workerHeartbeatState: heartbeatAt ? (heartbeatStale ? "worker_heartbeat_stale" : "alive") : "worker_offline",
+    state: heartbeatAt ? (heartbeatStale ? "worker_heartbeat_stale" : "alive") : "worker_offline",
+    source: heartbeat ? "postgres.operational_metric_snapshots" : fallback.worker.source,
+  };
 
   if (!redisUrl) {
     return {
       ...fallback,
       readiness: "degraded",
+      worker,
       redis: {
         status: "unknown",
         message: "REDIS_URL no está configurado; no se puede medir la cola operacional.",
@@ -156,8 +195,8 @@ async function loadRealWorkerHealthSnapshot() {
     const queues = await Promise.all(Object.values(QUEUE_NAMES).map((queueName) => loadQueueSnapshot(queueName, connection)));
 
     return {
-      readiness: fallback.worker.heartbeatStale ? "degraded" : "ready",
-      worker: fallback.worker,
+      readiness: worker.heartbeatStale ? "degraded" : "ready",
+      worker,
       redis: {
         status: pingResponse === "PONG" ? "ok" : "error",
         latencyMs,
@@ -700,5 +739,6 @@ module.exports = {
   loadOwnerSystemMetrics,
   parseRedisInfo,
   loadWorkerHealthSnapshot,
+  recordWorkerHeartbeat,
   summarizeOrganization,
 };

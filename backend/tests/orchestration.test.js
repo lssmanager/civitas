@@ -28,6 +28,7 @@ test("orchestration exposes reusable operation statuses and bootstrap steps", ()
   assert.equal(PHASE_STATUSES.PENDING, "pending");
   assert.equal(STEP_STATUSES.COMPLETED, "completed");
   assert.equal(QUEUE_NAMES.ORGANIZATION_BOOTSTRAP, "organization.bootstrap");
+  assert.equal(QUEUE_NAMES.SYNC_OPERATIONS, "civitas-sync-operations");
   assert.equal(STEP_NAMES.LOGTO_CANONICAL_BOOTSTRAP, "logto_canonical_bootstrap");
   assert.equal(STEP_NAMES.FLUENTCRM_COMPANY, "fluentcrm_company");
   assert.equal(STEP_NAMES.FINALIZE, "finalize");

@@ -797,6 +797,18 @@ function buildFluentCrmContactPayload({ identity = {}, companyId = null, roleNam
   return { payload, taxonomy, summary: summarizeContactPayload(payload), fieldsSent: Object.keys(payload).filter((key) => payload[key] !== undefined), missingFields: getMissingContactPayloadFields(payload) };
 }
 
+
+function classifyContactRecoveryState(result = {}) {
+  const code = result.code || result.reason || "";
+  const status = Number(result.fluentCrmStatus || result.statusCode || 0);
+  const message = result.message || "";
+  if (["created", "updated"].includes(result.status)) return { retryState: "completed", retryable: false, requiresHumanAction: false, suggestedAction: null };
+  if (result.status === "conflict" || /duplicate|conflict/i.test(String(code))) return { retryState: "manual_retry_required", retryable: false, requiresHumanAction: true, suggestedAction: "Resolver duplicado en FluentCRM y reintentar manualmente" };
+  if (status === 422 || /VALIDATION|INVALID|missing_email|payload/i.test(String(code))) return { retryState: "human_action_required", retryable: false, requiresHumanAction: true, suggestedAction: "Corregir payload/datos requeridos antes de reintentar" };
+  if (/TIMEOUT|timeout|AbortError|ETIMEDOUT/i.test(`${code} ${message}`) || status >= 500) return { retryState: "retry_pending", retryable: true, requiresHumanAction: false, suggestedAction: "Retry automático pendiente" };
+  return { retryState: result.status === "error" ? "manual_retry_required" : "not_required", retryable: result.status === "error", requiresHumanAction: false, suggestedAction: result.status === "error" ? "Reintentar sincronización de contacto" : null };
+}
+
 async function upsertContactFromLogtoIdentity({ identity, companyId, roleNames = [], extraTags = [], extraLists = [], roleMapping = getFluentCrmRoleSyncMapping() }) {
   const email = normalizeEmail(identity.email);
   if (!email) return { status: "error", reason: "missing_email", logtoUserId: identity.logtoUserId || null, payloadSummary: null, fieldsSent: [], missingFields: ["email"] };
@@ -813,7 +825,7 @@ async function upsertContactFromLogtoIdentity({ identity, companyId, roleNames =
   }
 }
 
-async function syncOrganizationContactsToFluentCrm({ profile, members, getMemberRoles, roleMapping = null, audit = async () => {}, markOrganizationSync = async () => {} }) {
+async function syncOrganizationContactsToFluentCrm({ profile, members, getMemberRoles, roleMapping = null, audit = async () => {}, markOrganizationSync = async () => {}, onContactProgress = async () => {} }) {
   if (!profile?.fluentcrmCompanyId) {
     const summary = { status: "error", reason: "company_not_linked", total: members.length, succeeded: 0, failed: members.length, conflicts: 0, errors: [{ reason: "company_not_linked" }] };
     await markOrganizationSync(summary);
@@ -830,7 +842,9 @@ async function syncOrganizationContactsToFluentCrm({ profile, members, getMember
     }
   }
   const results = [];
-  for (const member of members) {
+  const startedAt = new Date();
+  const total = members.length;
+  for (const [index, member] of members.entries()) {
     const identity = {
       logtoUserId: member.id || member.userId || member.logtoUserId || member.sub || null,
       email: member.primaryEmail || member.email || member.profile?.email || null,
@@ -844,24 +858,50 @@ async function syncOrganizationContactsToFluentCrm({ profile, members, getMember
       logtoOrganizationId: profile.logtoOrganizationId || null,
       lastLoginAt: member.lastLoginAt || member.lastSignInAt || null,
     };
+    const contactPosition = { index: index + 1, total, logtoUserId: identity.logtoUserId, email: identity.email, fluentcrmCompanyId: profile.fluentcrmCompanyId };
     try {
       const roleNames = await getMemberRoles(identity.logtoUserId);
+      await onContactProgress({ ...contactPosition, action: "sending", status: "processing_contact_n_of_x", result: "running", humanMessage: `Contacto ${index + 1}/${total}: enviando a FluentCRM` });
       const result = await upsertContactFromLogtoIdentity({ identity, companyId: profile.fluentcrmCompanyId, roleNames, roleMapping: effectiveRoleMapping });
-      results.push(result);
-      await audit({ result: result.status === "conflict" || result.status === "error" ? "error" : "success", member: { logtoUserId: identity.logtoUserId, email: identity.email }, syncResult: result });
+      const recovery = classifyContactRecoveryState(result);
+      const enriched = { ...result, ...recovery, index: index + 1, total, fluentcrmCompanyId: profile.fluentcrmCompanyId };
+      results.push(enriched);
+      const action = result.status === "created" ? "created" : result.status === "updated" ? "updated" : result.status === "conflict" ? "conflict" : "error";
+      const humanMessage = result.status === "created" ? `Contacto ${index + 1}/${total}: creado exitosamente` : result.status === "updated" ? `Contacto ${index + 1}/${total}: actualizado exitosamente` : result.status === "conflict" ? `Contacto ${index + 1}/${total}: conflicto por duplicado, requiere retry manual` : `Contacto ${index + 1}/${total}: error al sincronizar`;
+      await onContactProgress({ ...contactPosition, action, status: result.status, result: result.status, humanMessage, syncResult: enriched, ...recovery });
+      await audit({ result: result.status === "conflict" || result.status === "error" ? "error" : "success", member: { logtoUserId: identity.logtoUserId, email: identity.email }, syncResult: enriched });
     } catch (error) {
-      const result = error.crmContactSync || { status: "error", reason: "crm_request_failed", logtoUserId: identity.logtoUserId, email: identity.email, message: error.message, code: error.code || null, fluentCrmStatus: error.status || null };
+      const baseResult = error.crmContactSync || { status: "error", reason: "crm_request_failed", logtoUserId: identity.logtoUserId, email: identity.email, message: error.message, code: error.code || null, fluentCrmStatus: error.status || null };
+      const recovery = classifyContactRecoveryState(baseResult);
+      const result = { ...baseResult, ...recovery, index: index + 1, total, fluentcrmCompanyId: profile.fluentcrmCompanyId };
       results.push(result);
+      const humanMessage = recovery.retryState === "retry_pending"
+        ? `Contacto ${index + 1}/${total}: falló por timeout/error transitorio, retry automático pendiente`
+        : recovery.retryState === "human_action_required"
+          ? `Contacto ${index + 1}/${total}: payload inválido, requiere acción humana`
+          : `Contacto ${index + 1}/${total}: falló, requiere retry manual`;
+      await onContactProgress({ ...contactPosition, action: "error", status: "error", result: "error", humanMessage, syncResult: result, ...recovery });
       await audit({ result: "error", member: { logtoUserId: identity.logtoUserId, email: identity.email }, syncResult: result, error });
     }
   }
+  const finishedAt = new Date();
   const summary = {
     status: results.some((item) => item.status === "conflict") ? "conflict" : results.some((item) => item.status === "error") ? "partial_error" : "synced",
+    recoveryStatus: results.some((item) => item.retryState === "human_action_required") ? "human_action_required" : results.some((item) => item.retryState === "manual_retry_required") ? "manual_retry_required" : results.some((item) => item.retryState === "retry_pending") ? "retry_pending" : "not_required",
     total: members.length,
+    attempted: members.length,
     succeeded: results.filter((item) => ["created", "updated"].includes(item.status)).length,
+    created: results.filter((item) => item.status === "created").length,
+    updated: results.filter((item) => item.status === "updated").length,
     failed: results.filter((item) => item.status === "error").length,
     conflicts: results.filter((item) => item.status === "conflict").length,
-    errors: results.filter((item) => item.status === "error" || item.status === "conflict").map((item) => ({ logtoUserId: item.logtoUserId, email: item.email, reason: item.reason, message: item.message, code: item.code || null, fluentCrmStatus: item.fluentCrmStatus || null, candidateCount: item.candidateCount, payloadSummary: item.payloadSummary || null, fieldsSent: item.fieldsSent || [], missingFields: item.missingFields || [] })),
+    retryAutomatic: results.filter((item) => item.retryState === "retry_pending").length,
+    retryManual: results.filter((item) => item.retryState === "manual_retry_required").length,
+    humanActionRequired: results.filter((item) => item.retryState === "human_action_required").length,
+    startedAt: startedAt.toISOString(),
+    finishedAt: finishedAt.toISOString(),
+    durationMs: finishedAt.getTime() - startedAt.getTime(),
+    errors: results.filter((item) => item.status === "error" || item.status === "conflict").map((item) => ({ logtoUserId: item.logtoUserId, email: item.email, reason: item.reason, message: item.message, code: item.code || null, fluentCrmStatus: item.fluentCrmStatus || null, candidateCount: item.candidateCount, payloadSummary: item.payloadSummary || null, fieldsSent: item.fieldsSent || [], missingFields: item.missingFields || [], retryState: item.retryState, retryable: item.retryable, requiresHumanAction: item.requiresHumanAction, suggestedAction: item.suggestedAction })),
     results,
   };
   await markOrganizationSync(summary);
@@ -938,10 +978,22 @@ async function getOrCreateCompanyForOrganization(profile, organization = {}, { a
     await audit({ actorUserId, organizationId: profile.logtoOrganizationId, action: match.company ? AUDIT_ACTIONS.OWNER_ORGANIZATION_FLUENTCRM_LINK : AUDIT_ACTIONS.OWNER_ORGANIZATION_FLUENTCRM_SYNC, result: AUDIT_RESULTS.SUCCESS, metadata: { ...auditMetadata, reason: match.reason || "created", fluentcrmCompanyId: id == null ? null : String(id) } });
     return { status: match.company ? "linked" : "created", company, reason: match.reason || "created" };
   } catch (error) {
+    error.crmCompanySync = error.crmCompanySync || {
+      status: "error",
+      entityType: "company",
+      targetIdentity: { companyName: merged.name || null, fluentcrmCompanyId: profile?.fluentcrmCompanyId || null, logtoOrganizationId: profile?.logtoOrganizationId || null },
+      fieldsSent: [],
+      fieldDiffs: {},
+      missingFields: getMissingCompanyPayloadFields(buildFluentCrmCompanyPayload(merged)),
+      providerStatus: error.status || "error",
+      providerCode: error.code || error.diagnostic?.code || null,
+      fluentCrmStatus: error.status || null,
+      humanMessage: error.message,
+    };
     await markSync({ id: profile.id, companyId: profile.fluentcrmCompanyId, status: FLUENTCRM_SYNC_STATUSES.ERROR, errorMessage: error.message });
-    await audit({ actorUserId, organizationId: profile.logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_FLUENTCRM_ERROR, result: AUDIT_RESULTS.ERROR, metadata: { ...auditMetadata, error } });
+    await audit({ actorUserId, organizationId: profile.logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_FLUENTCRM_ERROR, result: AUDIT_RESULTS.ERROR, metadata: { ...auditMetadata, ...error.crmCompanySync, error } });
     throw error;
   }
 }
 
-module.exports = { CRM_CLEANUP_STRATEGIES, FluentCrmError, buildCleanupPolicy, buildFluentCrmCompanyPayload, computeCompanyFieldDiffs, buildOrganizationCrmTaxonomy, cleanupContactInFluentCrm, createCompany, createContact, deleteContact, ensureOrganizationTagsAndLists, findCompanyCandidates, findReliableCompanyMatch, getFluentCrmConfig, getFluentCrmDiagnostic, getFluentCrmRoleSyncMapping, getOrCreateCompanyForOrganization, mapOrganizationRolesToCrmTaxonomy, normalizeBaseUrl, normalizeCrmCompanyInput, sanitizeForDiagnostics, searchCompanies, searchContacts, validateFluentCrmConfiguration, syncCompanyFromLogtoOrganization, syncOrganizationContactsToFluentCrm, updateCompany, updateContact, updateContactEmailAfterLogtoChange, upsertContactFromLogtoIdentity };
+module.exports = { CRM_CLEANUP_STRATEGIES, FluentCrmError, classifyContactRecoveryState, buildCleanupPolicy, buildFluentCrmCompanyPayload, computeCompanyFieldDiffs, buildOrganizationCrmTaxonomy, cleanupContactInFluentCrm, createCompany, createContact, deleteContact, ensureOrganizationTagsAndLists, findCompanyCandidates, findReliableCompanyMatch, getFluentCrmConfig, getFluentCrmDiagnostic, getFluentCrmRoleSyncMapping, getOrCreateCompanyForOrganization, mapOrganizationRolesToCrmTaxonomy, normalizeBaseUrl, normalizeCrmCompanyInput, sanitizeForDiagnostics, searchCompanies, searchContacts, validateFluentCrmConfiguration, syncCompanyFromLogtoOrganization, syncOrganizationContactsToFluentCrm, updateCompany, updateContact, updateContactEmailAfterLogtoChange, upsertContactFromLogtoIdentity };

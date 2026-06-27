@@ -1,4 +1,6 @@
-const QUEUE_NAME = process.env.CIVITAS_SYNC_QUEUE_NAME || "civitas-sync-operations";
+const { QUEUE_NAMES } = require("../queues/config");
+
+const QUEUE_NAME = QUEUE_NAMES.SYNC_OPERATIONS;
 const REDIS_URL = process.env.REDIS_URL || process.env.BULLMQ_REDIS_URL || null;
 let queue = null;
 
@@ -33,14 +35,17 @@ async function enqueueSyncOperation(operation) {
 async function getSyncJobSnapshot(operation) {
   const syncQueue = getSyncQueue();
   const jobId = getSyncJobId(operation);
-  if (!syncQueue || !jobId) return { queueName: QUEUE_NAME, jobId, retryState: operation?.status || "unknown", enqueuedAt: null, lastAttemptAt: null, jobAgeSeconds: null };
+  const fallbackTimestamp = operation?.createdAt ? new Date(operation.createdAt).getTime() : null;
+  const fallbackAge = Number.isFinite(fallbackTimestamp) ? Math.max(0, Math.floor((Date.now() - fallbackTimestamp) / 1000)) : null;
+  if (!syncQueue || !jobId) return { queueName: QUEUE_NAME, jobId, retryState: operation?.status || "unknown", enqueuedAt: operation?.createdAt || null, lastAttemptAt: null, jobAgeSeconds: fallbackAge, transport: "db_poll_fallback" };
   const job = await syncQueue.getJob(jobId);
-  if (!job) return { queueName: QUEUE_NAME, jobId, retryState: operation?.status || "missing", enqueuedAt: null, lastAttemptAt: null, jobAgeSeconds: null };
+  if (!job) return { queueName: QUEUE_NAME, jobId, retryState: operation?.status || "missing", enqueuedAt: operation?.createdAt || null, lastAttemptAt: null, jobAgeSeconds: fallbackAge, transport: "db_only_or_completed_removed" };
   const state = await job.getState().catch(() => operation?.status || "unknown");
   return {
     queueName: QUEUE_NAME,
     jobId,
     retryState: state,
+    transport: "bullmq",
     enqueuedAt: job.timestamp ? new Date(job.timestamp).toISOString() : null,
     lastAttemptAt: job.processedOn ? new Date(job.processedOn).toISOString() : null,
     jobAgeSeconds: job.timestamp ? Math.max(0, Math.floor((Date.now() - Number(job.timestamp)) / 1000)) : null,

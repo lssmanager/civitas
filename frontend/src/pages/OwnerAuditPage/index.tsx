@@ -88,9 +88,12 @@ function AuditLogFormattedDetail({ row }: { row: OwnerAuditLog }) {
     { label: "Target", value: row.targetIdentity || row.metadata?.targetIdentity },
     { label: "Mensaje humano", value: row.humanMessage || row.metadata?.humanMessage },
     { label: "Cola", value: row.queueName || row.metadata?.queueName },
+    { label: "Estado cola", value: row.queueStatus || row.metadata?.queueStatus },
+    { label: "Fuente ejecución", value: row.executionSource || row.metadata?.executionSource },
     { label: "Job", value: row.jobId || row.metadata?.jobId },
+    { label: "Edad job", value: row.jobAgeSeconds ?? row.metadata?.jobAgeSeconds },
     { label: "Retry", value: row.retryState || row.metadata?.retryState },
-    { label: "Worker", value: row.metadata?.workerHeartbeatState },
+    { label: "Worker", value: row.workerHeartbeatState || row.metadata?.workerHeartbeatState },
     { label: "Sistema afectado", value: row.system || row.metadata?.affectedSystem },
     { label: "Campos enviados", value: row.metadata?.fieldsSent },
     { label: "Campos faltantes", value: row.missingFields || row.metadata?.missingFields },
@@ -152,6 +155,9 @@ function AuditLogCard({ row, onRetry }: { row: OwnerAuditLog; onRetry: () => voi
             <Badge bg={resultVariant(row.result)}>{row.result}</Badge>
             {row.system ? <Badge bg="light" text="dark">{row.system}</Badge> : null}
             <Badge bg="info" text="dark">{formatStage(row)}</Badge>
+            {row.workerHeartbeatState || row.metadata?.workerHeartbeatState ? <Badge bg="warning" text="dark">Worker: {String(row.workerHeartbeatState || row.metadata?.workerHeartbeatState)}</Badge> : null}
+            {row.executionSource || row.metadata?.executionSource ? <Badge bg="light" text="dark">Fuente: {String(row.executionSource || row.metadata?.executionSource)}</Badge> : null}
+            {row.jobAgeSeconds ?? row.metadata?.jobAgeSeconds ? <Badge bg="light" text="dark">Job age: {String(row.jobAgeSeconds ?? row.metadata?.jobAgeSeconds)}s</Badge> : null}
             <span className="text-secondary small">{formatDate(row.createdAt)}</span>
           </div>
           <div className="fw-semibold text-break">{formatLogStatement(row)}</div>

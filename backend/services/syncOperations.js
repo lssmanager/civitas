@@ -84,14 +84,29 @@ function buildQueueProjection(item = {}, visibleStep = null) {
   const snapshot = item.jobSnapshot || {};
   const retryState = snapshot.retryState || deriveRetryState(item, visibleStep);
   const workerHealth = item.workerHealth || {};
+  const heartbeatState = workerHealth.worker?.workerHeartbeatState
+    || workerHealth.workerHeartbeatState
+    || workerHealth.state
+    || (workerHealth.worker?.heartbeatStale ? "worker_heartbeat_stale" : null)
+    || (workerHealth.redis?.urlConfigured === false ? "worker_offline" : null)
+    || item.workerHeartbeatState
+    || (retryState === "queued" ? "worker_offline" : null);
+  const queuedAge = item.createdAt ? Math.max(0, Math.floor((Date.now() - new Date(item.createdAt).getTime()) / 1000)) : null;
+  const jobAgeSeconds = snapshot.jobAgeSeconds ?? item.jobAgeSeconds ?? queuedAge;
+  const stuckThresholdSeconds = Number(process.env.SYNC_OPERATION_STUCK_QUEUE_SECONDS || 300);
+  const effectiveRetryState = retryState === "queued" && jobAgeSeconds != null && jobAgeSeconds >= stuckThresholdSeconds
+    ? (heartbeatState === "alive" ? "stuck_in_queue" : "worker_offline")
+    : retryState;
   return {
     queueName: snapshot.queueName || visibleStep?.queueName || item.queueName || QUEUE_NAME,
     jobId: snapshot.jobId || visibleStep?.jobId || item.jobId || null,
-    retryState,
+    retryState: effectiveRetryState,
+    queueStatus: effectiveRetryState,
+    executionSource: snapshot.transport || visibleStep?.outputJson?.transport || visibleStep?.outputJson?.executionSource || item.executionSource || (snapshot.queueName ? "bullmq" : "db_poll_fallback"),
     enqueuedAt: snapshot.enqueuedAt || item.enqueuedAt || null,
     lastAttemptAt: snapshot.lastAttemptAt || item.lastAttemptAt || null,
-    jobAgeSeconds: snapshot.jobAgeSeconds ?? item.jobAgeSeconds ?? null,
-    workerHeartbeatState: workerHealth.workerHeartbeatState || workerHealth.state || item.workerHeartbeatState || (retryState === "queued" ? "unknown" : null),
+    jobAgeSeconds,
+    workerHeartbeatState: heartbeatState,
   };
 }
 
@@ -112,12 +127,19 @@ function deriveRetryState(item = {}, step = null) {
 }
 
 function buildActionableMessage({ classified, details, missingFields, fieldDiffs, providerCode, providerStatus, retryState, rawError }) {
+  if (retryState === "worker_offline") return "Reintento solicitado; el worker no reporta heartbeat y el job sigue en cola";
+  if (retryState === "stuck_in_queue") return "Reintento solicitado; el job parece atascado en cola";
   if (retryState === "queued") return "Reintento solicitado; job en cola";
   if (retryState === "running") return "Reintento en ejecución";
   if (retryState === "failed_again") return "Retry falló nuevamente";
   if (details.humanMessage) return details.humanMessage;
+  if (/FLUENTCRM_COMPANY_.*(CONFLICT|DUPLICATE)|duplicate.*company|ambiguous/i.test(String(providerCode || details.reason || rawError || ""))) return "No se pudo crear o enlazar la Company en FluentCRM: existe un conflicto por coincidencias duplicadas.";
+  if (/FLUENTCRM_VALIDATION_FAILED|validation/i.test(String(providerCode || details.reason || rawError || "")) || Number(providerStatus) === 422) return "FluentCRM rechazó el payload de Company con error de validación 422.";
+  if (Number(providerStatus) === 401 || /AUTH/.test(String(providerCode))) return "No se pudo autenticar contra FluentCRM.";
+  if (Number(providerStatus) === 403) return "FluentCRM rechazó la solicitud por autorización insuficiente.";
+  if (/TIMEOUT|timeout/i.test(String(providerCode || rawError || ""))) return "La solicitud a FluentCRM expiró por timeout.";
   if (providerCode === "FLUENTCRM_DUPLICATE_CONTACT") return "FluentCRM rechazó el contacto por email duplicado";
-  if (/missing_company_id|company_not_linked/i.test(String(providerCode || details.reason || rawError || ""))) return classified.label.includes("contact") ? "Falta company_id para sincronizar el contacto" : "Falta crear company en FluentCRM";
+  if (/missing_company_id|company_not_linked|FLUENTCRM_COMPANY_ID_MISSING/i.test(String(providerCode || details.reason || rawError || ""))) return classified.label.includes("contact") ? "Falta company_id para sincronizar el contacto" : "Falta crear company en FluentCRM";
   if (/missing_user_role/i.test(String(providerCode || details.reason || rawError || ""))) return "Falta user_role para sincronizar el contacto";
   if (missingFields.length) return `Falta sincronizar ${formatList(missingFields)}`;
   const diffFields = Object.keys(fieldDiffs || {});
@@ -139,10 +161,10 @@ function serializePending(item, organizationName = null) {
   const missingFields = details.missingFields || details.payloadSummary?.missingFields || [];
   const fieldDiffs = details.fieldDiffs || null;
   const providerStatus = details.providerStatus || details.status || visibleStep?.status || item.status || null;
-  const providerCode = details.providerCode || details.code || item.lastErrorJson?.providerCode || visibleStep?.lastErrorJson?.providerCode || null;
-  const retryState = deriveRetryState(item, visibleStep);
-  const actionableMessage = item.humanMessage || item.payloadSnapshotJson?.humanMessage || item.resultSnapshotJson?.humanMessage || buildActionableMessage({ classified, details, missingFields, fieldDiffs, providerCode, providerStatus, retryState, rawError });
+  const providerCode = details.providerCode || details.code || item.lastErrorJson?.providerCode || item.lastErrorJson?.code || visibleStep?.lastErrorJson?.providerCode || visibleStep?.lastErrorJson?.code || null;
   const queue = buildQueueProjection(item, visibleStep);
+  const retryState = queue.retryState || deriveRetryState(item, visibleStep);
+  const actionableMessage = item.humanMessage || item.payloadSnapshotJson?.humanMessage || item.resultSnapshotJson?.humanMessage || buildActionableMessage({ classified, details, missingFields, fieldDiffs, providerCode, providerStatus, retryState, rawError });
   return {
     id: item.pendingId || item.id,
     operationId: item.operationId || item.id,
@@ -154,8 +176,6 @@ function serializePending(item, organizationName = null) {
     entityType: details.entityType || item.entityType || null,
     targetIdentity: details.targetIdentity || details.identity || null,
     stepName: visibleStep?.stepName || item.stepName || item.operationType || null,
-    queueName: visibleStep?.queueName || null,
-    jobId: visibleStep?.jobId || null,
     fieldsSent,
     missingFields,
     fieldDiffs,
@@ -176,6 +196,8 @@ function serializePending(item, organizationName = null) {
     queueName: queue.queueName,
     jobId: queue.jobId,
     retryState: queue.retryState,
+    queueStatus: queue.queueStatus,
+    executionSource: queue.executionSource,
     enqueuedAt: queue.enqueuedAt,
     lastAttemptAt: queue.lastAttemptAt,
     workerHeartbeatState: queue.workerHeartbeatState,
@@ -472,7 +494,7 @@ async function listOrganizationPendingSync({ organizationId }) {
       .orderBy(desc(syncOperations.updatedAt))
       .limit(50),
     db.select().from(organizationProfiles).where(eq(organizationProfiles.logtoOrganizationId, organizationId)).limit(1),
-    getWorkerHealthSnapshot().catch(() => ({})),
+    getWorkerHealthSnapshot(),
   ]);
   const withSteps = await Promise.all(operations.map((operation) => getSyncOperationWithSteps(operation.id)));
   const enriched = await Promise.all(withSteps.filter(Boolean).map(async (operation) => ({
@@ -486,7 +508,7 @@ async function listOrganizationPendingSync({ organizationId }) {
 
   return rows
     .map((operation) => serializePending(operation, profile?.nameCache || null))
-    .filter((item, index, list) => item.status !== "completed" && item.status !== "succeeded" && list.findIndex((other) => other.id === item.id) === index);
+    .filter((item, index, list) => (item.operationType === "provider_verification" || (item.status !== "completed" && item.status !== "succeeded")) && list.findIndex((other) => other.id === item.id) === index);
 }
 
 async function retrySyncOperation({ operationId, organizationId }) {
@@ -580,9 +602,12 @@ async function manualResolveSyncOperation({ operationId, stepId = null, organiza
 async function verifySyncOperationProvider({ operationId, organizationId, actorUserId = null }) {
   const operation = await getSyncOperationWithSteps(operationId).catch(() => null);
   const orgId = operation?.logtoOrganizationId || organizationId;
-  const created = await createCanonicalSyncOperation({ operationType: "provider_verification", entityType: operation?.entityType || "fluentcrm.company", entityId: operation?.entityId || orgId, logtoOrganizationId: orgId, correlationId: `owner-provider-verification:${operationId}:${Date.now()}`, idempotencyKey: `owner-provider-verification:${operationId}:${Date.now()}`, payloadSnapshotJson: { requestedFrom: "owner_console", requestedByUserId: actorUserId, verificationOfOperationId: operationId, provider: "fluentcrm_wordpress", humanMessage: "Verificación live de proveedor solicitada" } });
-  await recordOperationStep({ operationId: created.id, stepName: "provider_verification.started", queueName: "owner-operational-center", jobId: created.id, status: STEP_STATUSES.COMPLETED, outputJson: { entityType: created.entityType, targetIdentity: created.entityId, providerStatus: "queued_for_controlled_check", humanMessage: "Verificación live solicitada; resultado distinguido de reconciliación local" } });
-  return { operation: created, providerVerification: { status: "requested", level: "live_requested_not_local_projection" } };
+  const sourcePayload = safeObject(operation?.payloadSnapshotJson);
+  const sourceResult = safeObject(operation?.resultSnapshotJson);
+  const created = await createCanonicalSyncOperation({ operationType: "provider_verification", entityType: operation?.entityType || "provider.verification", entityId: operation?.entityId || orgId, logtoOrganizationId: orgId, logtoUserId: operation?.logtoUserId || sourcePayload.logtoUserId || null, correlationId: `owner-provider-verification:${operationId}:${Date.now()}`, idempotencyKey: `owner-provider-verification:${operationId}:${Date.now()}`, payloadSnapshotJson: { requestedFrom: "owner_console", requestedByUserId: actorUserId, verificationOfOperationId: operationId, provider: "logto_fluentcrm_wordpress", logtoOrganizationId: orgId, logtoUserId: operation?.logtoUserId || sourcePayload.logtoUserId || sourceResult?.workerOutcome?.result?.logtoUserId || null, email: sourcePayload.email || sourceResult?.workerOutcome?.result?.email || null, fluentcrmCompanyId: sourcePayload.fluentcrmCompanyId || sourceResult?.workerOutcome?.result?.fluentcrmCompanyId || null, humanMessage: "Verificación live de proveedor solicitada" } });
+  const enqueueResult = await enqueueSyncOperation(created).catch((error) => ({ enqueued: false, reason: error.message, queueName: QUEUE_NAME, jobId: `sync-operation-${created.id}` }));
+  await recordOperationStep({ operationId: created.id, stepName: "provider_verification.started", queueName: enqueueResult.queueName || QUEUE_NAME, jobId: enqueueResult.jobId || `sync-operation-${created.id}`, status: STEP_STATUSES.QUEUED, outputJson: { ...enqueueResult, entityType: created.entityType, targetIdentity: created.entityId, providerStatus: "queued_for_live_check", humanMessage: "Verificación live solicitada; el worker consultará Logto, FluentCRM y WordPress" } });
+  return { operation: created, providerVerification: { status: "requested", level: "live_requested_not_local_projection", enqueueResult } };
 }
 
 async function listOrganizationEvents({ organizationId, limit = 30 }) {
@@ -606,6 +631,8 @@ async function listOrganizationEvents({ organizationId, limit = 30 }) {
         targetIdentity: pending.targetIdentity,
         providerCode: pending.providerCode,
         retryState: pending.retryState,
+        queueStatus: pending.queueStatus,
+        executionSource: pending.executionSource,
         humanMessage: pending.humanMessage,
         message: pending.humanMessage || pending.lastError,
         requiresAction: pending.retryable,
@@ -632,6 +659,8 @@ async function listOrganizationEvents({ organizationId, limit = 30 }) {
       queueName: log.metadata?.queueName || null,
       jobId: log.metadata?.jobId || null,
       retryState: log.metadata?.retryState || null,
+      queueStatus: log.metadata?.queueStatus || null,
+      executionSource: log.metadata?.executionSource || null,
       workerHeartbeatState: log.metadata?.workerHeartbeatState || null,
       jobAgeSeconds: log.metadata?.jobAgeSeconds ?? null,
     })),
@@ -685,6 +714,8 @@ function serializeStepOperationalLog({ operation, step, organizationName = null,
     queueName: queue.queueName,
     jobId: queue.jobId,
     retryState: deriveRetryState(operation, step),
+    queueStatus: queue.queueStatus,
+    executionSource: queue.executionSource,
     retryable: Boolean(lastError.retryable || output.retryable || ["failed", "partial_failed", "error"].includes(operation.status)),
     requiresHumanAction: Boolean(output.requiresHumanAction || lastError.requiresHumanAction || lastError.hitl),
     suggestedAction: output.suggestedAction || (lastError.retryable ? "Reintentar" : null),
@@ -714,6 +745,8 @@ function serializeStepOperationalLog({ operation, step, organizationName = null,
     queueName: metadata.queueName,
     jobId: metadata.jobId,
     retryState: metadata.retryState,
+    queueStatus: metadata.queueStatus,
+    executionSource: metadata.executionSource,
     retryable: metadata.retryable,
     requiresHumanAction: metadata.requiresHumanAction,
     availableActions: [
@@ -746,6 +779,8 @@ function serializeOperationOperationalLog({ operation, organizationName = null, 
     queueName: pending.queueName,
     jobId: pending.jobId,
     retryState: pending.retryState,
+    queueStatus: pending.queueStatus,
+    executionSource: pending.executionSource,
     retryable: pending.retryable,
     requiresHumanAction: pending.requiresHumanAction,
     suggestedAction: pending.suggestedAction,
@@ -883,7 +918,7 @@ async function listOperationalLogs(filters = {}) {
     db.select().from(syncOperations).orderBy(desc(syncOperations.updatedAt)).limit(scanLimit),
     db.select().from(syncOperations).where(notInArray(syncOperations.status, [...TERMINAL_OPERATION_STATUSES])).orderBy(desc(syncOperations.updatedAt)).limit(20000),
     db.select().from(organizationProfiles).limit(500),
-    getWorkerHealthSnapshot().catch((error) => ({ error: error.message })),
+    getWorkerHealthSnapshot(),
   ]);
   const operationMap = new Map([...recentOperations, ...openOperations].map((operation) => [operation.id, operation]));
   const operations = [...operationMap.values()];

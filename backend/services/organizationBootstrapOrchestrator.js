@@ -4,10 +4,12 @@ const { QUEUE_NAMES, createQueue } = require("../queues/config");
 const { LOGTO_SYNC_STATUSES, markOrganizationProfileFluentCrmSync, upsertOrganizationProfile } = require("./organizationProfiles");
 const { normalizeCanonicalProvisioningInput, runCanonicalOrganizationBootstrap } = require("./organizationProvisioningCore");
 const { buildLogtoOrganizationCustomData, normalizeExtendedProvisioningInput } = require("./organizationProvisioningSettings");
-const { ensureOrganizationTagsAndLists, getOrCreateCompanyForOrganization, upsertContactFromLogtoIdentity } = require("./fluentCrm");
+const { ensureOrganizationTagsAndLists, getOrCreateCompanyForOrganization, syncOrganizationContactsToFluentCrm } = require("./fluentCrm");
 const { getOrCreateInternalUser } = require("./users");
 const { OPERATION_STATUSES, PHASE_STATUSES, STEP_STATUSES, classifyOperationalError, createSyncOperation, getSyncOperationWithSteps, recordOperationStep, updateSyncOperation } = require("./syncOperations");
-const { buildFluentCrmCompanyPayloadFromForm, buildFluentCrmContactPayloadFromAssignment } = require("./organizationProvisioningPayloads");
+const { buildFluentCrmCompanyPayloadFromForm } = require("./organizationProvisioningPayloads");
+const { listLogtoOrganizationRoles, listLogtoOrganizationUserRoles, listLogtoOrganizationUsers } = require("./logtoManagement");
+const { getEffectiveCrmRoleMapping } = require("./crmRoleMappings");
 
 const STEP_NAMES = Object.freeze({ VALIDATE_INPUT: "validate_input", LOGTO_CANONICAL_BOOTSTRAP: "logto_canonical_bootstrap", RECONCILE_ORGANIZATION_PROFILE: "reconcile_organization_profile", PREPARE_CRM_PAYLOAD: "prepare_crm_payload", FLUENTCRM_COMPANY: "fluentcrm_company", FLUENTCRM_CONTACTS: "fluentcrm_contacts", FINALIZE: "finalize" });
 const getSafeErrorMessage = (error) => error?.message || "Operational sync failed";
@@ -16,6 +18,89 @@ const log = (message, fields = {}) => console.log(JSON.stringify({ message, comp
 
 function buildAuditContext({ authUser, internalUser, organization, operationId = null, correlationId = null }) { return { actorLogtoUserId: authUser?.sub || null, actorInternalUserId: internalUser?.id || null, organizationId: organization?.id || organization?.organizationId || null, organizationName: getLogtoOrganizationName(organization), operationId, correlationId }; }
 function operationIdempotencyKey({ body = {}, actorUserId }) { return body.idempotencyKey || `organization.bootstrap:${actorUserId}:${String(body.name || "").trim().toLowerCase()}:${String(body.baseAdmin?.email || body.baseAdminEmail || "").trim().toLowerCase()}`; }
+
+
+function buildCompanyFailureDiagnostics({ error = null, result = null, companyId = null, logtoOrganizationId = null } = {}) {
+  const classified = result?.category ? result : classifyOperationalError(error || result || {});
+  const providerCode = result?.providerCode || result?.code || classified.code || (result?.reason ? `FLUENTCRM_COMPANY_${String(result.reason).toUpperCase()}` : null) || (classified.category === "conflict" ? "FLUENTCRM_COMPANY_CONFLICT" : classified.category === "validation_error" ? "FLUENTCRM_VALIDATION_FAILED" : classified.category === "auth_error" ? "FLUENTCRM_AUTH_FAILED" : classified.category === "timeout_or_remote_error" ? "FLUENTCRM_TIMEOUT" : classified.category === "configuration_or_contract_error" ? "FLUENTCRM_CONFIG_ERROR" : "FLUENTCRM_COMPANY_SYNC_FAILED");
+  const providerStatus = result?.providerStatus || result?.fluentCrmStatus || classified.status || (classified.category === "conflict" ? "conflict" : "failed");
+  const reason = result?.reason || classified.category || "company_sync_failed";
+  let humanMessage = result?.humanMessage || classified.message || "No se pudo crear o enlazar la Company en FluentCRM.";
+  if (/conflict|duplicate/i.test(`${providerCode} ${reason}`)) humanMessage = "No se pudo crear o enlazar la Company en FluentCRM: existe un conflicto por coincidencias duplicadas.";
+  else if (Number(providerStatus) === 422 || /VALIDATION|invalid|validation/i.test(`${providerCode} ${reason}`)) humanMessage = "FluentCRM rechazó el payload de Company con error de validación 422.";
+  else if (Number(providerStatus) === 401) humanMessage = "No se pudo autenticar contra FluentCRM.";
+  else if (Number(providerStatus) === 403) humanMessage = "FluentCRM rechazó la solicitud por autorización insuficiente.";
+  else if (Number(providerStatus) === 404) humanMessage = "No se encontró el endpoint o recurso de FluentCRM para sincronizar la Company.";
+  else if (/TIMEOUT|timeout/i.test(`${providerCode} ${reason} ${humanMessage}`)) humanMessage = "La solicitud a FluentCRM expiró por timeout.";
+  else if (/CONFIG/i.test(String(providerCode))) humanMessage = "La integración con FluentCRM no está configurada correctamente.";
+  const retryable = classified.retryable !== false && !/CONFLICT|VALIDATION|AUTH|CONFIG/.test(String(providerCode));
+  const suggestedAction = /CONFLICT|DUPLICATE/.test(String(providerCode)) ? "Verificar Company en FluentCRM y resolver duplicados" : retryable ? "Reintentar sincronización de Company" : "Revisar configuración o payload de Company";
+  return {
+    status: "failed",
+    entityType: "fluentcrm.company",
+    affectedSystem: "FluentCRM",
+    targetIdentity: { logtoOrganizationId, fluentcrmCompanyId: companyId || null },
+    reason,
+    category: classified.category || reason,
+    providerCode,
+    providerStatus,
+    humanMessage,
+    retryable,
+    requiresHumanAction: !retryable,
+    suggestedAction,
+    fieldsSent: result?.fieldsSent || [],
+    missingFields: result?.missingFields || [],
+    fieldDiffs: result?.fieldDiffs || {},
+  };
+}
+
+async function recordContactsNotStarted({ operation, job, profile, companyFailure, companyId = null }) {
+  const summary = {
+    status: "contacts_not_started",
+    reason: "company_sync_failed",
+    companyFailure,
+    total: 0,
+    attempted: 0,
+    succeeded: 0,
+    created: 0,
+    updated: 0,
+    failed: 0,
+    conflicts: 0,
+    errors: [],
+    persistencePolicy: "summary_only_no_contact_profile_replication",
+  };
+  await markOrganizationProfileFluentCrmSync({
+    id: profile.id,
+    companyId: companyId == null ? profile.fluentcrmCompanyId : String(companyId),
+    status: "error",
+    errorMessage: companyFailure.humanMessage,
+    synced: false,
+    settings: { ...(profile.settings || {}), fluentcrmContactSync: summary },
+  });
+  await recordOperationStep({
+    operationId: operation.id,
+    stepName: STEP_NAMES.FLUENTCRM_CONTACTS,
+    queueName: QUEUE_NAMES.ORGANIZATION_BOOTSTRAP,
+    jobId: job.id,
+    attempt: job.attemptsMade + 1,
+    status: STEP_STATUSES.SKIPPED,
+    outputJson: {
+      status: "contacts_not_started",
+      reason: "company_sync_failed",
+      entityType: "fluentcrm.contact",
+      affectedSystem: "FluentCRM",
+      targetIdentity: companyFailure.targetIdentity,
+      humanMessage: `Contactos no iniciados: ${companyFailure.humanMessage}`,
+      providerCode: companyFailure.providerCode,
+      providerStatus: companyFailure.providerStatus,
+      requiresHumanAction: companyFailure.requiresHumanAction,
+      suggestedAction: companyFailure.suggestedAction,
+      summary,
+    },
+    lastErrorJson: { message: companyFailure.humanMessage, retryable: companyFailure.retryable, code: companyFailure.providerCode, status: companyFailure.providerStatus, contactsStatus: "contacts_not_started" },
+  });
+  return summary;
+}
 
 async function enqueueOrganizationBootstrap({ body, authUser, queue = null }) {
   const internalUser = await getOrCreateInternalUser(authUser);
@@ -47,30 +132,68 @@ async function runDownstreamFluentCrm({ operation, canonical, extended, logtoOrg
   await recordOperationStep({ operationId: operation.id, stepName: STEP_NAMES.PREPARE_CRM_PAYLOAD, queueName: QUEUE_NAMES.ORGANIZATION_BOOTSTRAP, jobId: job.id, attempt: job.attemptsMade + 1, status: STEP_STATUSES.RUNNING });
   const normalizedCrm = buildFluentCrmCompanyPayloadFromForm({ form: operation.payloadSnapshotJson?.form || {}, canonical, extended });
   await recordOperationStep({ operationId: operation.id, stepName: STEP_NAMES.PREPARE_CRM_PAYLOAD, queueName: QUEUE_NAMES.ORGANIZATION_BOOTSTRAP, jobId: job.id, attempt: job.attemptsMade + 1, status: STEP_STATUSES.COMPLETED, outputJson: { normalizedCrm, canonicalInputsUsed: ["logtoOrganizationId", "logtoUserIds", "roleNames"], fluentCrmIsCanonical: false } });
-  await recordOperationStep({ operationId: operation.id, stepName: STEP_NAMES.FLUENTCRM_COMPANY, queueName: QUEUE_NAMES.ORGANIZATION_BOOTSTRAP, jobId: job.id, attempt: job.attemptsMade + 1, status: STEP_STATUSES.RUNNING });
-  const companyResult = await getOrCreateCompanyForOrganization(profile, { ...normalizedCrm, name: canonical.name, slug: extended.slug, adminDomain: extended.adminDomain }, { actorUserId: internalUser.id, auditMetadata: buildAuditContext({ authUser, internalUser, organization: logtoOrganization, operationId: operation.id, correlationId: operation.correlationId }) });
+  await recordOperationStep({ operationId: operation.id, stepName: STEP_NAMES.FLUENTCRM_COMPANY, queueName: QUEUE_NAMES.ORGANIZATION_BOOTSTRAP, jobId: job.id, attempt: job.attemptsMade + 1, status: STEP_STATUSES.RUNNING, outputJson: { status: "taken_by_worker", entityType: "fluentcrm.company", affectedSystem: "FluentCRM", humanMessage: "Worker inició sincronización de Company en FluentCRM" } });
+  let companyResult;
+  try {
+    companyResult = await getOrCreateCompanyForOrganization(profile, { ...normalizedCrm, name: canonical.name, slug: extended.slug, adminDomain: extended.adminDomain }, { actorUserId: internalUser.id, auditMetadata: buildAuditContext({ authUser, internalUser, organization: logtoOrganization, operationId: operation.id, correlationId: operation.correlationId }) });
+  } catch (error) {
+    const companyFailure = buildCompanyFailureDiagnostics({ error, result: error.crmCompanySync, logtoOrganizationId });
+    await recordOperationStep({ operationId: operation.id, stepName: STEP_NAMES.FLUENTCRM_COMPANY, queueName: QUEUE_NAMES.ORGANIZATION_BOOTSTRAP, jobId: job.id, attempt: job.attemptsMade + 1, status: STEP_STATUSES.FAILED, outputJson: companyFailure, lastErrorJson: { message: companyFailure.humanMessage, retryable: companyFailure.retryable, code: companyFailure.providerCode, status: companyFailure.providerStatus, category: companyFailure.category } });
+    const contactsSummary = await recordContactsNotStarted({ operation, job, profile, companyFailure });
+    return { status: "partial_failed", profile, fluentcrm: { status: "error", companyFailure, contactsStatus: "not_started_due_to_company_failure", contactSync: contactsSummary } };
+  }
   if (companyResult.status === "conflict") {
-    const conflict = { message: `FluentCRM company match is ambiguous (${companyResult.reason}); Civitas did not link a Company automatically.`, reason: companyResult.reason, retryable: false, system: "fluentcrm", category: "conflict" };
-    await recordOperationStep({ operationId: operation.id, stepName: STEP_NAMES.FLUENTCRM_COMPANY, queueName: QUEUE_NAMES.ORGANIZATION_BOOTSTRAP, jobId: job.id, attempt: job.attemptsMade + 1, status: STEP_STATUSES.FAILED, lastErrorJson: conflict });
-    return { status: "partial_failed", profile, fluentcrm: { status: "conflict", ...conflict } };
+    const companyFailure = buildCompanyFailureDiagnostics({ result: { status: "conflict", reason: companyResult.reason, providerStatus: "conflict", providerCode: `FLUENTCRM_COMPANY_${String(companyResult.reason || "CONFLICT").toUpperCase()}`, humanMessage: companyResult.message, candidateCount: companyResult.candidates?.length || 0 }, logtoOrganizationId });
+    await recordOperationStep({ operationId: operation.id, stepName: STEP_NAMES.FLUENTCRM_COMPANY, queueName: QUEUE_NAMES.ORGANIZATION_BOOTSTRAP, jobId: job.id, attempt: job.attemptsMade + 1, status: STEP_STATUSES.FAILED, outputJson: companyFailure, lastErrorJson: { message: companyFailure.humanMessage, retryable: false, code: companyFailure.providerCode, status: companyFailure.providerStatus, category: companyFailure.category } });
+    const contactsSummary = await recordContactsNotStarted({ operation, job, profile, companyFailure });
+    return { status: "partial_failed", profile, fluentcrm: { status: "conflict", companyFailure, contactsStatus: "not_started_due_to_company_failure", contactSync: contactsSummary } };
   }
   const companyId = companyResult.company?.id ?? companyResult.company?.ID ?? companyResult.company?.company_id ?? null;
-  await recordOperationStep({ operationId: operation.id, stepName: STEP_NAMES.FLUENTCRM_COMPANY, queueName: QUEUE_NAMES.ORGANIZATION_BOOTSTRAP, jobId: job.id, attempt: job.attemptsMade + 1, status: STEP_STATUSES.COMPLETED, outputJson: { companyId, status: companyResult.status, responseSnapshot: companyResult.company } });
-  await recordOperationStep({ operationId: operation.id, stepName: STEP_NAMES.FLUENTCRM_CONTACTS, queueName: QUEUE_NAMES.ORGANIZATION_BOOTSTRAP, jobId: job.id, attempt: job.attemptsMade + 1, status: STEP_STATUSES.RUNNING });
-  const taxonomy = await ensureOrganizationTagsAndLists({ logtoOrganizationId, slug: extended.slug, name: canonical.name });
-  const organizationLists = [...new Set([...(normalizedCrm.lists || []), taxonomy.list?.title].filter(Boolean))];
-  const organizationTags = [...new Set([...(normalizedCrm.tags || []), taxonomy.tag?.title].filter(Boolean))];
-  const baseAdminAssignment = { ...(canonical.baseAdmin || {}), key: "base_admin", logtoOrganizationId, logtoUserId: operation.resultSnapshotJson?.canonical?.adminAssignment?.logtoUserId, roleName: canonical.baseAdmin?.initialOrganizationRole, organizationRoleName: canonical.baseAdmin?.initialOrganizationRole, status: "assigned" };
-  const contactAssignments = [baseAdminAssignment, ...(administrativeContactAssignments || [])].filter((assignment) => assignment.email && assignment.logtoUserId);
-  const administrativeContacts = [];
-  for (const assignment of contactAssignments) {
-    try { const contactPayload = buildFluentCrmContactPayloadFromAssignment({ assignment: { ...assignment, logtoOrganizationId }, companyId, organizationLists, organizationTags }); administrativeContacts.push({ ...assignment, contactSync: await upsertContactFromLogtoIdentity(contactPayload) }); }
-    catch (error) { administrativeContacts.push({ ...assignment, contactSync: error.crmContactSync || { status: "error", ...classifyOperationalError(error), code: error.code || null, fluentCrmStatus: error.status || null } }); }
+  if (!companyId) {
+    const companyFailure = buildCompanyFailureDiagnostics({ result: { status: "error", reason: "missing_company_id", providerStatus: "missing_company_id", providerCode: "FLUENTCRM_COMPANY_ID_MISSING", humanMessage: "FluentCRM no devolvió un company_id usable para continuar con contactos." }, logtoOrganizationId });
+    await recordOperationStep({ operationId: operation.id, stepName: STEP_NAMES.FLUENTCRM_COMPANY, queueName: QUEUE_NAMES.ORGANIZATION_BOOTSTRAP, jobId: job.id, attempt: job.attemptsMade + 1, status: STEP_STATUSES.FAILED, outputJson: companyFailure, lastErrorJson: { message: companyFailure.humanMessage, retryable: companyFailure.retryable, code: companyFailure.providerCode, status: companyFailure.providerStatus } });
+    const contactsSummary = await recordContactsNotStarted({ operation, job, profile, companyFailure });
+    return { status: "partial_failed", profile, fluentcrm: { status: "error", companyFailure, contactsStatus: "not_started_due_to_company_failure", contactSync: contactsSummary } };
   }
-  const contactFailures = administrativeContacts.filter((contact) => contact.contactSync?.status === "error" || contact.contactSync?.status === "conflict");
-  await recordOperationStep({ operationId: operation.id, stepName: STEP_NAMES.FLUENTCRM_CONTACTS, queueName: QUEUE_NAMES.ORGANIZATION_BOOTSTRAP, jobId: job.id, attempt: job.attemptsMade + 1, status: contactFailures.length ? STEP_STATUSES.FAILED : STEP_STATUSES.COMPLETED, outputJson: { companyId, taxonomy, administrativeContacts }, lastErrorJson: contactFailures.length ? { message: "One or more FluentCRM contact syncs failed", retryable: true, contacts: contactFailures } : null });
-  if (contactFailures.length) await markOrganizationProfileFluentCrmSync({ id: profile.id, companyId: companyId == null ? null : String(companyId), status: "error", errorMessage: "One or more FluentCRM contact syncs failed" });
-  return { status: contactFailures.length ? "partial_failed" : "completed", profile, fluentcrm: { status: companyResult.status, companyId, taxonomy, administrativeContacts } };
+  await recordOperationStep({ operationId: operation.id, stepName: STEP_NAMES.FLUENTCRM_COMPANY, queueName: QUEUE_NAMES.ORGANIZATION_BOOTSTRAP, jobId: job.id, attempt: job.attemptsMade + 1, status: STEP_STATUSES.COMPLETED, outputJson: { companyId, status: companyResult.status, providerStatus: companyResult.status, providerCode: null, entityType: "fluentcrm.company", affectedSystem: "FluentCRM", humanMessage: `Company lista en FluentCRM (${companyResult.status})`, responseSnapshot: companyResult.company } });
+  const contactStartedAt = new Date();
+  await recordOperationStep({ operationId: operation.id, stepName: STEP_NAMES.FLUENTCRM_CONTACTS, queueName: QUEUE_NAMES.ORGANIZATION_BOOTSTRAP, jobId: job.id, attempt: job.attemptsMade + 1, status: STEP_STATUSES.RUNNING, outputJson: { status: "processing_contacts", humanMessage: "Worker tomó la sincronización de contactos hacia FluentCRM", companyId } });
+  const taxonomy = await ensureOrganizationTagsAndLists({ logtoOrganizationId, slug: extended.slug, name: canonical.name });
+  const members = await listLogtoOrganizationUsers({ organizationId: logtoOrganizationId });
+  const logtoRoles = await listLogtoOrganizationRoles();
+  const roleMapping = (await getEffectiveCrmRoleMapping({ logtoRoles })).mapping;
+  const contactSummary = await syncOrganizationContactsToFluentCrm({
+    profile: { ...profile, fluentcrmCompanyId: companyId },
+    members,
+    roleMapping,
+    getMemberRoles: async (logtoUserId) => (await listLogtoOrganizationUserRoles({ organizationId: logtoOrganizationId, userId: logtoUserId }))
+      .map((role) => role.name || role.nameCache || role.key || role.organizationRoleName)
+      .filter(Boolean),
+    audit: async (event) => null,
+    markOrganizationSync: async (summaryToPersist) => markOrganizationProfileFluentCrmSync({
+      id: profile.id,
+      companyId: companyId == null ? null : String(companyId),
+      status: summaryToPersist.status === "synced" ? "linked" : summaryToPersist.status === "conflict" || summaryToPersist.recoveryStatus === "manual_retry_required" ? "conflict" : "error",
+      errorMessage: summaryToPersist.errors?.[0]?.reason || null,
+      synced: summaryToPersist.status === "synced",
+      settings: { ...(profile.settings || {}), fluentcrmContactSync: { ...summaryToPersist, persistencePolicy: "summary_only_no_contact_profile_replication" } },
+    }),
+    onContactProgress: async (event) => recordOperationStep({
+      operationId: operation.id,
+      stepName: `fluentcrm_contacts.contact.${event.index}_of_${event.total}.${event.action}`,
+      queueName: QUEUE_NAMES.ORGANIZATION_BOOTSTRAP,
+      jobId: job.id,
+      attempt: job.attemptsMade + 1,
+      status: event.result === "running" ? STEP_STATUSES.RUNNING : ["created", "updated"].includes(event.result) ? STEP_STATUSES.COMPLETED : STEP_STATUSES.FAILED,
+      outputJson: { ...event, entityType: "fluentcrm.contact", affectedSystem: "FluentCRM", status: event.status || "processing_contact_n_of_x" },
+      lastErrorJson: ["created", "updated", "running"].includes(event.result) ? null : { message: event.humanMessage, retryable: Boolean(event.retryable), retryState: event.retryState, requiresHumanAction: Boolean(event.requiresHumanAction) },
+    }),
+  });
+  const contactFinishedAt = new Date();
+  const finalContactStatus = contactSummary.status === "synced" ? STEP_STATUSES.COMPLETED : STEP_STATUSES.FAILED;
+  await recordOperationStep({ operationId: operation.id, stepName: STEP_NAMES.FLUENTCRM_CONTACTS, queueName: QUEUE_NAMES.ORGANIZATION_BOOTSTRAP, jobId: job.id, attempt: job.attemptsMade + 1, status: finalContactStatus, outputJson: { companyId, taxonomy, status: contactSummary.status, humanMessage: contactSummary.status === "synced" ? `Contactos sincronizados: ${contactSummary.succeeded}/${contactSummary.total}` : `Contactos sincronizados parcialmente: ${contactSummary.succeeded}/${contactSummary.total}`, summary: { ...contactSummary, startedAt: contactSummary.startedAt || contactStartedAt.toISOString(), finishedAt: contactSummary.finishedAt || contactFinishedAt.toISOString(), durationMs: contactSummary.durationMs ?? contactFinishedAt.getTime() - contactStartedAt.getTime() } }, lastErrorJson: finalContactStatus === STEP_STATUSES.COMPLETED ? null : { message: "One or more FluentCRM contact syncs require recovery", retryable: contactSummary.retryAutomatic > 0, retryState: contactSummary.status, requiresHumanAction: contactSummary.humanActionRequired > 0, summary: contactSummary } });
+  const downstreamStatus = contactSummary.status === "synced" ? "completed" : "partial_failed";
+  return { status: downstreamStatus, profile, fluentcrm: { status: companyResult.status, companyId, taxonomy, contactSync: contactSummary } };
 }
 
 async function processOrganizationBootstrapJob(job) {

@@ -1,7 +1,10 @@
 const { Queue } = require("bullmq");
 const IORedis = require("ioredis");
 
-const QUEUE_NAMES = Object.freeze({ ORGANIZATION_BOOTSTRAP: "organization.bootstrap" });
+const QUEUE_NAMES = Object.freeze({
+  ORGANIZATION_BOOTSTRAP: "organization.bootstrap",
+  SYNC_OPERATIONS: process.env.CIVITAS_SYNC_QUEUE_NAME || "civitas-sync-operations",
+});
 function getRedisUrl({ required = true } = {}) {
   const url = process.env.REDIS_URL;
   if (!url && required) throw new Error("REDIS_URL is required for BullMQ/Redis orchestration (example: redis://redis:6379)");

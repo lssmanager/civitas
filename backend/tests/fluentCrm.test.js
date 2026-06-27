@@ -211,6 +211,8 @@ test("getOrCreateCompanyForOrganization persists error and emits error audit", a
   assert.deepEqual(stateEvents.map((event) => event.status), ["pending", "error"]);
   assert.equal(auditEvents[0].action, AUDIT_ACTIONS.OWNER_ORGANIZATION_FLUENTCRM_ERROR);
   assert.equal(auditEvents[0].result, AUDIT_RESULTS.ERROR);
+  assert.equal(auditEvents[0].metadata.providerCode, "FLUENTCRM_REQUEST_FAILED");
+  assert.equal(auditEvents[0].metadata.providerStatus, 500);
 });
 
 test("sanitizeForDiagnostics redacts secrets recursively", () => {
@@ -308,6 +310,7 @@ test("syncOrganizationContactsToFluentCrm returns organization-level error when 
   const { syncOrganizationContactsToFluentCrm } = require("../services/fluentCrm");
   const persisted = [];
   const audits = [];
+  const progress = [];
   const summary = await syncOrganizationContactsToFluentCrm({
     profile: { id: "profile-1", fluentcrmCompanyId: null },
     members: [{ id: "user-1", primaryEmail: "user@school.edu" }],
@@ -332,6 +335,7 @@ test("syncOrganizationContactsToFluentCrm handles missing email and duplicate co
     return jsonResponse({ subscribers: [] });
   };
   const audits = [];
+  const progress = [];
   const summary = await syncOrganizationContactsToFluentCrm({
     profile: { id: "profile-1", fluentcrmCompanyId: "company-1" },
     members: [
@@ -341,12 +345,20 @@ test("syncOrganizationContactsToFluentCrm handles missing email and duplicate co
     ],
     getMemberRoles: async () => ["Student-org", "owner_global"],
     audit: async (event) => audits.push(event),
+    onContactProgress: async (event) => progress.push(event),
   });
 
   assert.equal(summary.status, "conflict");
   assert.equal(summary.succeeded, 1);
   assert.equal(summary.failed, 1);
   assert.equal(summary.conflicts, 1);
+  assert.equal(summary.created, 1);
+  assert.equal(summary.retryManual, 1);
+  assert.equal(summary.humanActionRequired, 1);
+  assert.equal(summary.recoveryStatus, "human_action_required");
+  assert.ok(progress.some((event) => event.humanMessage === "Contacto 1/3: enviando a FluentCRM"));
+  assert.ok(progress.some((event) => event.humanMessage === "Contacto 2/3: conflicto por duplicado, requiere retry manual"));
+  assert.ok(progress.some((event) => event.humanMessage === "Contacto 3/3: creado exitosamente"));
   assert.ok(summary.errors.some((error) => error.reason === "missing_email"));
   assert.ok(summary.errors.some((error) => error.reason === "duplicate_contact"));
   assert.equal(audits.filter((event) => event.result === "success").length, 1);
@@ -741,16 +753,21 @@ test("syncOrganizationContactsToFluentCrm reports per-contact diagnostics for pa
     return jsonResponse({ subscribers: [] });
   };
 
+  const progress = [];
   const summary = await syncOrganizationContactsToFluentCrm({
     profile: { id: "profile-1", logtoOrganizationId: "org-1", fluentcrmCompanyId: "company-1" },
     members: [{ id: "bad-user", primaryEmail: "bad@school.edu", firstName: "Bad", lastName: "User" }],
     getMemberRoles: async () => ["Admin-org"],
     roleMapping: getFluentCrmRoleSyncMapping(),
+    onContactProgress: async (event) => progress.push(event),
   });
 
   assert.equal(summary.status, "partial_error");
   assert.equal(summary.failed, 1);
   assert.equal(summary.errors[0].code, "FLUENTCRM_VALIDATION_FAILED");
+  assert.equal(summary.recoveryStatus, "human_action_required");
+  assert.equal(summary.humanActionRequired, 1);
+  assert.ok(progress.some((event) => event.humanMessage === "Contacto 1/1: payload inválido, requiere acción humana"));
   assert.equal(summary.results[0].payloadSummary.company_id, "company-1");
   assert.ok(summary.results[0].fieldsSent.includes("company_id"));
 });

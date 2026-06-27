@@ -50,9 +50,7 @@ const {
   searchCompanies,
   searchContacts,
   syncOrganizationContactsToFluentCrm,
-  upsertContactFromLogtoIdentity,
   validateFluentCrmConfiguration,
-  updateContactEmailAfterLogtoChange,
 } = require("./services/fluentCrm");
 const {
   buildRoleMappingResponse,
@@ -199,6 +197,7 @@ const summarizeOperationalProjection = ({ profile = null, hasConflict = false, p
   if (hasConflict) add("human", "failure", "duplicate_profiles");
 
   for (const item of pending) {
+    if (item.operationType === "provider_verification") continue;
     const key = item.entityType?.includes("contact") ? "users" : item.entityType?.includes("company") ? "crm" : item.entityType?.includes("branding") ? "branding" : item.retryState ? "retry" : "downstream";
     if (item.requiresHumanAction) add("human", "failure", item.humanMessage || item.suggestedAction || item.stepName);
     if (["failed", "partial_failed", "error", "conflict"].includes(item.status)) add(key, "failure", item.humanMessage || item.lastError || item.stepName);
@@ -226,6 +225,32 @@ const summarizeOperationalProjection = ({ profile = null, hasConflict = false, p
   ];
   const selected = priority.map((pick) => pick()).find(Boolean);
   const summary = selected ? selected.key === "human" ? "requiere acción humana" : selected.key === "retry" ? `retry ${selected.detail || "pendiente"}` : `${selected.state === "failure" ? "falla" : "pendiente"} ${selected.label}` : "ok";
+  const providerVerificationItem = pending.find((item) => item.operationType === "provider_verification");
+  const providerStatus = providerVerificationItem?.providerStatus || providerVerificationItem?.metadata?.providerStatus || null;
+  const providerRetryState = providerVerificationItem?.retryState || null;
+  const providerVerification = providerVerificationItem
+    ? providerVerificationItem.status === "completed"
+      ? providerStatus === "all_ok"
+        ? "all_ok"
+        : providerStatus || "live_completed"
+      : providerRetryState === "running"
+        ? "live_running"
+        : providerRetryState === "queued"
+          ? "live_queued"
+          : providerStatus || providerRetryState || "live_requires_attention"
+    : "not_live_verified";
+  const providerLabels = {
+    not_live_verified: "No verificado en vivo contra FluentCRM/WordPress; deriva de perfiles, operaciones, steps y pendientes proyectados en Civitas.",
+    live_queued: "Verificación live en cola",
+    live_running: "Verificación live ejecutándose",
+    all_ok: "Verificado en vivo: OK",
+    missing_fluentcrm_company: "Verificado en vivo: falta Company en FluentCRM",
+    missing_fluentcrm_contact: "Verificado en vivo: faltan contactos",
+    awaiting_first_wordpress_login: "Verificado en vivo: falta usuario WordPress; esperando primer login",
+    missing_contact_wp_link: "Verificado en vivo: requiere acción humana por enlace Contact/WordPress",
+    provider_auth_error: "Verificación live falló por proveedor",
+    provider_timeout: "Verificación live falló por proveedor",
+  };
   return {
     base,
     baseStatus: base,
@@ -235,11 +260,11 @@ const summarizeOperationalProjection = ({ profile = null, hasConflict = false, p
     primaryIssue: selected || null,
     retryState: components.find((component) => component.key === "retry")?.detail || null,
     requiresHumanAction: components.some((component) => component.key === "human"),
-    source: "organization_profile+sync_operations+sync_operation_steps+projected_crm_pending",
-    sourceLabel: "Estado operativo reconciliado localmente",
-    verificationLevel: "local_reconciled",
-    providerVerification: "not_live_verified",
-    providerVerificationLabel: "No verificado en vivo contra FluentCRM/WordPress; deriva de perfiles, operaciones, steps y pendientes proyectados en Civitas.",
+    source: providerVerificationItem?.status === "completed" ? "live_provider_check" : "organization_profile+sync_operations+sync_operation_steps+projected_crm_pending",
+    sourceLabel: providerVerificationItem?.status === "completed" ? "Verificación live contra proveedores" : "Estado operativo reconciliado localmente",
+    verificationLevel: providerVerificationItem?.status === "completed" ? "live_provider_check" : "local_reconciled",
+    providerVerification,
+    providerVerificationLabel: providerLabels[providerVerification] || providerVerificationItem?.humanMessage || "Verificado en vivo: requiere acción humana",
     derivedFromOperationIds: [...new Set(pending.map((item) => item.operationId).filter(Boolean))],
     projected: true,
   };
@@ -436,27 +461,29 @@ async function runFluentCrmOrganizationStep({ logtoOrganization, logtoOrganizati
     slug: extended.slug,
     name: canonical.name,
   });
-  const organizationLists = [...new Set([...(normalizedCrm.lists || []), taxonomy.list?.title].filter(Boolean))];
+  const contactSyncSummary = {
+    status: "queued",
+    reason: "post_company_member_sync_scheduled",
+    persistencePolicy: "summary_only_no_contact_profile_replication",
+  };
+  setImmediate(() => {
+    runOrganizationContactSyncAfterCompany({
+      profile,
+      companyId,
+      logtoOrganizationId,
+      internalUser,
+    }).catch((error) => {
+      console.error("FluentCRM post-company contact sync failed", { logtoOrganizationId, error });
+    });
+  });
+
+  // Administrative contacts are still reported for provisioning visibility. The
+  // actual contact writes happen in the scheduled Logto member sync above, so the
+  // API response can finish without waiting for every downstream contact request.
   const administrativeContacts = [];
 
   for (const assignment of administrativeContactAssignments) {
-    let contactSync;
-    try {
-      contactSync = await upsertContactFromLogtoIdentity({
-        identity: {
-          logtoUserId: assignment.logtoUserId,
-          email: assignment.email,
-          name: assignment.name,
-          phone: assignment.phone,
-          position: assignment.position,
-        },
-        companyId,
-        roleNames: [assignment.roleName || assignment.organizationRoleName].filter(Boolean),
-        extraLists: organizationLists,
-      });
-    } catch (error) {
-      contactSync = { status: "error", message: getSafeErrorMessage(error), code: error.code || null, diagnostic: error.diagnostic || null, body: error.body || null };
-    }
+    const contactSync = { status: "queued", reason: "covered_by_post_company_member_sync" };
     administrativeContacts.push({
       key: assignment.key,
       name: assignment.name,
@@ -475,8 +502,81 @@ async function runFluentCrmOrganizationStep({ logtoOrganization, logtoOrganizati
     companyId,
     reason: companyResult.reason,
     taxonomy,
+    contactSync: contactSyncSummary,
     administrativeContacts,
   };
+}
+
+async function runOrganizationContactSyncAfterCompany({ profile, companyId, logtoOrganizationId, internalUser }) {
+  const profileForContactSync = { ...profile, fluentcrmCompanyId: companyId };
+  try {
+    await markOrganizationProfileFluentCrmSync({
+      id: profile.id,
+      companyId,
+      status: "linked",
+      errorMessage: null,
+      synced: false,
+      settings: buildContactSyncSettings(profile, {
+        status: "queued",
+        total: 0,
+        succeeded: 0,
+        failed: 0,
+        conflicts: 0,
+        errors: [],
+      }),
+    });
+    const members = await listLogtoOrganizationUsers({ organizationId: logtoOrganizationId });
+    const logtoRoles = await listLogtoOrganizationRoles();
+    const roleMapping = (await getEffectiveCrmRoleMapping({ logtoRoles })).mapping;
+    return syncOrganizationContactsToFluentCrm({
+      profile: profileForContactSync,
+      members,
+      roleMapping,
+      getMemberRoles: async (logtoUserId) => (await listLogtoOrganizationUserRoles({ organizationId: logtoOrganizationId, userId: logtoUserId }))
+        .map((role) => role.name || role.nameCache || role.key || role.organizationRoleName)
+        .filter(Boolean),
+      audit: async (event) => recordAuditLogBestEffort({
+        actorUserId: internalUser.id,
+        organizationId: logtoOrganizationId,
+        action: AUDIT_ACTIONS.OWNER_ORGANIZATION_FLUENTCRM_CONTACT_SYNC,
+        result: event.result === "success" ? AUDIT_RESULTS.SUCCESS : AUDIT_RESULTS.ERROR,
+        metadata: { stage: "fluentcrm_contact_sync_after_company", ...event },
+      }),
+      markOrganizationSync: async (summaryToPersist) => markOrganizationProfileFluentCrmSync({
+        id: profile.id,
+        companyId,
+        status: summaryToPersist.status === "synced" ? "linked" : summaryToPersist.status === "conflict" ? "conflict" : "error",
+        errorMessage: summaryToPersist.errors?.[0]?.reason || null,
+        synced: summaryToPersist.status === "synced",
+        settings: buildContactSyncSettings(profile, summaryToPersist),
+      }),
+    });
+  } catch (error) {
+    const summary = {
+      status: "partial_error",
+      total: 0,
+      succeeded: 0,
+      failed: 0,
+      conflicts: 0,
+      errors: [{ reason: error.code || "post_company_contact_sync_failed", message: getSafeErrorMessage(error), status: error.status || null }],
+    };
+    await markOrganizationProfileFluentCrmSync({
+      id: profile.id,
+      companyId,
+      status: "error",
+      errorMessage: summary.errors[0].reason,
+      synced: false,
+      settings: buildContactSyncSettings(profile, summary),
+    });
+    await recordAuditLogBestEffort({
+      actorUserId: internalUser.id,
+      organizationId: logtoOrganizationId,
+      action: AUDIT_ACTIONS.OWNER_ORGANIZATION_FLUENTCRM_CONTACT_SYNC,
+      result: AUDIT_RESULTS.ERROR,
+      metadata: { stage: "fluentcrm_contact_sync_after_company_failed", summary },
+    });
+    return summary;
+  }
 }
 
 const getColombianNameFields = (user = {}) => {
@@ -1643,6 +1743,8 @@ app.get("/owner/organizations/:organizationId/profile", requireAuth(API_RESOURCE
           lastRetry: primaryPending?.retryState || primaryPending?.status || null,
           queueName: primaryPending?.queueName || null,
           jobId: primaryPending?.jobId || null,
+          queueStatus: primaryPending?.queueStatus || primaryPending?.retryState || null,
+          executionSource: primaryPending?.executionSource || null,
           jobAgeSeconds: primaryPending?.jobAgeSeconds ?? null,
           workerHeartbeatState: primaryPending?.workerHeartbeatState || null,
         },
@@ -1904,6 +2006,10 @@ app.get("/", (req, res) => {
   res.json({ message: "Welcome to the Civitas API", health: "/health" });
 });
 
-app.listen(port, () => {
-  console.log(`Server is running on port ${port}`);
-});
+if (require.main === module) {
+  app.listen(port, () => {
+    console.log(`Server is running on port ${port}`);
+  });
+}
+
+module.exports = { app, runFluentCrmOrganizationStep, runOrganizationContactSyncAfterCompany, buildContactSyncSettings };
