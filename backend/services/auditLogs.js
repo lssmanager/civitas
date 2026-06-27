@@ -175,6 +175,9 @@ async function listAuditLogs(paginationInput = {}, enrichment = {}) {
     requiresHumanAction: paginationInput.requiresHumanAction,
     downstream: paginationInput.downstream,
     system: paginationInput.system,
+    microAction: paginationInput.microAction,
+    queueName: paginationInput.queueName,
+    q: paginationInput.q,
   };
   const allRows = await db
     .select({ auditLog: auditLogs, actor: users })
@@ -193,6 +196,9 @@ async function listAuditLogs(paginationInput = {}, enrichment = {}) {
     if (!includes(metadata.entityType, filters.entityType)) return false;
     if (!includes(metadata.stepName, filters.stepName)) return false;
     if (!includes(metadata.affectedSystem || metadata.system, filters.affectedSystem || filters.system)) return false;
+    if (!includes(metadata.queueName, filters.queueName)) return false;
+    if (filters.microAction && !includes([metadata.microAction, metadata.stepName, metadata.humanMessage, log.action].filter(Boolean).join(" "), filters.microAction)) return false;
+    if (filters.q && !includes([metadata.humanMessage, metadata.stepName, metadata.entityType, metadata.targetIdentity, metadata.providerCode, log.action, organizationName].filter(Boolean).join(" "), filters.q)) return false;
     if (!includes(log.result, filters.status) && !includes(metadata.status || metadata.providerStatus, filters.status)) return false;
     if (!includes(metadata.retryState, filters.retryState)) return false;
     if (filters.retryable === "true" && !metadata.retryable) return false;

@@ -205,6 +205,9 @@ export function OwnerAuditPage() {
     retryable: searchParams.get("retryable") || undefined,
     requiresHumanAction: searchParams.get("requiresHumanAction") || undefined,
     downstream: searchParams.get("downstream") || undefined,
+    microAction: searchParams.get("microAction") || undefined,
+    queueName: searchParams.get("queueName") || undefined,
+    q: searchParams.get("q") || undefined,
     requiresAction: searchParams.get("requiresAction") || undefined,
   }), []);
   const {
@@ -248,8 +251,8 @@ export function OwnerAuditPage() {
       actions={<Badge bg="success">owner:read</Badge>}
     >
       <PageCard
-        title="Logs operativos"
-        subtitle="Fuente única del timeline operativo: microacciones CRM, retries, colas, conflictos y payload JSON para soporte."
+        title="Centro operativo"
+        subtitle="Filtra por organización, sistema, microacción, estado, retry, cola o texto para encontrar trabajo real y actuar."
         actions={
           totalPages > 1 ? (
             <Pagination size="sm" className="mb-0 civitas-audit-pagination">
@@ -264,11 +267,14 @@ export function OwnerAuditPage() {
           {[
             ["organizationId", "Organization ID"],
             ["organizationName", "Organización"],
-            ["entityType", "Entidad"],
-            ["stepName", "Step"],
+            ["q", "Búsqueda"],
             ["affectedSystem", "Sistema"],
+            ["microAction", "Microacción"],
             ["status", "Estado"],
             ["retryState", "Retry"],
+            ["queueName", "Cola"],
+            ["stepName", "Step técnico"],
+            ["entityType", "Entidad técnica"],
           ].map(([key, label]) => (
             <Form.Group className="col-12 col-md-3" key={key}>
               <Form.Label>{label}</Form.Label>

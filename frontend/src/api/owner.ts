@@ -183,6 +183,9 @@ export type OwnerAuditPagination = {
   requiresAction?: string;
   downstream?: string;
   system?: string;
+  microAction?: string;
+  queueName?: string;
+  q?: string;
 };
 
 export type OwnerCommercialStatus = {
@@ -396,6 +399,9 @@ export const useOwnerApi = () => {
         if (pagination.requiresHumanAction) params.set("requiresHumanAction", pagination.requiresHumanAction);
         if (pagination.downstream) params.set("downstream", pagination.downstream);
         if (pagination.system) params.set("system", pagination.system);
+        if (pagination.microAction) params.set("microAction", pagination.microAction);
+        if (pagination.queueName) params.set("queueName", pagination.queueName);
+        if (pagination.q) params.set("q", pagination.q);
         if (pagination.requiresAction) params.set("requiresAction", pagination.requiresAction);
         const query = params.toString();
         return fetchWithToken(`/owner/audit${query ? `?${query}` : ""}`);
