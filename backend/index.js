@@ -76,6 +76,8 @@ const {
   listOrganizationEvents,
   listOrganizationPendingSync,
   retrySyncOperation,
+  resendPayload,
+  createManualResolution,
   recordOperationStep,
   updateSyncOperation,
   safeFunctionalMessage,
@@ -1664,6 +1666,51 @@ app.post("/owner/organizations/:organizationId/sync-operations/:operationId/retr
   await recordAuditLogBestEffort({ organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "retry requested", operationId: req.params.operationId, stepName: pending?.stepName || operation.operationType, entityType: pending?.entityType || "sync.operation", targetIdentity: pending?.targetIdentity || organizationId, humanMessage: pending?.entityType === "fluentcrm.company" ? "Retry solicitado para FluentCRM company" : pending?.entityType === "fluentcrm.contact" ? "Retry solicitado para FluentCRM contact" : "Retry solicitado para operación downstream", providerCode: pending?.providerCode || null, providerStatus: pending?.providerStatus || null, queueName: pending?.queueName || null, jobId: pending?.jobId || null, retryState: pending?.retryState || operation.status, enqueuedAt: pending?.enqueuedAt || null, workerHeartbeatState: pending?.workerHeartbeatState || null, jobAgeSeconds: pending?.jobAgeSeconds ?? null } });
   await recordAuditLogBestEffort({ organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "retry enqueued", operationId: operation.id, stepName: pending?.stepName || operation.operationType, entityType: pending?.entityType || "sync.operation", targetIdentity: pending?.targetIdentity || organizationId, humanMessage: pending?.entityType === "fluentcrm.company" ? "Retry encolado para FluentCRM company" : pending?.entityType === "fluentcrm.contact" ? "Retry encolado para FluentCRM contact" : "Retry encolado para operación downstream", queueName: pending?.queueName || null, jobId: pending?.jobId || null, retryState: pending?.retryState || "queued", enqueuedAt: pending?.enqueuedAt || null, workerHeartbeatState: pending?.workerHeartbeatState || null, jobAgeSeconds: pending?.jobAgeSeconds ?? null } });
   return res.json({ status: "retry_queued", operation, pending });
+});
+
+app.post("/owner/organizations/:organizationId/sync-operations/:operationId/resend-payload", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  const internalUser = await getOrCreateInternalUser(req.user);
+  const profile = await resolveOrganizationProfileForRequest(req.params.organizationId);
+  const organizationId = profile?.logtoOrganizationId || req.params.organizationId;
+  try {
+    const result = await resendPayload({ operationId: req.params.operationId, organizationId, actorUserId: internalUser.id });
+    await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "resend_payload.enqueued", operationId: result.operation.id, sourceOperationId: req.params.operationId, stepName: result.sourceStep?.stepName || result.operation.operationType, entityType: result.operation.entityType, targetIdentity: result.operation.entityId || organizationId, queueName: result.enqueueResult.queueName, jobId: result.enqueueResult.jobId, humanMessage: "Payload reenviado a downstream por owner; dispara trabajo real en cola." } });
+    return res.json({ status: "resend_payload_enqueued", operation: result.operation });
+  } catch (error) {
+    await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.ERROR, metadata: { stage: "resend_payload.denied", operationId: req.params.operationId, reason: error.code || error.message, humanMessage: safeFunctionalMessage(error.message, "No se pudo reenviar payload.") } });
+    return res.status(error.status || 409).json({ error: error.code || "RESEND_PAYLOAD_NOT_ALLOWED", message: safeFunctionalMessage(error.message, "No se pudo reenviar payload.") });
+  }
+});
+
+app.post("/owner/organizations/:organizationId/sync-operations/:operationId/manual-resolution", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  const internalUser = await getOrCreateInternalUser(req.user);
+  const profile = await resolveOrganizationProfileForRequest(req.params.organizationId);
+  const organizationId = profile?.logtoOrganizationId || req.params.organizationId;
+  try {
+    const resolution = await createManualResolution({ operationId: req.params.operationId, organizationId, stepId: req.body?.stepId || null, resolutionType: req.body?.resolutionType, resolutionReason: req.body?.resolutionReason || req.body?.reason || "Owner reviewed operational pending", notes: req.body?.notes || null, appliesUntil: req.body?.appliesUntil || null, resolvedByUserId: internalUser.id });
+    await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "manual_resolution.recorded", operationId: req.params.operationId, resolutionId: resolution.id, resolutionType: resolution.resolutionType, humanMessage: "Resolución manual operativa registrada; no finge éxito downstream." } });
+    return res.json({ status: "manual_resolution_recorded", resolution });
+  } catch (error) {
+    return res.status(error.status || 400).json({ error: "MANUAL_RESOLUTION_FAILED", message: safeFunctionalMessage(error.message, "No se pudo registrar resolución manual.") });
+  }
+});
+
+app.post("/owner/organizations/:organizationId/provider-verification", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  const internalUser = await getOrCreateInternalUser(req.user);
+  const profile = await resolveOrganizationProfileForRequest(req.params.organizationId);
+  if (!profile) return res.status(404).json({ error: "Not Found", message: "Organization profile not found" });
+  await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: profile.logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "provider_verification.started", entityType: "fluentcrm.company", humanMessage: "Verificación live contra FluentCRM iniciada por owner." } });
+  try {
+    const business = profile.settings?.civitasProfile?.business || profile.settings?.business || {};
+    const candidates = await searchCompanies({ companyId: profile.fluentcrmCompanyId || undefined, website: business.website || undefined, search: profile.nameCache || profile.logtoOrganizationId, perPage: 10 });
+    const found = candidates.find((company) => String(company.id || company.ID || "") === String(profile.fluentcrmCompanyId || "")) || candidates[0] || null;
+    const verification = { checkedAt: new Date().toISOString(), source: "fluentcrm_live_query", localProjection: { companyId: profile.fluentcrmCompanyId, syncStatus: profile.fluentcrmSyncStatus }, result: found ? "company_found" : "company_not_found", company: found ? { id: found.id || found.ID, name: found.name || found.title || null } : null, canonicality: "metadata_only_not_canonical" };
+    await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: profile.logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "provider_verification.completed", entityType: "fluentcrm.company", providerStatus: verification.result, liveVerification: verification, humanMessage: found ? "Verificación live: company encontrada en FluentCRM." : "Verificación live: company no encontrada en FluentCRM." } });
+    return res.json({ status: "provider_verification_completed", verification });
+  } catch (error) {
+    await recordAuditLogBestEffort({ actorUserId: internalUser.id, organizationId: profile.logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.ERROR, metadata: { stage: "provider_verification.failed", error, humanMessage: "No se pudo completar verificación live contra FluentCRM." } });
+    return res.status(error.status || 502).json({ error: "PROVIDER_VERIFICATION_FAILED", message: getSafeErrorMessage(error) });
+  }
 });
 
 const buildContactSyncSettings = (profile, summary) => ({

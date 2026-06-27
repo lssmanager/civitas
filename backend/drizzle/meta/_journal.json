@@ -141,6 +141,13 @@
       "when": 1791841980000,
       "tag": "0019_create_operational_metric_snapshots",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1791842040000,
+      "tag": "0020_create_sync_manual_resolutions",
+      "breakpoints": true
     }
   ]
 }

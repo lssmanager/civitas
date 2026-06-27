@@ -272,6 +272,30 @@ const operationalMetricSnapshots = pgTable(
   })
 );
 
+const syncManualResolutions = pgTable(
+  "sync_manual_resolutions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    operationId: uuid("operation_id").notNull().references(() => syncOperations.id, { onDelete: "cascade" }),
+    stepId: uuid("step_id").references(() => syncOperationSteps.id, { onDelete: "set null" }),
+    organizationId: varchar("organization_id", { length: 255 }).notNull(),
+    resolutionType: varchar("resolution_type", { length: 64 }).notNull(),
+    resolutionReason: text("resolution_reason").notNull(),
+    resolvedByUserId: uuid("resolved_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }).notNull().defaultNow(),
+    notes: text("notes"),
+    appliesUntil: timestamp("applies_until", { withTimezone: true }),
+    metadata: jsonb("metadata").notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    operationIdx: index("sync_manual_resolutions_operation_idx").on(table.operationId),
+    stepIdx: index("sync_manual_resolutions_step_idx").on(table.stepId),
+    organizationIdx: index("sync_manual_resolutions_organization_idx").on(table.organizationId),
+    typeIdx: index("sync_manual_resolutions_type_idx").on(table.resolutionType),
+  })
+);
+
 const auditLogs = pgTable(
   "audit_logs",
   {
@@ -300,6 +324,7 @@ module.exports = {
   organizationBootstrapOperations,
   operationalMetricSnapshots,
   organizationProfiles,
+  syncManualResolutions,
   syncOperationSteps,
   syncOperations,
   users,

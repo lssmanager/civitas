@@ -105,6 +105,12 @@ export type OwnerPendingSync = {
   lastError: string;
   humanMessage?: string | null;
   suggestedAction: string;
+  suggestedRoute?: string | null;
+  suggestedSection?: string | null;
+  ctaLabel?: string | null;
+  canResendPayload?: boolean;
+  canManualResolve?: boolean;
+  canVerifyProvider?: boolean;
   providerCode?: string | null;
   providerStatus?: string | number | null;
   fieldsSent?: string[] | null;
@@ -348,6 +354,12 @@ export const useOwnerApi = () => {
         fetchWithToken(`/owner/organizations/${encodeURIComponent(organizationId)}/profile`, { method: "PATCH", body: JSON.stringify(data) }),
       retrySyncOperation: async (organizationId: string, operationId: string): Promise<{ status: string; operation: Record<string, unknown> }> =>
         fetchWithToken(`/owner/organizations/${encodeURIComponent(organizationId)}/sync-operations/${encodeURIComponent(operationId)}/retry`, { method: "POST" }),
+      resendSyncOperationPayload: async (organizationId: string, operationId: string): Promise<{ status: string; operation: Record<string, unknown> }> =>
+        fetchWithToken(`/owner/organizations/${encodeURIComponent(organizationId)}/sync-operations/${encodeURIComponent(operationId)}/resend-payload`, { method: "POST" }),
+      resolveSyncOperationManually: async (organizationId: string, operationId: string, data: { resolutionType: string; resolutionReason: string; notes?: string | null; appliesUntil?: string | null }): Promise<{ status: string; resolution: Record<string, unknown> }> =>
+        fetchWithToken(`/owner/organizations/${encodeURIComponent(organizationId)}/sync-operations/${encodeURIComponent(operationId)}/manual-resolution`, { method: "POST", body: JSON.stringify(data) }),
+      verifyOrganizationProvider: async (organizationId: string): Promise<{ status: string; verification: Record<string, unknown> }> =>
+        fetchWithToken(`/owner/organizations/${encodeURIComponent(organizationId)}/provider-verification`, { method: "POST" }),
       getOrganizationMembers: async (organizationId: string): Promise<OwnerOrganizationDirectoryResponse> =>
         fetchWithToken(`/owner/organizations/${encodeURIComponent(organizationId)}/directory`),
       createOrganizationMember: async (organizationId: string, data: { firstName: string; middleName?: string | null; firstSurname: string; secondSurname?: string | null; email: string; phone?: string | null; phoneExtension?: string | null; position?: string | null; organizationRoleName: string }): Promise<{ status: string; syncOperation: Record<string, unknown> }> =>

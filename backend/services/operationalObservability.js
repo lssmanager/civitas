@@ -1,4 +1,4 @@
-const { and, desc, eq, gt, lt } = require("drizzle-orm");
+const { and, desc, eq, gt, lt, notInArray } = require("drizzle-orm");
 const { db } = require("../db/client");
 const { operationalMetricSnapshots, organizationProfiles, syncOperations, syncOperationSteps } = require("../db/schema");
 const { QUEUE_NAMES, createQueue, createRedisConnection, getRedisUrl } = require("../queues/config");
@@ -672,8 +672,8 @@ async function loadOwnerSystemMetrics() {
 async function loadOperationsSummary() {
   const [profiles, operations, steps, technicalHealth] = await Promise.all([
     db.select().from(organizationProfiles),
-    syncOperations ? db.select().from(syncOperations).orderBy(desc(syncOperations.updatedAt)).limit(100).catch(() => []) : [],
-    syncOperationSteps ? db.select().from(syncOperationSteps).orderBy(desc(syncOperationSteps.updatedAt)).limit(100).catch(() => []) : [],
+    syncOperations ? db.select().from(syncOperations).where(notInArray(syncOperations.status, ["completed", "succeeded", "success", "failed"])).orderBy(desc(syncOperations.updatedAt)).catch(() => []) : [],
+    syncOperationSteps ? db.select().from(syncOperationSteps).where(notInArray(syncOperationSteps.status, ["completed", "succeeded", "success", "skipped", "unsupported"])).orderBy(desc(syncOperationSteps.updatedAt)).catch(() => []) : [],
     loadWorkerHealthSnapshot(),
   ]);
   return buildOperationsSummary({ profiles, operations, steps, technicalHealth });

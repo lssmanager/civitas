@@ -1,6 +1,6 @@
 const { and, desc, eq } = require("drizzle-orm");
 const { db } = require("../db/client");
-const { auditLogs, organizationProfiles, syncOperationSteps, syncOperations } = require("../db/schema");
+const { auditLogs, organizationProfiles, syncManualResolutions, syncOperationSteps, syncOperations } = require("../db/schema");
 const { QUEUE_NAME, enqueueSyncOperation, getSyncJobSnapshot } = require("./syncQueue");
 const { getWorkerHealthSnapshot } = require("./operationalObservability");
 
@@ -47,6 +47,9 @@ const STEP_CLASSIFICATIONS = [
   { pattern: /branding.*css|logto_custom_css|organization_branding/i, label: "Branding Logto/CSS", system: "Logto", action: "Reintentar regeneración de branding" },
   { pattern: /branding|logto.organization.custom_data/i, label: "Logto organization", system: "Logto", action: "Reintentar actualización en Logto" },
 ];
+
+const RESEND_STEP_WHITELIST = new Set(["fluentcrm.company.create", "fluentcrm.company.patch", "fluentcrm.company.ensure", "fluentcrm.contact.upsert"]);
+const MANUAL_RESOLUTION_TYPES = new Set(["reviewed_no_action", "accepted_risk", "resolved_externally", "ignored_known_issue"]);
 
 const TERMINAL_STEP_STATUSES = new Set([STEP_STATUSES.COMPLETED, STEP_STATUSES.FAILED, STEP_STATUSES.SKIPPED, "unsupported"]);
 const DOWNSTREAM_STEP_PATTERN = /^(fluentcrm\.|branding\.)|fluentcrm[._-](company|contact)|branding/i;
@@ -122,6 +125,22 @@ function buildActionableMessage({ classified, details, missingFields, fieldDiffs
   return `${classified.label}: ${providerStatus || "pendiente"}`;
 }
 
+function buildSuggestedRemediation({ organizationId, stepName, entityType, missingFields = [], fieldDiffs = {}, providerCode }) {
+  const fields = [...(Array.isArray(missingFields) ? missingFields : []), ...Object.keys(fieldDiffs || {})].map((field) => String(field).toLowerCase());
+  if (!organizationId) return null;
+  if (/company_id|company_not_linked|missing_company_id/i.test(String(providerCode || fields.join(" ")))) {
+    return { suggestedAction: "Ir a sincronización company", suggestedRoute: `/owner/organizations/${organizationId}?tab=logs`, suggestedSection: "logs", ctaLabel: "Abrir logs filtrados de company" };
+  }
+  if (/contact|member/i.test(`${stepName || ""} ${entityType || ""}`) || fields.some((field) => ["email", "first_name", "last_name", "phone", "user_role"].includes(field))) {
+    return { suggestedAction: "Ir a miembros", suggestedRoute: `/owner/organizations/${organizationId}?tab=members`, suggestedSection: "members", ctaLabel: "Ir a miembros" };
+  }
+  if (fields.some((field) => ["logo", "brand", "branding", "primary_color", "secondary_color", "app_subdomain"].includes(field))) {
+    return { suggestedAction: "Ir a branding", suggestedRoute: `/owner/organizations/${organizationId}?tab=branding`, suggestedSection: "branding", ctaLabel: "Ir a branding" };
+  }
+  if (fields.length) return { suggestedAction: "Ir a perfil organizacional", suggestedRoute: `/owner/organizations/${organizationId}?tab=profile`, suggestedSection: "profile", ctaLabel: "Corregir datos" };
+  return { suggestedAction: "Abrir organización", suggestedRoute: `/owner/organizations/${organizationId}`, suggestedSection: "overview", ctaLabel: "Abrir organización" };
+}
+
 function serializePending(item, organizationName = null) {
   const visibleStep = pickVisibleStep(item.steps);
   const step = getLatestStep(item);
@@ -136,12 +155,14 @@ function serializePending(item, organizationName = null) {
   const providerStatus = details.providerStatus || details.status || visibleStep?.status || item.status || null;
   const providerCode = details.providerCode || details.code || item.lastErrorJson?.providerCode || visibleStep?.lastErrorJson?.providerCode || null;
   const retryState = deriveRetryState(item, visibleStep);
+  const organizationId = item.organizationId || item.logtoOrganizationId || item.entityId || null;
+  const remediation = buildSuggestedRemediation({ organizationId, stepName: visibleStep?.stepName || item.stepName || item.operationType, entityType: details.entityType || item.entityType, missingFields, fieldDiffs, providerCode });
   const actionableMessage = item.humanMessage || item.payloadSnapshotJson?.humanMessage || item.resultSnapshotJson?.humanMessage || buildActionableMessage({ classified, details, missingFields, fieldDiffs, providerCode, providerStatus, retryState, rawError });
   const queue = buildQueueProjection(item, visibleStep);
   return {
     id: item.pendingId || item.id,
     operationId: item.operationId || item.id,
-    organizationId: item.organizationId || item.logtoOrganizationId || item.entityId || null,
+    organizationId,
     organizationName,
     operationType: item.operationType || null,
     type: item.type || classified.label,
@@ -166,7 +187,13 @@ function serializePending(item, organizationName = null) {
         : undefined
     ),
     technicalErrorPresent: Boolean(rawError && TECHNICAL_ERROR_PATTERN.test(rawError)),
-    suggestedAction: item.suggestedAction || classified.action,
+    suggestedAction: remediation?.suggestedAction || item.suggestedAction || classified.action,
+    suggestedRoute: remediation?.suggestedRoute || null,
+    suggestedSection: remediation?.suggestedSection || null,
+    ctaLabel: remediation?.ctaLabel || null,
+    canResendPayload: RESEND_STEP_WHITELIST.has(visibleStep?.stepName || item.stepName || item.operationType),
+    canManualResolve: ["failed", "partial_failed", "pending", "conflict", "error"].includes(item.status) || Boolean(rawError || missingFields.length || Object.keys(fieldDiffs || {}).length),
+    canVerifyProvider: /fluentcrm/i.test(`${classified.system} ${visibleStep?.stepName || item.stepName || item.operationType}`),
     queueName: queue.queueName,
     jobId: queue.jobId,
     retryState: queue.retryState,
@@ -545,6 +572,54 @@ async function retrySyncOperation({ operationId, organizationId }) {
   });
 }
 
+async function resendPayload({ operationId, organizationId, actorUserId }) {
+  const existing = await getSyncOperationWithSteps(operationId);
+  if (!existing) throw Object.assign(new Error("Operación no encontrada para reenviar payload."), { status: 404 });
+  const step = pickVisibleStep(existing.steps) || getLatestStep(existing) || null;
+  const stepName = step?.stepName || existing.operationType;
+  if (!RESEND_STEP_WHITELIST.has(stepName)) throw Object.assign(new Error(`La microacción ${stepName} no está permitida para reenviar payload.`), { status: 409, code: "RESEND_NOT_WHITELISTED" });
+  const payloadSnapshotJson = existing.payloadSnapshotJson || step?.outputJson?.payloadSnapshot || {};
+  if (!payloadSnapshotJson || typeof payloadSnapshotJson !== "object") throw Object.assign(new Error("No existe payloadSnapshotJson seguro para reenviar."), { status: 409, code: "PAYLOAD_SNAPSHOT_MISSING" });
+  const created = await createCanonicalSyncOperation({
+    operationType: existing.operationType,
+    entityType: existing.entityType,
+    entityId: existing.entityId,
+    logtoOrganizationId: existing.logtoOrganizationId || organizationId,
+    logtoUserId: existing.logtoUserId,
+    correlationId: `owner-resend:${operationId}:${Date.now()}`,
+    idempotencyKey: `owner-resend:${operationId}:${Date.now()}`,
+    payloadSnapshotJson: { ...payloadSnapshotJson, ownerAction: "resend_payload", sourceOperationId: operationId, sourceStepId: step?.id || null, requestedByUserId: actorUserId || null },
+  });
+  const enqueueResult = await enqueueSyncOperation(created).catch((error) => ({ enqueued: false, reason: error.message, queueName: QUEUE_NAME, jobId: `sync-operation-${created.id}` }));
+  await recordOperationStep({ operationId: created.id, stepName, queueName: enqueueResult.queueName || QUEUE_NAME, jobId: enqueueResult.jobId || `sync-operation-${created.id}`, status: STEP_STATUSES.QUEUED, outputJson: { ...enqueueResult, action: "resend_payload", sourceOperationId: operationId, sourceStepId: step?.id || null, targetIdentity: existing.entityId || existing.logtoOrganizationId, humanMessage: "Payload reenviado a downstream por owner" } });
+  return { operation: created, sourceOperation: existing, sourceStep: step, enqueueResult };
+}
+
+async function createManualResolution({ operationId, organizationId, stepId = null, resolutionType, resolutionReason, resolvedByUserId, notes = null, appliesUntil = null }) {
+  if (!MANUAL_RESOLUTION_TYPES.has(resolutionType)) throw Object.assign(new Error("Tipo de resolución manual no permitido."), { status: 400 });
+  const existing = await getSyncOperationWithSteps(operationId);
+  if (!existing) throw Object.assign(new Error("Operación no encontrada para resolución manual."), { status: 404 });
+  const step = stepId ? existing.steps.find((item) => item.id === stepId) : pickVisibleStep(existing.steps);
+  const [resolution] = await db.insert(syncManualResolutions).values({
+    operationId,
+    stepId: step?.id || null,
+    organizationId: organizationId || existing.logtoOrganizationId || existing.entityId,
+    resolutionType,
+    resolutionReason,
+    resolvedByUserId,
+    notes,
+    appliesUntil: appliesUntil ? new Date(appliesUntil) : null,
+    metadata: {
+      sourceOfTruth: "civitas_operational_decision_only",
+      justification: "Guarda decisión humana auditada que no es canónica en Logto ni FluentCRM; Civitas la consulta para cerrar pendientes operativos sin fingir éxito downstream.",
+      flowDependency: "owner operational center pending/conflict triage",
+    },
+  }).returning();
+  await updateSyncOperation({ id: operationId, status: "completed", downstreamStatus: existing.downstreamStatus === "completed" ? "completed" : "skipped", resultSnapshotJson: { ...(existing.resultSnapshotJson || {}), manualResolution: { id: resolution.id, resolutionType, resolvedAt: resolution.resolvedAt, operationalOnly: true } } });
+  await recordOperationStep({ operationId, stepName: "manual_resolution.recorded", queueName: "civitas-db", jobId: resolution.id, status: STEP_STATUSES.COMPLETED, outputJson: { resolutionType, humanMessage: "Resolución manual registrada; no modifica el estado real downstream." } });
+  return resolution;
+}
+
 async function listOrganizationEvents({ organizationId, limit = 30 }) {
   const [ops, logs] = await Promise.all([
     db.select().from(syncOperations).where(eq(syncOperations.logtoOrganizationId, organizationId)).orderBy(desc(syncOperations.updatedAt)).limit(limit),
@@ -612,6 +687,8 @@ module.exports = {
   listOrganizationPendingSync,
   recordOperationStep,
   retrySyncOperation,
+  resendPayload,
+  createManualResolution,
   safeFunctionalMessage,
   serializePending,
   updateSyncOperation,
