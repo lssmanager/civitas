@@ -91,3 +91,10 @@ test("worker registers a real consumer for queued sync operations", () => {
   assert.match(source, /new Worker\(SYNC_QUEUE_NAME/);
   assert.match(source, /processSyncOperation\(job\.data\?\.operationId\)/);
 });
+
+
+test("operational projections use synchronous worker health snapshot without Promise catch", () => {
+  const source = require("node:fs").readFileSync(require("node:path").join(__dirname, "../services/syncOperations.js"), "utf8");
+  assert.doesNotMatch(source, /getWorkerHealthSnapshot\(\)\.catch/);
+  assert.match(source, /getWorkerHealthSnapshot\(\)/);
+});

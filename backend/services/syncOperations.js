@@ -472,7 +472,7 @@ async function listOrganizationPendingSync({ organizationId }) {
       .orderBy(desc(syncOperations.updatedAt))
       .limit(50),
     db.select().from(organizationProfiles).where(eq(organizationProfiles.logtoOrganizationId, organizationId)).limit(1),
-    getWorkerHealthSnapshot().catch(() => ({})),
+    getWorkerHealthSnapshot(),
   ]);
   const withSteps = await Promise.all(operations.map((operation) => getSyncOperationWithSteps(operation.id)));
   const enriched = await Promise.all(withSteps.filter(Boolean).map(async (operation) => ({
@@ -883,7 +883,7 @@ async function listOperationalLogs(filters = {}) {
     db.select().from(syncOperations).orderBy(desc(syncOperations.updatedAt)).limit(scanLimit),
     db.select().from(syncOperations).where(notInArray(syncOperations.status, [...TERMINAL_OPERATION_STATUSES])).orderBy(desc(syncOperations.updatedAt)).limit(20000),
     db.select().from(organizationProfiles).limit(500),
-    getWorkerHealthSnapshot().catch((error) => ({ error: error.message })),
+    getWorkerHealthSnapshot(),
   ]);
   const operationMap = new Map([...recentOperations, ...openOperations].map((operation) => [operation.id, operation]));
   const operations = [...operationMap.values()];
