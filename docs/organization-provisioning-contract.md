@@ -53,3 +53,9 @@ This favors continuity for a valid organization bootstrap without inventing alte
 - **Hide validation details vs operational diagnostics:** public error bodies expose sanitized validation fields, codes and messages, while secrets and request payloads stay redacted.
 - **Retry `422` vs fail fast:** Logto/FluentCRM 4xx validation incidents are marked non-retryable; transient timeouts and 5xx remain retryable.
 - **Logto-only fix vs FluentCRM payload changes:** no broad FluentCRM payload change is required for this fix; downstream code already runs only after canonical Logto completion and records company/contact failures separately.
+
+## FluentCRM contacts after Company provisioning
+
+After Civitas ensures or links the FluentCRM Company for a Logto organization, it immediately runs the reusable Logto-member-to-FluentCRM contact synchronization. Logto remains the canonical source for organization membership and roles; Civitas reads current organization members and organization-scoped roles from Logto, maps those roles to FluentCRM tags/lists, and persists only the operational summary in `organizationProfiles.settings.fluentcrmContactSync`.
+
+Administrative contact assignments are retained in the provisioning response for visibility, but contact writes are performed through the member synchronization pass to avoid duplicate or divergent upserts for the same Logto user.

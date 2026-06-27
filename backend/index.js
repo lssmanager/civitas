@@ -50,9 +50,7 @@ const {
   searchCompanies,
   searchContacts,
   syncOrganizationContactsToFluentCrm,
-  upsertContactFromLogtoIdentity,
   validateFluentCrmConfiguration,
-  updateContactEmailAfterLogtoChange,
 } = require("./services/fluentCrm");
 const {
   buildRoleMappingResponse,
@@ -436,27 +434,42 @@ async function runFluentCrmOrganizationStep({ logtoOrganization, logtoOrganizati
     slug: extended.slug,
     name: canonical.name,
   });
-  const organizationLists = [...new Set([...(normalizedCrm.lists || []), taxonomy.list?.title].filter(Boolean))];
+  const profileForContactSync = { ...profile, fluentcrmCompanyId: companyId };
+  const members = await listLogtoOrganizationUsers({ organizationId: logtoOrganizationId });
+  const logtoRoles = await listLogtoOrganizationRoles();
+  const roleMapping = (await getEffectiveCrmRoleMapping({ logtoRoles })).mapping;
+  const contactSyncSummary = await syncOrganizationContactsToFluentCrm({
+    profile: profileForContactSync,
+    members,
+    roleMapping,
+    getMemberRoles: async (logtoUserId) => (await listLogtoOrganizationUserRoles({ organizationId: logtoOrganizationId, userId: logtoUserId }))
+      .map((role) => role.name || role.nameCache || role.key || role.organizationRoleName)
+      .filter(Boolean),
+    audit: async (event) => recordAuditLogBestEffort({
+      actorUserId: internalUser.id,
+      organizationId: logtoOrganizationId,
+      action: AUDIT_ACTIONS.OWNER_ORGANIZATION_FLUENTCRM_CONTACT_SYNC,
+      result: event.result === "success" ? AUDIT_RESULTS.SUCCESS : AUDIT_RESULTS.ERROR,
+      metadata: { stage: "fluentcrm_contact_sync_after_company", ...event },
+    }),
+    markOrganizationSync: async (summaryToPersist) => markOrganizationProfileFluentCrmSync({
+      id: profile.id,
+      companyId,
+      status: summaryToPersist.status === "synced" ? "linked" : summaryToPersist.status === "conflict" ? "conflict" : "error",
+      errorMessage: summaryToPersist.errors?.[0]?.reason || null,
+      synced: summaryToPersist.status === "synced",
+      settings: buildContactSyncSettings(profile, summaryToPersist),
+    }),
+  });
+
+  // Administrative contacts are still reported for provisioning visibility, but the
+  // actual contact writes happen once through the Logto member sync above. This
+  // avoids divergent upserts when an administrative assignment is also a member.
   const administrativeContacts = [];
 
   for (const assignment of administrativeContactAssignments) {
-    let contactSync;
-    try {
-      contactSync = await upsertContactFromLogtoIdentity({
-        identity: {
-          logtoUserId: assignment.logtoUserId,
-          email: assignment.email,
-          name: assignment.name,
-          phone: assignment.phone,
-          position: assignment.position,
-        },
-        companyId,
-        roleNames: [assignment.roleName || assignment.organizationRoleName].filter(Boolean),
-        extraLists: organizationLists,
-      });
-    } catch (error) {
-      contactSync = { status: "error", message: getSafeErrorMessage(error), code: error.code || null, diagnostic: error.diagnostic || null, body: error.body || null };
-    }
+    const matchedMemberResult = contactSyncSummary.results?.find((result) => result.logtoUserId === assignment.logtoUserId || result.email === assignment.email) || null;
+    const contactSync = matchedMemberResult || { status: "not_synced", reason: "assignment_not_found_in_logto_members" };
     administrativeContacts.push({
       key: assignment.key,
       name: assignment.name,
@@ -475,6 +488,7 @@ async function runFluentCrmOrganizationStep({ logtoOrganization, logtoOrganizati
     companyId,
     reason: companyResult.reason,
     taxonomy,
+    contactSync: contactSyncSummary,
     administrativeContacts,
   };
 }
@@ -1904,6 +1918,10 @@ app.get("/", (req, res) => {
   res.json({ message: "Welcome to the Civitas API", health: "/health" });
 });
 
-app.listen(port, () => {
-  console.log(`Server is running on port ${port}`);
-});
+if (require.main === module) {
+  app.listen(port, () => {
+    console.log(`Server is running on port ${port}`);
+  });
+}
+
+module.exports = { app, runFluentCrmOrganizationStep, buildContactSyncSettings };

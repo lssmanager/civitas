@@ -2,8 +2,8 @@ const { eq } = require("drizzle-orm");
 const { db } = require("../db/client");
 const { syncOperations } = require("../db/schema");
 const { AUDIT_ACTIONS, AUDIT_RESULTS, recordAuditLogBestEffort } = require("./auditLogs");
-const { FluentCrmError, getOrCreateCompanyForOrganization, upsertContactFromLogtoIdentity, updateContactEmailAfterLogtoChange } = require("./fluentCrm");
-const { getLogtoOrganizationById, createLogtoUserPasswordResetRequest } = require("./logtoManagement");
+const { FluentCrmError, getOrCreateCompanyForOrganization, upsertContactFromLogtoIdentity } = require("./fluentCrm");
+const { getLogtoOrganizationById, createLogtoUserPasswordResetRequest, listLogtoOrganizationUserRoles } = require("./logtoManagement");
 const { listOrganizationProfiles } = require("./organizationProfiles");
 const { QUEUE_NAME, getSyncJobId } = require("./syncQueue");
 const { STEP_STATUSES, recordOperationStep, safeFunctionalMessage, updateSyncOperation } = require("./syncOperations");
@@ -98,12 +98,39 @@ async function processOrganizationProfileDownstreamSync(operation) {
 
 async function processMemberIdentityDownstreamSync(operation) {
   const organizationId = organizationIdFor(operation);
-  const metadata = operation.payloadSnapshotJson || {};
-  await recordStep({ operation, stepName: STEP_NAMES.FLUENTCRM_CONTACT_UPSERT, status: STEP_STATUSES.RUNNING, metadata: { entityType: "fluentcrm.contact", targetIdentity: metadata.logtoUserId || metadata.email || null, humanMessage: "Worker inició FluentCRM contact sync" } });
-  const result = await updateContactEmailAfterLogtoChange({ previousEmail: metadata.previousEmail || metadata.email, newEmail: metadata.email, logtoUserId: metadata.logtoUserId, logtoOrganizationId: organizationId, profile: { name: metadata.name, phone: metadata.phone } });
-  await recordStep({ operation, stepName: STEP_NAMES.FLUENTCRM_CONTACT_UPSERT, status: STEP_STATUSES.COMPLETED, metadata: { result, entityType: "fluentcrm.contact", targetIdentity: metadata.logtoUserId || metadata.email || null, humanMessage: "FluentCRM contact actualizado correctamente" } });
-  await recordAuditLogBestEffort({ organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_FLUENTCRM_SYNC, result: AUDIT_RESULTS.SUCCESS, metadata: { stage: "retry completed", stepName: STEP_NAMES.FLUENTCRM_CONTACT_UPSERT, entityType: "fluentcrm.contact", targetIdentity: metadata.logtoUserId || metadata.email || null, humanMessage: "FluentCRM contact actualizado correctamente", queueName: QUEUE_NAME, jobId: getSyncJobId(operation), result } });
-  return { status: "completed", result };
+  const metadata = operationPayload(operation);
+  const targetIdentity = metadata.logtoUserId || metadata.email || null;
+  await recordStep({ operation, stepName: STEP_NAMES.FLUENTCRM_CONTACT_UPSERT, status: STEP_STATUSES.RUNNING, metadata: { entityType: "fluentcrm.contact", targetIdentity, humanMessage: "Worker inició FluentCRM contact upsert" } });
+
+  const profile = await getProfileForOperation(operation);
+  const companyId = metadata.companyId || metadata.fluentcrmCompanyId || profile?.fluentcrmCompanyId || null;
+  if (!companyId) throw new FluentCrmError("Organization is not linked to a FluentCRM company", { code: "FLUENTCRM_COMPANY_NOT_LINKED", status: 409, body: { message: "company_not_linked" } });
+
+  const roleNames = Array.isArray(metadata.roleNames)
+    ? metadata.roleNames.filter(Boolean)
+    : metadata.logtoUserId
+      ? (await listLogtoOrganizationUserRoles({ organizationId, userId: metadata.logtoUserId })).map((role) => role.name || role.nameCache || role.key || role.organizationRoleName).filter(Boolean)
+      : [];
+  const identity = {
+    logtoUserId: metadata.logtoUserId || null,
+    logtoOrganizationId: metadata.logtoOrganizationId || organizationId,
+    email: metadata.newEmail || metadata.email || null,
+    previousEmail: metadata.previousEmail || null,
+    name: metadata.name || metadata.fullName || null,
+    firstName: metadata.firstName || metadata.givenName || null,
+    middleName: metadata.middleName || null,
+    lastName: metadata.lastName || metadata.familyName || null,
+    username: metadata.username || null,
+    phone: metadata.phone || metadata.primaryPhone || null,
+    position: metadata.position || metadata.jobTitle || null,
+  };
+  const result = await upsertContactFromLogtoIdentity({ identity, companyId, roleNames });
+  const completed = ["created", "updated"].includes(result.status);
+  const status = completed ? "completed" : result.status === "conflict" ? "partial_failed" : "partial_failed";
+  const humanMessage = completed ? "FluentCRM contact sincronizado correctamente" : safeFunctionalMessage(result.message || result.reason, "FluentCRM contact sync requiere revisión");
+  await recordStep({ operation, stepName: STEP_NAMES.FLUENTCRM_CONTACT_UPSERT, status: completed ? STEP_STATUSES.COMPLETED : STEP_STATUSES.FAILED, retryable: false, errorMessage: completed ? null : humanMessage, metadata: { result, entityType: "fluentcrm.contact", targetIdentity, humanMessage, companyId, roleNames } });
+  await recordAuditLogBestEffort({ organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_FLUENTCRM_SYNC, result: completed ? AUDIT_RESULTS.SUCCESS : AUDIT_RESULTS.ERROR, metadata: { stage: completed ? "retry completed" : "retry partial_failed", stepName: STEP_NAMES.FLUENTCRM_CONTACT_UPSERT, entityType: "fluentcrm.contact", targetIdentity, humanMessage, queueName: QUEUE_NAME, jobId: getSyncJobId(operation), result } });
+  return { status, result, humanMessage, retryable: false };
 }
 
 async function processMemberResetPassword(operation) {

@@ -32,3 +32,9 @@ npm run start:worker
 ```
 
 Without Redis, the worker polls `sync_operations` directly as a safety net.
+
+## FluentCRM member contact upsert retries
+
+`member_identity_downstream_sync` now retries the same contact upsert contract used by the interactive FluentCRM member synchronization. The payload snapshot should include the Logto user and organization context (`logtoUserId`, `logtoOrganizationId` or operation organization), the current email/name/phone fields when available, and optionally `roleNames` if roles were already resolved. If `roleNames` is omitted, the worker resolves organization roles from Logto before calling FluentCRM.
+
+The worker requires a linked `fluentcrmCompanyId` from the organization profile (or an explicit `companyId`/`fluentcrmCompanyId` in the payload). Missing company linkage is treated as a downstream partial failure, not as an invalid Logto organization. Duplicate FluentCRM contact matches remain non-retryable conflicts; FluentCRM validation errors keep sanitized payload diagnostics only.
