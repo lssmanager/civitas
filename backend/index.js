@@ -434,42 +434,29 @@ async function runFluentCrmOrganizationStep({ logtoOrganization, logtoOrganizati
     slug: extended.slug,
     name: canonical.name,
   });
-  const profileForContactSync = { ...profile, fluentcrmCompanyId: companyId };
-  const members = await listLogtoOrganizationUsers({ organizationId: logtoOrganizationId });
-  const logtoRoles = await listLogtoOrganizationRoles();
-  const roleMapping = (await getEffectiveCrmRoleMapping({ logtoRoles })).mapping;
-  const contactSyncSummary = await syncOrganizationContactsToFluentCrm({
-    profile: profileForContactSync,
-    members,
-    roleMapping,
-    getMemberRoles: async (logtoUserId) => (await listLogtoOrganizationUserRoles({ organizationId: logtoOrganizationId, userId: logtoUserId }))
-      .map((role) => role.name || role.nameCache || role.key || role.organizationRoleName)
-      .filter(Boolean),
-    audit: async (event) => recordAuditLogBestEffort({
-      actorUserId: internalUser.id,
-      organizationId: logtoOrganizationId,
-      action: AUDIT_ACTIONS.OWNER_ORGANIZATION_FLUENTCRM_CONTACT_SYNC,
-      result: event.result === "success" ? AUDIT_RESULTS.SUCCESS : AUDIT_RESULTS.ERROR,
-      metadata: { stage: "fluentcrm_contact_sync_after_company", ...event },
-    }),
-    markOrganizationSync: async (summaryToPersist) => markOrganizationProfileFluentCrmSync({
-      id: profile.id,
+  const contactSyncSummary = {
+    status: "queued",
+    reason: "post_company_member_sync_scheduled",
+    persistencePolicy: "summary_only_no_contact_profile_replication",
+  };
+  setImmediate(() => {
+    runOrganizationContactSyncAfterCompany({
+      profile,
       companyId,
-      status: summaryToPersist.status === "synced" ? "linked" : summaryToPersist.status === "conflict" ? "conflict" : "error",
-      errorMessage: summaryToPersist.errors?.[0]?.reason || null,
-      synced: summaryToPersist.status === "synced",
-      settings: buildContactSyncSettings(profile, summaryToPersist),
-    }),
+      logtoOrganizationId,
+      internalUser,
+    }).catch((error) => {
+      console.error("FluentCRM post-company contact sync failed", { logtoOrganizationId, error });
+    });
   });
 
-  // Administrative contacts are still reported for provisioning visibility, but the
-  // actual contact writes happen once through the Logto member sync above. This
-  // avoids divergent upserts when an administrative assignment is also a member.
+  // Administrative contacts are still reported for provisioning visibility. The
+  // actual contact writes happen in the scheduled Logto member sync above, so the
+  // API response can finish without waiting for every downstream contact request.
   const administrativeContacts = [];
 
   for (const assignment of administrativeContactAssignments) {
-    const matchedMemberResult = contactSyncSummary.results?.find((result) => result.logtoUserId === assignment.logtoUserId || result.email === assignment.email) || null;
-    const contactSync = matchedMemberResult || { status: "not_synced", reason: "assignment_not_found_in_logto_members" };
+    const contactSync = { status: "queued", reason: "covered_by_post_company_member_sync" };
     administrativeContacts.push({
       key: assignment.key,
       name: assignment.name,
@@ -491,6 +478,78 @@ async function runFluentCrmOrganizationStep({ logtoOrganization, logtoOrganizati
     contactSync: contactSyncSummary,
     administrativeContacts,
   };
+}
+
+async function runOrganizationContactSyncAfterCompany({ profile, companyId, logtoOrganizationId, internalUser }) {
+  const profileForContactSync = { ...profile, fluentcrmCompanyId: companyId };
+  try {
+    await markOrganizationProfileFluentCrmSync({
+      id: profile.id,
+      companyId,
+      status: "linked",
+      errorMessage: null,
+      synced: false,
+      settings: buildContactSyncSettings(profile, {
+        status: "queued",
+        total: 0,
+        succeeded: 0,
+        failed: 0,
+        conflicts: 0,
+        errors: [],
+      }),
+    });
+    const members = await listLogtoOrganizationUsers({ organizationId: logtoOrganizationId });
+    const logtoRoles = await listLogtoOrganizationRoles();
+    const roleMapping = (await getEffectiveCrmRoleMapping({ logtoRoles })).mapping;
+    return syncOrganizationContactsToFluentCrm({
+      profile: profileForContactSync,
+      members,
+      roleMapping,
+      getMemberRoles: async (logtoUserId) => (await listLogtoOrganizationUserRoles({ organizationId: logtoOrganizationId, userId: logtoUserId }))
+        .map((role) => role.name || role.nameCache || role.key || role.organizationRoleName)
+        .filter(Boolean),
+      audit: async (event) => recordAuditLogBestEffort({
+        actorUserId: internalUser.id,
+        organizationId: logtoOrganizationId,
+        action: AUDIT_ACTIONS.OWNER_ORGANIZATION_FLUENTCRM_CONTACT_SYNC,
+        result: event.result === "success" ? AUDIT_RESULTS.SUCCESS : AUDIT_RESULTS.ERROR,
+        metadata: { stage: "fluentcrm_contact_sync_after_company", ...event },
+      }),
+      markOrganizationSync: async (summaryToPersist) => markOrganizationProfileFluentCrmSync({
+        id: profile.id,
+        companyId,
+        status: summaryToPersist.status === "synced" ? "linked" : summaryToPersist.status === "conflict" ? "conflict" : "error",
+        errorMessage: summaryToPersist.errors?.[0]?.reason || null,
+        synced: summaryToPersist.status === "synced",
+        settings: buildContactSyncSettings(profile, summaryToPersist),
+      }),
+    });
+  } catch (error) {
+    const summary = {
+      status: "partial_error",
+      total: 0,
+      succeeded: 0,
+      failed: 0,
+      conflicts: 0,
+      errors: [{ reason: error.code || "post_company_contact_sync_failed", message: getSafeErrorMessage(error), status: error.status || null }],
+    };
+    await markOrganizationProfileFluentCrmSync({
+      id: profile.id,
+      companyId,
+      status: "error",
+      errorMessage: summary.errors[0].reason,
+      synced: false,
+      settings: buildContactSyncSettings(profile, summary),
+    });
+    await recordAuditLogBestEffort({
+      actorUserId: internalUser.id,
+      organizationId: logtoOrganizationId,
+      action: AUDIT_ACTIONS.OWNER_ORGANIZATION_FLUENTCRM_CONTACT_SYNC,
+      result: AUDIT_RESULTS.ERROR,
+      metadata: { stage: "fluentcrm_contact_sync_after_company_failed", summary },
+    });
+    return summary;
+  }
 }
 
 const getColombianNameFields = (user = {}) => {
@@ -1924,4 +1983,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, runFluentCrmOrganizationStep, buildContactSyncSettings };
+module.exports = { app, runFluentCrmOrganizationStep, runOrganizationContactSyncAfterCompany, buildContactSyncSettings };
