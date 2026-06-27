@@ -1749,7 +1749,7 @@ app.get("/owner/audit", requireAuth(API_RESOURCE), requireOwner, async (req, res
       return [];
     });
     const result = await listAuditLogs(
-      { limit: req.query.limit, offset: req.query.offset },
+      { limit: req.query.limit, offset: req.query.offset, organizationId: req.query.organizationId, organizationName: req.query.organizationName, entityType: req.query.entityType, stepName: req.query.stepName, affectedSystem: req.query.affectedSystem || req.query.system, system: req.query.system, status: req.query.status, retryState: req.query.retryState, retryable: req.query.retryable, requiresHumanAction: req.query.requiresHumanAction, requiresAction: req.query.requiresAction, downstream: req.query.downstream },
       { organizationNamesById: buildOrganizationNamesById(logtoOrganizations) }
     );
     return res.json(result);

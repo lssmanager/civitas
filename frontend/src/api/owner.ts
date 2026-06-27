@@ -58,7 +58,7 @@ export type OwnerOrganization = {
 };
 
 export type OwnerOperationsSummary = {
-  counts: { queued: number; running: number; partialFailed: number; failed: number; retryable: number; organizationsWithPendingDownstreamSync: number };
+  counts: { queued: number; running: number; partialFailed: number; failed: number; retryable: number; requiresHumanAction?: number; organizationsWithPendingDownstreamSync: number };
   functionalHealth: { status: string; severity: "success" | "warning" | "critical" | string; message: string; code: string };
   incidents: Array<{ type: string; organizationId: string | null; organizationName: string | null; message: string; retryable: boolean }>;
   organizations: Array<{ organizationId: string | null; profileId: string; name: string | null; bootstrapStatus: string; canonicalStatus: string; downstreamStatus: string; currentStep: string; lastFunctionalError: string | null; retryable: boolean; conflictType: string | null }>;
@@ -102,6 +102,7 @@ export type OwnerPendingSync = {
   stepName?: string | null;
   status: string;
   retryable: boolean;
+  requiresHumanAction?: boolean;
   lastError: string;
   humanMessage?: string | null;
   suggestedAction: string;
@@ -170,6 +171,18 @@ export type OwnerAuditResponse = {
 export type OwnerAuditPagination = {
   limit?: number;
   offset?: number;
+  organizationId?: string;
+  organizationName?: string;
+  entityType?: string;
+  stepName?: string;
+  affectedSystem?: string;
+  status?: string;
+  retryState?: string;
+  retryable?: string;
+  requiresHumanAction?: string;
+  requiresAction?: string;
+  downstream?: string;
+  system?: string;
 };
 
 export type OwnerCommercialStatus = {
@@ -372,6 +385,18 @@ export const useOwnerApi = () => {
         const params = new URLSearchParams();
         if (pagination.limit !== undefined) params.set("limit", String(pagination.limit));
         if (pagination.offset !== undefined) params.set("offset", String(pagination.offset));
+        if (pagination.organizationId) params.set("organizationId", pagination.organizationId);
+        if (pagination.organizationName) params.set("organizationName", pagination.organizationName);
+        if (pagination.entityType) params.set("entityType", pagination.entityType);
+        if (pagination.stepName) params.set("stepName", pagination.stepName);
+        if (pagination.affectedSystem) params.set("affectedSystem", pagination.affectedSystem);
+        if (pagination.status) params.set("status", pagination.status);
+        if (pagination.retryState) params.set("retryState", pagination.retryState);
+        if (pagination.retryable) params.set("retryable", pagination.retryable);
+        if (pagination.requiresHumanAction) params.set("requiresHumanAction", pagination.requiresHumanAction);
+        if (pagination.downstream) params.set("downstream", pagination.downstream);
+        if (pagination.system) params.set("system", pagination.system);
+        if (pagination.requiresAction) params.set("requiresAction", pagination.requiresAction);
         const query = params.toString();
         return fetchWithToken(`/owner/audit${query ? `?${query}` : ""}`);
       },

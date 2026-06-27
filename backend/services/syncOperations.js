@@ -158,6 +158,7 @@ function serializePending(item, organizationName = null) {
     providerCode,
     humanMessage: safeFunctionalMessage(actionableMessage),
     status: item.status,
+    requiresHumanAction: Boolean(item.requiresHumanAction || item.payloadSnapshotJson?.requiresHumanAction || details.requiresHumanAction),
     retryable: Boolean(item.retryable || item.lastErrorJson?.retryable || visibleStep?.lastErrorJson?.retryable || ["failed", "partial_failed", "error"].includes(item.status)),
     lastError: safeFunctionalMessage(
       rawError,
@@ -166,7 +167,7 @@ function serializePending(item, organizationName = null) {
         : undefined
     ),
     technicalErrorPresent: Boolean(rawError && TECHNICAL_ERROR_PATTERN.test(rawError)),
-    suggestedAction: item.suggestedAction || classified.action,
+    suggestedAction: item.suggestedAction || details.suggestedAction || classified.action,
     queueName: queue.queueName,
     jobId: queue.jobId,
     retryState: queue.retryState,
@@ -251,11 +252,11 @@ function buildProjectedCrmPending(profile, latestOperation = null, workerHealth 
   const logtoOk = LOGTO_OK_STATUSES.has(profile.logtoSyncStatus) || Boolean(profile.logtoSyncedAt);
   if (!logtoOk || !CRM_PENDING_STATUSES.has(profile.fluentcrmSyncStatus)) return null;
   const missingFields = !profile.fluentcrmCompanyId ? getMissingCompanyFields(profile) : [];
-  const stepName = profile.fluentcrmCompanyId ? "fluentcrm.company.patch" : "fluentcrm.company.ensure";
+  const stepName = profile.fluentcrmCompanyId ? "fluentcrm.company.patch" : "fluentcrm.company.create";
   const humanMessage = !profile.fluentcrmCompanyId
     ? missingFields.length
       ? `Faltan campos para crear la company: ${missingFields.join(", ")}`
-      : "Falta crear company en FluentCRM"
+      : "Microacción encolada: crear company en FluentCRM"
     : profile.fluentcrmSyncStatus === "error"
       ? "La company en FluentCRM falló al sincronizar"
       : "Hay cambios pendientes para la company en FluentCRM";
@@ -274,11 +275,12 @@ function buildProjectedCrmPending(profile, latestOperation = null, workerHealth 
     status: profile.fluentcrmSyncStatus === "not_linked" ? "pending" : profile.fluentcrmSyncStatus,
     retryable: true,
     humanMessage,
-    suggestedAction: profile.fluentcrmCompanyId ? "Reenviar cambios a FluentCRM" : "Crear company en FluentCRM",
+    suggestedAction: profile.fluentcrmCompanyId ? "Reenviar datos a CRM" : missingFields.length ? "Revisar campos faltantes" : "Reintentar create company",
+    requiresHumanAction: Boolean(missingFields.length),
     providerCode: profile.fluentcrmSyncStatus === "not_linked" ? "FLUENTCRM_COMPANY_MISSING" : null,
     providerStatus: profile.fluentcrmSyncStatus,
     metadata: { missingFields, fluentcrmCompanyId: profile.fluentcrmCompanyId, logtoStatus: profile.logtoSyncStatus, crmStatus: profile.fluentcrmSyncStatus },
-    payloadSnapshotJson: { humanMessage, missingFields, logtoStatus: profile.logtoSyncStatus, crmStatus: profile.fluentcrmSyncStatus },
+    payloadSnapshotJson: { humanMessage, missingFields, logtoStatus: profile.logtoSyncStatus, crmStatus: profile.fluentcrmSyncStatus, fieldsSent: Object.keys((profile.settings?.civitasProfile?.business || profile.settings?.business || {})), affectedSystem: "FluentCRM" },
     workerHealth,
     createdAt: latestOperation?.createdAt || profile.updatedAt,
     updatedAt: latestOperation?.updatedAt || profile.updatedAt,

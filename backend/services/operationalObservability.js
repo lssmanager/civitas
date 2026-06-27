@@ -256,16 +256,18 @@ function summarizeOrganization(profile) {
 }
 
 function buildOperationsSummary({ operations = [], steps = [], profiles = [], technicalHealth, incidentsLimit = 5 } = {}) {
-  const counts = { queued: 0, running: 0, partialFailed: 0, failed: 0, retryable: 0, organizationsWithPendingDownstreamSync: 0 };
+  const counts = { queued: 0, running: 0, partialFailed: 0, failed: 0, retryable: 0, requiresHumanAction: 0, organizationsWithPendingDownstreamSync: 0 };
   for (const operation of operations) {
     const status = operation.status;
     if (QUEUED.has(status)) counts.queued += 1;
     if (RUNNING.has(status)) counts.running += 1;
     if (PARTIAL_FAILED.has(status)) counts.partialFailed += 1;
     if (FAILED.has(status)) counts.failed += 1;
-    if (operation.retryable || operation.nextRetryAt) counts.retryable += 1;
+    if (operation.retryable || operation.nextRetryAt || operation.lastErrorJson?.retryable) counts.retryable += 1;
+    if (operation.requiresHumanAction || operation.lastErrorJson?.requiresHumanAction || operation.lastErrorJson?.hitl || operation.status === "hitl_required") counts.requiresHumanAction += 1;
   }
   const organizations = profiles.map(summarizeOrganization);
+  counts.requiresHumanAction += steps.filter((step) => step.requiresHumanAction || step.lastErrorJson?.requiresHumanAction || step.lastErrorJson?.hitl).length;
   counts.organizationsWithPendingDownstreamSync = organizations.filter((org) => org.currentStep === "downstream" && org.downstreamStatus !== "linked" && org.downstreamStatus !== "synced").length;
   const incidents = [
     ...organizations

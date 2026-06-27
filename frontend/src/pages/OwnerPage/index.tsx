@@ -36,42 +36,13 @@ function OwnerDashboard({ ownerMe }: OwnerDashboardProps) {
 
   const metrics = summary.data
     ? [
-        {
-          label: "Pendientes",
-          value: summary.data.counts.queued,
-          hint: "colas por completar",
-          tone: "warning" as const,
-        },
-        {
-          label: "En ejecución",
-          value: summary.data.counts.running,
-          hint: "trabajos activos",
-          tone: "primary" as const,
-        },
-        {
-          label: "Fallos parciales",
-          value: summary.data.counts.partialFailed,
-          hint: "requieren revisión",
-          tone: "warning" as const,
-        },
-        {
-          label: "Fallidas",
-          value: summary.data.counts.failed,
-          hint: "bloqueos reales",
-          tone: "danger" as const,
-        },
-        {
-          label: "Reintentables",
-          value: summary.data.counts.retryable,
-          hint: "recuperables",
-          tone: "success" as const,
-        },
-        {
-          label: "Downstream pendiente",
-          value: summary.data.counts.organizationsWithPendingDownstreamSync,
-          hint: "integraciones incompletas",
-          tone: "primary" as const,
-        },
+        { label: "Pendientes", value: summary.data.counts.queued, hint: "ver pendientes", tone: "warning" as const, to: "/owner/logs?status=pending" },
+        { label: "En ejecución", value: summary.data.counts.running, hint: "ver trabajos activos", tone: "primary" as const, to: "/owner/logs?status=running" },
+        { label: "Fallos parciales", value: summary.data.counts.partialFailed, hint: "ver fallos parciales", tone: "warning" as const, to: "/owner/logs?status=partial_failed" },
+        { label: "Fallidas", value: summary.data.counts.failed, hint: "ver fallidas", tone: "danger" as const, to: "/owner/logs?status=failed" },
+        { label: "Reintentables", value: summary.data.counts.retryable, hint: "ver retries", tone: "success" as const, to: "/owner/logs?retryable=true" },
+        { label: "Downstream pendiente", value: summary.data.counts.organizationsWithPendingDownstreamSync, hint: "ver downstream", tone: "primary" as const, to: "/owner/logs?downstream=true" },
+        { label: "Acciones humanas", value: summary.data.counts.requiresHumanAction ?? 0, hint: "ver intervención", tone: "danger" as const, to: "/owner/logs?requiresHumanAction=true" },
       ]
     : [];
 
@@ -133,12 +104,9 @@ function OwnerDashboard({ ownerMe }: OwnerDashboardProps) {
 
             {metrics.map((item) => (
               <div className="col-6 col-xl-2" key={item.label}>
-                <MetricCard
-                  label={item.label}
-                  value={item.value}
-                  hint={item.hint}
-                  tone={item.tone}
-                />
+                <Link className="text-decoration-none text-reset d-block h-100" to={item.to} aria-label={`${item.label}: abrir logs filtrados`}>
+                  <MetricCard label={item.label} value={item.value} hint={item.value === 0 ? `${item.hint} (sin resultados actuales)` : item.hint} tone={item.tone} />
+                </Link>
               </div>
             ))}
 
@@ -173,7 +141,8 @@ function OwnerDashboard({ ownerMe }: OwnerDashboardProps) {
                             </Badge>
                           ) : null}
                         </div>
-                        <p className="text-secondary small mb-0">{incident.message}</p>
+                        <p className="text-secondary small mb-2">{incident.message}</p>
+                        <Link className="btn btn-outline-primary btn-sm" to={`/owner/logs?organizationId=${encodeURIComponent(incident.organizationId ?? "")}`}>Ver logs filtrados</Link>
                       </ListGroup.Item>
                     ))}
                   </ListGroup>
@@ -203,7 +172,7 @@ function OwnerDashboard({ ownerMe }: OwnerDashboardProps) {
                     {
                       key: "name",
                       header: "Organización",
-                      render: (row) => row.name ?? row.organizationId ?? "—",
+                      render: (row) => row.organizationId ? <Link to={`/owner/logs?organizationId=${encodeURIComponent(row.organizationId)}`}>{row.name ?? row.organizationId}</Link> : row.name ?? "—",
                     },
                     {
                       key: "canonical",
@@ -234,14 +203,11 @@ function OwnerDashboard({ ownerMe }: OwnerDashboardProps) {
                     {
                       key: "retry",
                       header: "Acción",
-                      render: (row) =>
-                        row.retryable ? (
-                          <Badge bg="info" text="dark">
-                            reintento requerido
-                          </Badge>
-                        ) : (
-                          "—"
-                        ),
+                      render: (row) => row.organizationId ? (
+                        <Link className="btn btn-outline-primary btn-sm" to={`/owner/logs?organizationId=${encodeURIComponent(row.organizationId)}${row.retryable ? "&retryable=true" : ""}`}>
+                          {row.retryable ? "Reintentar en logs" : "Ver logs"}
+                        </Link>
+                      ) : "—",
                     },
                   ]}
                 />
