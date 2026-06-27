@@ -2,28 +2,38 @@ require("dotenv").config();
 
 const { Worker } = require("bullmq");
 const { QUEUE_NAMES, createRedisConnection, getBullMqPrefix, getRedisUrl } = require("./queues/config");
+const { QUEUE_NAME: SYNC_QUEUE_NAME } = require("./services/syncQueue");
+const { processSyncOperation } = require("./services/syncOperationProcessors");
 const { processOrganizationBootstrapJob } = require("./services/organizationBootstrapOrchestrator");
 const { loadOwnerSystemMetrics } = require("./services/operationalObservability");
 
 function createWorkers(connection = createRedisConnection()) {
   const concurrency = Number.parseInt(process.env.ORGANIZATION_BOOTSTRAP_WORKER_CONCURRENCY || process.env.WORKER_CONCURRENCY || "2", 10);
-  const worker = new Worker(QUEUE_NAMES.ORGANIZATION_BOOTSTRAP, processOrganizationBootstrapJob, {
+  const bootstrapWorker = new Worker(QUEUE_NAMES.ORGANIZATION_BOOTSTRAP, processOrganizationBootstrapJob, {
+    connection,
+    prefix: getBullMqPrefix(),
+    concurrency: Number.isInteger(concurrency) && concurrency > 0 ? concurrency : 2,
+  });
+  const syncWorker = new Worker(SYNC_QUEUE_NAME, async (job) => processSyncOperation(job.data?.operationId), {
     connection,
     prefix: getBullMqPrefix(),
     concurrency: Number.isInteger(concurrency) && concurrency > 0 ? concurrency : 2,
   });
 
-  worker.on("completed", (job, result) =>
-    console.log(JSON.stringify({ component: "worker", queueName: QUEUE_NAMES.ORGANIZATION_BOOTSTRAP, jobId: job.id, operationId: job.data?.operationId, status: "completed", result }))
-  );
-  worker.on("failed", (job, error) =>
-    console.error(JSON.stringify({ component: "worker", queueName: QUEUE_NAMES.ORGANIZATION_BOOTSTRAP, jobId: job?.id, operationId: job?.data?.operationId, status: "failed", error: error.message, attemptsMade: job?.attemptsMade }))
-  );
-  worker.on("error", (error) =>
-    console.error(JSON.stringify({ component: "worker", queueName: QUEUE_NAMES.ORGANIZATION_BOOTSTRAP, status: "error", error: error.message }))
-  );
+  for (const worker of [bootstrapWorker, syncWorker]) {
+    const queueName = worker.name;
+    worker.on("completed", (job, result) =>
+      console.log(JSON.stringify({ component: "worker", queueName, jobId: job.id, operationId: job.data?.operationId, status: "completed", result }))
+    );
+    worker.on("failed", (job, error) =>
+      console.error(JSON.stringify({ component: "worker", queueName, jobId: job?.id, operationId: job?.data?.operationId, status: "failed", error: error.message, attemptsMade: job?.attemptsMade }))
+    );
+    worker.on("error", (error) =>
+      console.error(JSON.stringify({ component: "worker", queueName, status: "error", error: error.message }))
+    );
+  }
 
-  return [worker];
+  return [bootstrapWorker, syncWorker];
 }
 
 function startOperationalMetricsSampler() {
@@ -39,7 +49,7 @@ async function main() {
     const redisUrl = getRedisUrl();
     const workers = createWorkers();
     const metricsSampler = startOperationalMetricsSampler();
-    console.log(JSON.stringify({ component: "worker", status: "started", redisUrlConfigured: Boolean(redisUrl), bullmqPrefix: getBullMqPrefix(), queues: Object.values(QUEUE_NAMES), operationalMetricsSampler: Boolean(metricsSampler) }));
+    console.log(JSON.stringify({ component: "worker", status: "started", redisUrlConfigured: Boolean(redisUrl), bullmqPrefix: getBullMqPrefix(), queues: [...Object.values(QUEUE_NAMES), SYNC_QUEUE_NAME], operationalMetricsSampler: Boolean(metricsSampler) }));
 
     const shutdown = async (signal) => {
       console.log(JSON.stringify({ component: "worker", status: "shutdown", signal }));

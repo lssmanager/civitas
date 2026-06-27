@@ -36,6 +36,18 @@ function classifyError(error) {
   return { category: "downstream_error", retryable: true };
 }
 
+
+function classifyMemberContactRecoveryState(result = {}) {
+  const code = result.code || result.reason || "";
+  const status = Number(result.fluentCrmStatus || result.statusCode || 0);
+  const message = result.message || "";
+  if (["created", "updated"].includes(result.status)) return { retryState: "completed", retryable: false, requiresHumanAction: false, suggestedAction: null };
+  if (result.status === "conflict" || /duplicate|conflict/i.test(String(code))) return { retryState: "manual_retry_required", retryable: false, requiresHumanAction: true, suggestedAction: "Resolver duplicado en FluentCRM y reintentar manualmente" };
+  if (status === 422 || /VALIDATION|INVALID|missing_email|payload/i.test(String(code))) return { retryState: "human_action_required", retryable: false, requiresHumanAction: true, suggestedAction: "Corregir payload/datos requeridos antes de reintentar" };
+  if (/TIMEOUT|timeout|AbortError|ETIMEDOUT/i.test(`${code} ${message}`) || status >= 500) return { retryState: "retry_pending", retryable: true, requiresHumanAction: false, suggestedAction: "Retry automático pendiente" };
+  return { retryState: result.status === "error" ? "manual_retry_required" : "not_required", retryable: result.status === "error", requiresHumanAction: false, suggestedAction: result.status === "error" ? "Reintentar sincronización de contacto" : null };
+}
+
 const organizationIdFor = (operation) => operation.logtoOrganizationId || operation.entityId || null;
 
 async function loadOperation(operationId) {
@@ -125,12 +137,20 @@ async function processMemberIdentityDownstreamSync(operation) {
     position: metadata.position || metadata.jobTitle || null,
   };
   const result = await upsertContactFromLogtoIdentity({ identity, companyId, roleNames });
+  const recovery = classifyMemberContactRecoveryState(result);
+  const enrichedResult = { ...result, ...recovery, fluentcrmCompanyId: companyId };
   const completed = ["created", "updated"].includes(result.status);
-  const status = completed ? "completed" : result.status === "conflict" ? "partial_failed" : "partial_failed";
-  const humanMessage = completed ? "FluentCRM contact sincronizado correctamente" : safeFunctionalMessage(result.message || result.reason, "FluentCRM contact sync requiere revisión");
-  await recordStep({ operation, stepName: STEP_NAMES.FLUENTCRM_CONTACT_UPSERT, status: completed ? STEP_STATUSES.COMPLETED : STEP_STATUSES.FAILED, retryable: false, errorMessage: completed ? null : humanMessage, metadata: { result, entityType: "fluentcrm.contact", targetIdentity, humanMessage, companyId, roleNames } });
-  await recordAuditLogBestEffort({ organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_FLUENTCRM_SYNC, result: completed ? AUDIT_RESULTS.SUCCESS : AUDIT_RESULTS.ERROR, metadata: { stage: completed ? "retry completed" : "retry partial_failed", stepName: STEP_NAMES.FLUENTCRM_CONTACT_UPSERT, entityType: "fluentcrm.contact", targetIdentity, humanMessage, queueName: QUEUE_NAME, jobId: getSyncJobId(operation), result } });
-  return { status, result, humanMessage, retryable: false };
+  const status = completed ? "completed" : "partial_failed";
+  const humanMessage = completed
+    ? `FluentCRM contact ${result.status === "created" ? "creado" : "actualizado"} correctamente`
+    : recovery.retryState === "manual_retry_required"
+      ? "FluentCRM contact requiere retry manual"
+      : recovery.retryState === "human_action_required"
+        ? "FluentCRM contact requiere acción humana"
+        : safeFunctionalMessage(result.message || result.reason, "FluentCRM contact sync requiere revisión");
+  await recordStep({ operation, stepName: STEP_NAMES.FLUENTCRM_CONTACT_UPSERT, status: completed ? STEP_STATUSES.COMPLETED : STEP_STATUSES.FAILED, retryable: recovery.retryable, errorMessage: completed ? null : humanMessage, metadata: { result: enrichedResult, entityType: "fluentcrm.contact", targetIdentity, humanMessage, companyId, roleNames, retryState: recovery.retryState, requiresHumanAction: recovery.requiresHumanAction, suggestedAction: recovery.suggestedAction } });
+  await recordAuditLogBestEffort({ organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_FLUENTCRM_SYNC, result: completed ? AUDIT_RESULTS.SUCCESS : AUDIT_RESULTS.ERROR, metadata: { stage: completed ? "retry completed" : recovery.retryState, stepName: STEP_NAMES.FLUENTCRM_CONTACT_UPSERT, entityType: "fluentcrm.contact", targetIdentity, humanMessage, queueName: QUEUE_NAME, jobId: getSyncJobId(operation), result: enrichedResult } });
+  return { status, result: enrichedResult, humanMessage, retryable: recovery.retryable, retryState: recovery.retryState, requiresHumanAction: recovery.requiresHumanAction };
 }
 
 async function processMemberResetPassword(operation) {

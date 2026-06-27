@@ -84,3 +84,10 @@ test("runFluentCrmOrganizationStep triggers member contact sync after ensuring C
   assert.ok(helperContactSync > memberLoad);
   assert.ok(adminVisibility > scheduledSync);
 });
+
+
+test("worker registers a real consumer for queued sync operations", () => {
+  const source = require("node:fs").readFileSync(require("node:path").join(__dirname, "../worker.js"), "utf8");
+  assert.match(source, /new Worker\(SYNC_QUEUE_NAME/);
+  assert.match(source, /processSyncOperation\(job\.data\?\.operationId\)/);
+});

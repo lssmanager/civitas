@@ -40,3 +40,11 @@ Without Redis, the worker polls `sync_operations` directly as a safety net.
 The worker requires a linked `fluentcrmCompanyId` from the organization profile (or an explicit `companyId`/`fluentcrmCompanyId` in the payload). Missing company linkage is treated as a downstream partial failure, not as an invalid Logto organization. Duplicate FluentCRM contact matches remain non-retryable conflicts; FluentCRM validation errors keep sanitized payload diagnostics only.
 
 Post-Company provisioning contact sync is scheduled asynchronously from the API path. The API response reports the contact sync as `queued`; the background task then updates `organizationProfiles.settings.fluentcrmContactSync` with `queued`, `synced`, `partial_error`, or `conflict` summary data without blocking the organization bootstrap response on downstream CRM latency.
+
+## Contact progress observability
+
+The worker now owns both queue families used by this integration: `organization-bootstrap` jobs and `civitas-sync-operations` retry/downstream jobs. Bootstrap contact propagation is executed inside the organization bootstrap worker after the FluentCRM Company step completes; standalone downstream retries are consumed from the sync-operation queue by `processSyncOperation`.
+
+For FluentCRM contact propagation, the worker records per-contact steps using `fluentcrm_contacts.contact.<n>_of_<total>.<action>`. Each step includes `index`, `total`, `logtoUserId`, `email`, `fluentcrmCompanyId`, `action`, `result`, `retryState`, `requiresHumanAction`, and a functional `humanMessage` such as `Contacto 1/15: enviando a FluentCRM` or `Contacto 3/15: payload inválido, requiere acción humana`.
+
+Final contact summaries include attempted, created, updated, failed, conflicts, retryAutomatic, retryManual, humanActionRequired, startedAt, finishedAt, and durationMs. The public status stays compatible (`synced`, `partial_error`, `conflict`) while `recoveryStatus` distinguishes `retry_pending`, `manual_retry_required`, and `human_action_required`.
