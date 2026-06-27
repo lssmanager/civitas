@@ -1,11 +1,12 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { classifyError, OPERATION_TYPES } = require("../services/syncOperationProcessors");
+const { classifyError, OPERATION_TYPES, buildVerificationConclusion } = require("../services/syncOperationProcessors");
 
 test("new operation types have explicit processors", () => {
   assert.equal(OPERATION_TYPES.ORGANIZATION_PROFILE_DOWNSTREAM_SYNC, "organization_profile_downstream_sync");
   assert.equal(OPERATION_TYPES.MEMBER_IDENTITY_DOWNSTREAM_SYNC, "member_identity_downstream_sync");
   assert.equal(OPERATION_TYPES.MEMBER_RESET_PASSWORD, "member_reset_password");
+  assert.equal(OPERATION_TYPES.PROVIDER_VERIFICATION, "provider_verification");
 });
 
 test("classifyError separates retryable and non-retryable failures", () => {
@@ -24,8 +25,8 @@ function loadProcessorsWithMocks({ profile = { id: "profile-1", logtoOrganizatio
   const syncOpsPath = require.resolve("../services/syncOperations");
   const auditPath = require.resolve("../services/auditLogs");
   delete require.cache[processorPath];
-  require.cache[fluentPath] = { exports: { FluentCrmError: class FluentCrmError extends Error { constructor(message, opts = {}) { super(message); this.name = "FluentCrmError"; Object.assign(this, opts); } }, getOrCreateCompanyForOrganization: async () => ({}), upsertContactFromLogtoIdentity: async (args) => ({ ...upsertResult, args }) } };
-  require.cache[logtoPath] = { exports: { getLogtoOrganizationById: async () => ({}), createLogtoUserPasswordResetRequest: async () => ({}), listLogtoOrganizationUserRoles: async () => roles } };
+  require.cache[fluentPath] = { exports: { FluentCrmError: class FluentCrmError extends Error { constructor(message, opts = {}) { super(message); this.name = "FluentCrmError"; Object.assign(this, opts); } }, getOrCreateCompanyForOrganization: async () => ({}), searchCompanies: async () => [], searchContacts: async () => [], upsertContactFromLogtoIdentity: async (args) => ({ ...upsertResult, args }) } };
+  require.cache[logtoPath] = { exports: { getLogtoOrganizationById: async () => ({}), getLogtoUserById: async () => ({}), createLogtoUserPasswordResetRequest: async () => ({}), listLogtoOrganizationUserRoles: async () => roles, listLogtoOrganizationUsers: async () => [] } };
   require.cache[profilesPath] = { exports: { listOrganizationProfiles: async () => profile ? [profile] : [] } };
   const steps = [];
   const updates = [];
@@ -114,4 +115,112 @@ test("pending projection preserves provider code from step error diagnostics", (
   assert.match(source, /visibleStep\?\.lastErrorJson\?\.code/);
   assert.match(source, /No se pudo crear o enlazar la Company en FluentCRM/);
   assert.match(source, /La solicitud a FluentCRM expiró por timeout/);
+});
+
+test("provider verification conclusion returns all_ok when live checks are consistent", () => {
+  const conclusion = buildVerificationConclusion({
+    logtoOrganizationExists: true,
+    logtoMembershipValid: true,
+    fluentcrmCompanyExists: true,
+    fluentcrmContactExists: true,
+    wordpressUserExists: true,
+    contactLinkedToWpUser: true,
+  });
+  assert.equal(conclusion.status, "all_ok");
+  assert.equal(conclusion.providerCode, "ALL_OK");
+  assert.equal(conclusion.nextAction, "open_organization");
+});
+
+test("provider verification distinguishes missing FluentCRM Company as downstream retry", () => {
+  const conclusion = buildVerificationConclusion({
+    logtoOrganizationExists: true,
+    logtoMembershipValid: true,
+    fluentcrmCompanyExists: false,
+  });
+  assert.equal(conclusion.status, "missing_fluentcrm_company");
+  assert.equal(conclusion.providerStatus, "missing_fluentcrm_company");
+  assert.equal(conclusion.nextAction, "retry");
+  assert.equal(conclusion.retryable, true);
+  assert.ok(conclusion.availableActions.includes("retry"));
+});
+
+test("provider verification distinguishes missing FluentCRM Contact from Logto membership problems", () => {
+  const conclusion = buildVerificationConclusion({
+    logtoOrganizationExists: true,
+    logtoMembershipValid: true,
+    fluentcrmCompanyExists: true,
+    fluentcrmContactExists: false,
+  });
+  assert.equal(conclusion.status, "missing_fluentcrm_contact");
+  assert.equal(conclusion.nextAction, "retry");
+  assert.match(conclusion.humanMessage, /Falta contacto en FluentCRM/);
+});
+
+test("provider verification treats a contact outside the linked Company as downstream contact inconsistency", () => {
+  const conclusion = buildVerificationConclusion({
+    logtoOrganizationExists: true,
+    logtoMembershipValid: true,
+    fluentcrmCompanyExists: true,
+    fluentcrmContactExists: true,
+    fluentcrmContactBelongsToCompany: false,
+  });
+  assert.equal(conclusion.status, "missing_fluentcrm_contact");
+  assert.equal(conclusion.nextAction, "retry");
+});
+
+test("provider verification treats missing WordPress user as first-login state", () => {
+  const conclusion = buildVerificationConclusion({
+    logtoOrganizationExists: true,
+    logtoMembershipValid: true,
+    fluentcrmCompanyExists: true,
+    fluentcrmContactExists: true,
+    wordpressUserExists: false,
+  });
+  assert.equal(conclusion.status, "awaiting_first_wordpress_login");
+  assert.equal(conclusion.nextAction, "open_organization");
+  assert.equal(conclusion.retryable, false);
+});
+
+test("provider verification flags missing CRM contact to WordPress user link", () => {
+  const conclusion = buildVerificationConclusion({
+    logtoOrganizationExists: true,
+    logtoMembershipValid: true,
+    fluentcrmCompanyExists: true,
+    fluentcrmContactExists: true,
+    wordpressUserExists: true,
+    contactLinkedToWpUser: false,
+  });
+  assert.equal(conclusion.status, "missing_contact_wp_link");
+  assert.equal(conclusion.nextAction, "verify_provider");
+});
+
+test("provider verification maps provider technical errors to actionable statuses", () => {
+  const timeout = buildVerificationConclusion({ providerTimeout: true });
+  assert.equal(timeout.status, "provider_timeout");
+  assert.equal(timeout.nextAction, "retry");
+  assert.equal(timeout.retryable, true);
+
+  const auth = buildVerificationConclusion({ providerAuthError: true, providerAuthCode: "WORDPRESS_AUTHORIZATION_FAILED", providerAuthStatus: 403 });
+  assert.equal(auth.status, "provider_auth_error");
+  assert.equal(auth.providerCode, "WORDPRESS_AUTHORIZATION_FAILED");
+  assert.equal(auth.nextAction, "verify_provider");
+});
+
+test("provider verification is queued as a live worker operation instead of local-only projection", () => {
+  const source = require("node:fs").readFileSync(require("node:path").join(__dirname, "../services/syncOperations.js"), "utf8");
+  assert.match(source, /operationType: "provider_verification"/);
+  assert.match(source, /enqueueSyncOperation\(created\)/);
+  assert.match(source, /queued_for_live_check/);
+  assert.match(source, /live_requested_not_local_projection/);
+});
+
+test("provider verification processor performs live Logto, FluentCRM and WordPress checks", () => {
+  const source = require("node:fs").readFileSync(require("node:path").join(__dirname, "../services/syncOperationProcessors.js"), "utf8");
+  assert.match(source, /async function processProviderVerification/);
+  assert.match(source, /getLogtoOrganizationById/);
+  assert.match(source, /listLogtoOrganizationUsers/);
+  assert.match(source, /searchCompanies/);
+  assert.match(source, /searchContacts/);
+  assert.match(source, /findWordPressUserByEmail/);
+  assert.match(source, /source: "live_provider_verification"/);
 });

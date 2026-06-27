@@ -2,8 +2,8 @@ const { eq } = require("drizzle-orm");
 const { db } = require("../db/client");
 const { syncOperations } = require("../db/schema");
 const { AUDIT_ACTIONS, AUDIT_RESULTS, recordAuditLogBestEffort } = require("./auditLogs");
-const { FluentCrmError, getOrCreateCompanyForOrganization, upsertContactFromLogtoIdentity } = require("./fluentCrm");
-const { getLogtoOrganizationById, createLogtoUserPasswordResetRequest, listLogtoOrganizationUserRoles } = require("./logtoManagement");
+const { FluentCrmError, getOrCreateCompanyForOrganization, searchCompanies, searchContacts, upsertContactFromLogtoIdentity } = require("./fluentCrm");
+const { getLogtoOrganizationById, getLogtoUserById, createLogtoUserPasswordResetRequest, listLogtoOrganizationUserRoles, listLogtoOrganizationUsers } = require("./logtoManagement");
 const { listOrganizationProfiles } = require("./organizationProfiles");
 const { QUEUE_NAME, getSyncJobId } = require("./syncQueue");
 const { STEP_STATUSES, recordOperationStep, safeFunctionalMessage, updateSyncOperation } = require("./syncOperations");
@@ -13,6 +13,7 @@ const OPERATION_TYPES = Object.freeze({
   MEMBER_IDENTITY_DOWNSTREAM_SYNC: "member_identity_downstream_sync",
   MEMBER_RESET_PASSWORD: "member_reset_password",
   MANUAL_RETRY: "manual_retry",
+  PROVIDER_VERIFICATION: "provider_verification",
 });
 
 const STEP_NAMES = Object.freeze({
@@ -22,6 +23,7 @@ const STEP_NAMES = Object.freeze({
   FLUENTCRM_COMPANY_PATCH: "fluentcrm.company.patch",
   FLUENTCRM_CONTACT_UPSERT: "fluentcrm.contact.upsert:identity",
   LOGTO_MEMBER_RESET_PASSWORD: "logto.member.reset_password",
+  PROVIDER_VERIFICATION: "provider_verification.live",
 });
 
 function classifyError(error) {
@@ -108,6 +110,120 @@ async function processOrganizationProfileDownstreamSync(operation) {
   return { status, result, humanMessage };
 }
 
+
+function normalizeEmailForVerification(value) {
+  return value ? String(value).trim().toLowerCase() || null : null;
+}
+
+function getContactWpUserId(contact = {}) {
+  const custom = contact.custom_values || contact.customValues || {};
+  return contact.wp_user_id || contact.wpUserId || contact.user_id || contact.userId || custom.wp_user_id || custom.wpUserId || custom.wordpress_user_id || null;
+}
+
+function getWordPressConfig() {
+  const baseUrl = process.env.WORDPRESS_BASE_URL || process.env.FLUENTCRM_BASE_URL || null;
+  const username = process.env.WORDPRESS_USERNAME || process.env.FLUENTCRM_USERNAME || null;
+  const appPassword = process.env.WORDPRESS_APP_PASSWORD || process.env.FLUENTCRM_APP_PASSWORD || null;
+  if (!baseUrl || !username || !appPassword) return null;
+  return { baseUrl: String(baseUrl).replace(/\/+$/, ""), username, appPassword, timeoutMs: Number.parseInt(process.env.WORDPRESS_TIMEOUT_MS || process.env.FLUENTCRM_TIMEOUT_MS || "10000", 10) || 10000 };
+}
+
+async function findWordPressUserByEmail(email, fetchImpl = fetch) {
+  const normalizedEmail = normalizeEmailForVerification(email);
+  const config = getWordPressConfig();
+  if (!normalizedEmail || !config) return { configured: Boolean(config), user: null, status: config ? "missing_email" : "not_configured" };
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
+  const url = new URL(`${config.baseUrl}/wp-json/wp/v2/users`);
+  url.searchParams.set("search", normalizedEmail);
+  url.searchParams.set("context", "edit");
+  try {
+    const response = await fetchImpl(url, { headers: { authorization: `Basic ${Buffer.from(`${config.username}:${config.appPassword}`).toString("base64")}`, accept: "application/json" }, signal: controller.signal });
+    const body = await response.json().catch(() => null);
+    if (!response.ok) {
+      const error = new Error("WordPress user verification request failed");
+      error.status = response.status;
+      error.code = response.status === 401 ? "WORDPRESS_AUTHENTICATION_FAILED" : response.status === 403 ? "WORDPRESS_AUTHORIZATION_FAILED" : response.status === 404 ? "WORDPRESS_ENDPOINT_NOT_FOUND" : "WORDPRESS_USER_LOOKUP_FAILED";
+      throw error;
+    }
+    const users = Array.isArray(body) ? body : Array.isArray(body?.data) ? body.data : [];
+    const user = users.find((item) => normalizeEmailForVerification(item.email || item.user_email) === normalizedEmail) || users[0] || null;
+    return { configured: true, user, status: user ? "found" : "not_found" };
+  } catch (error) {
+    if (error.name === "AbortError") Object.assign(error, { code: "WORDPRESS_TIMEOUT" });
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function buildVerificationConclusion(checks = {}) {
+  const failures = [];
+  if (checks.providerTimeout) return { status: "provider_timeout", providerCode: "PROVIDER_TIMEOUT", providerStatus: "timeout", humanMessage: "La verificación live expiró consultando un proveedor.", nextAction: "retry", availableActions: ["retry", "verify_provider", "open_organization"], retryable: true };
+  if (checks.providerAuthError) return { status: "provider_auth_error", providerCode: checks.providerAuthCode || "PROVIDER_AUTH_ERROR", providerStatus: checks.providerAuthStatus || "auth_error", humanMessage: "No se pudo autenticar contra uno de los proveedores durante la verificación live.", nextAction: "verify_provider", availableActions: ["verify_provider", "open_organization"], retryable: false };
+  if (checks.providerConflictDetected) failures.push("provider_conflict_detected");
+  if (checks.logtoOrganizationExists === false || checks.logtoMembershipValid === false) failures.push("missing_logto_membership");
+  if (checks.fluentcrmCompanyExists === false) failures.push("missing_fluentcrm_company");
+  if (checks.fluentcrmCompanyExists && (checks.fluentcrmContactExists === false || checks.fluentcrmContactBelongsToCompany === false)) failures.push("missing_fluentcrm_contact");
+  if (checks.wordpressUserExists === false) failures.push("awaiting_first_wordpress_login");
+  if (checks.wordpressUserExists && checks.fluentcrmContactExists && checks.contactLinkedToWpUser === false) failures.push("missing_contact_wp_link");
+  const status = failures[0] || "all_ok";
+  const messages = { all_ok: "Verificación live OK: Logto, FluentCRM y WordPress están consistentes.", missing_logto_membership: "Falta membresía válida en Logto para el usuario/organización verificados.", missing_fluentcrm_company: "Falta Company en FluentCRM; Logto puede estar correcto pero downstream no está completo.", missing_fluentcrm_contact: "Falta contacto en FluentCRM para el usuario verificado o no está asociado a la Company correcta.", awaiting_first_wordpress_login: "Usuario WordPress aún no existe; estado esperado si el usuario no ha hecho primer login.", missing_contact_wp_link: "Existe usuario WordPress, pero el contacto FluentCRM no está enlazado al wp_user_id.", provider_conflict_detected: "Se detectó conflicto o duplicado en los proveedores verificados." };
+  const nextActions = { all_ok: "open_organization", missing_logto_membership: "open_organization", missing_fluentcrm_company: "retry", missing_fluentcrm_contact: "retry", awaiting_first_wordpress_login: "open_organization", missing_contact_wp_link: "verify_provider", provider_conflict_detected: "verify_provider" };
+  return { status, providerCode: status.toUpperCase(), providerStatus: status, humanMessage: messages[status], nextAction: nextActions[status], availableActions: [...new Set([nextActions[status], "verify_provider", "open_organization", ...(status.includes("missing_fluentcrm") ? ["retry"] : [])])], retryable: ["missing_fluentcrm_company", "missing_fluentcrm_contact"].includes(status), failures };
+}
+
+async function processProviderVerification(operation) {
+  const organizationId = organizationIdFor(operation);
+  const metadata = operationPayload(operation);
+  await recordStep({ operation, stepName: STEP_NAMES.PROVIDER_VERIFICATION, status: STEP_STATUSES.RUNNING, metadata: { entityType: "provider.verification", targetIdentity: organizationId, providerStatus: "live_check_running", humanMessage: "Worker inició verificación live contra Logto, FluentCRM y WordPress" } });
+  const checks = { source: "live_provider_verification", checkedAt: new Date().toISOString(), logtoOrganizationId: organizationId, logtoUserId: metadata.logtoUserId || operation.logtoUserId || null, email: normalizeEmailForVerification(metadata.email) };
+  try {
+    const logtoOrganization = await getLogtoOrganizationById(organizationId).catch((error) => { if (error.status === 404) return null; throw error; });
+    checks.logtoOrganizationExists = Boolean(logtoOrganization);
+    let logtoUser = checks.logtoUserId ? await getLogtoUserById(checks.logtoUserId).catch((error) => { if (error.status === 404) return null; throw error; }) : null;
+    checks.logtoUserExists = checks.logtoUserId ? Boolean(logtoUser) : null;
+    if (!checks.email) checks.email = normalizeEmailForVerification(logtoUser?.primaryEmail || logtoUser?.email || logtoUser?.profile?.email);
+    const members = logtoOrganization ? await listLogtoOrganizationUsers({ organizationId }).catch((error) => { if (error.status === 404) return []; throw error; }) : [];
+    const member = checks.logtoUserId ? members.find((item) => (item.id || item.userId || item.logtoUserId || item.sub) === checks.logtoUserId) : checks.email ? members.find((item) => normalizeEmailForVerification(item.primaryEmail || item.email || item.profile?.email) === checks.email) : null;
+    checks.logtoMembershipValid = checks.logtoUserId || checks.email ? Boolean(member) : null;
+    if (!checks.logtoUserId && member) checks.logtoUserId = member.id || member.userId || member.logtoUserId || member.sub || null;
+    const roles = checks.logtoUserId ? await listLogtoOrganizationUserRoles({ organizationId, userId: checks.logtoUserId }).catch(() => []) : [];
+    checks.organizationRolesResolved = checks.logtoUserId ? Array.isArray(roles) : null;
+    const profile = await getProfileForOperation(operation).catch(() => null);
+    const companyId = metadata.fluentcrmCompanyId || metadata.companyId || profile?.fluentcrmCompanyId || null;
+    const companies = companyId ? await searchCompanies({ companyId }) : [];
+    checks.fluentcrmCompanyExists = companyId ? companies.length === 1 : false;
+    checks.fluentcrmCompanyId = companies[0]?.id || companies[0]?.ID || companyId || null;
+    const contacts = checks.email || checks.logtoUserId ? await searchContacts({ email: checks.email, externalId: checks.logtoUserId }) : [];
+    checks.providerConflictDetected = contacts.length > 1 || companies.length > 1;
+    const contact = contacts[0] || null;
+    checks.fluentcrmContactExists = Boolean(contact);
+    checks.fluentcrmContactId = contact?.id || contact?.ID || null;
+    const contactCompanyId = contact?.company_id || contact?.companyId || contact?.company?.id || null;
+    checks.fluentcrmContactBelongsToCompany = contact ? String(contactCompanyId || "") === String(checks.fluentcrmCompanyId || companyId || "") : false;
+    const wpLookup = await findWordPressUserByEmail(checks.email);
+    checks.wordpressConfigured = wpLookup.configured;
+    checks.wordpressUserExists = wpLookup.status === "not_configured" ? null : Boolean(wpLookup.user);
+    checks.wordpressUserId = wpLookup.user?.id || wpLookup.user?.ID || null;
+    checks.wordpressUserEmailMatchesLogto = wpLookup.user ? normalizeEmailForVerification(wpLookup.user.email || wpLookup.user.user_email) === checks.email : null;
+    const contactWpUserId = contact ? getContactWpUserId(contact) : null;
+    checks.contactLinkedToWpUser = contact && checks.wordpressUserId ? String(contactWpUserId || "") === String(checks.wordpressUserId) : contact && !checks.wordpressUserId ? false : null;
+    const conclusion = buildVerificationConclusion(checks);
+    const result = { ...conclusion, checks, level: "live_provider_verification", providerVerification: true };
+    await recordStep({ operation, stepName: STEP_NAMES.PROVIDER_VERIFICATION, status: conclusion.status === "all_ok" || conclusion.status === "awaiting_first_wordpress_login" ? STEP_STATUSES.COMPLETED : STEP_STATUSES.FAILED, retryable: conclusion.retryable, errorMessage: conclusion.status === "all_ok" ? null : conclusion.humanMessage, metadata: { entityType: "provider.verification", targetIdentity: organizationId, ...result } });
+    await recordAuditLogBestEffort({ organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: conclusion.status === "all_ok" || conclusion.status === "awaiting_first_wordpress_login" ? AUDIT_RESULTS.SUCCESS : AUDIT_RESULTS.ERROR, metadata: { stage: "provider_verification.completed", ...result } });
+    return { status: conclusion.status === "all_ok" || conclusion.status === "awaiting_first_wordpress_login" ? "completed" : "partial_failed", result, humanMessage: conclusion.humanMessage, retryable: conclusion.retryable };
+  } catch (error) {
+    const classification = classifyError(error);
+    const timeout = classification.category === "timeout";
+    const result = buildVerificationConclusion({ providerTimeout: timeout, providerAuthError: ["auth", "configuration"].includes(classification.category), providerAuthCode: error.code, providerAuthStatus: error.status });
+    await recordStep({ operation, stepName: STEP_NAMES.PROVIDER_VERIFICATION, status: STEP_STATUSES.FAILED, retryable: result.retryable, errorMessage: result.humanMessage, metadata: { entityType: "provider.verification", targetIdentity: organizationId, category: classification.category, providerCode: result.providerCode, providerStatus: result.providerStatus, humanMessage: result.humanMessage, nextAction: result.nextAction, availableActions: result.availableActions } });
+    await recordAuditLogBestEffort({ organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.ERROR, metadata: { stage: "provider_verification.failed", category: classification.category, ...result } });
+    return { status: "partial_failed", result, humanMessage: result.humanMessage, retryable: result.retryable };
+  }
+}
+
 async function processMemberIdentityDownstreamSync(operation) {
   const organizationId = organizationIdFor(operation);
   const metadata = operationPayload(operation);
@@ -179,6 +295,7 @@ async function processSyncOperation(operationOrId) {
     if (operation.operationType === OPERATION_TYPES.ORGANIZATION_PROFILE_DOWNSTREAM_SYNC) outcome = await processOrganizationProfileDownstreamSync(operation);
     else if (operation.operationType === OPERATION_TYPES.MEMBER_IDENTITY_DOWNSTREAM_SYNC) outcome = await processMemberIdentityDownstreamSync(operation);
     else if (operation.operationType === OPERATION_TYPES.MEMBER_RESET_PASSWORD) outcome = await processMemberResetPassword(operation);
+    else if (operation.operationType === OPERATION_TYPES.PROVIDER_VERIFICATION) outcome = await processProviderVerification(operation);
     else if (operation.operationType === OPERATION_TYPES.MANUAL_RETRY) outcome = { status: "completed", result: { message: "Manual retry marker consumed; original operation should be retried separately when available." } };
     else throw Object.assign(new Error(`Unsupported sync operation type: ${operation.operationType}`), { code: "UNSUPPORTED_OPERATION_TYPE" });
     await updateOperation(operation.id, { status: outcome.status === "completed" ? "completed" : outcome.status === "partial_failed" ? "partial_failed" : outcome.status, downstreamStatus: outcome.status === "completed" ? "completed" : "failed", lastErrorJson: outcome.status === "completed" ? null : { message: outcome.message || outcome.humanMessage || null, retryable: Boolean(outcome.retryable) }, resultSnapshotJson: { ...(operation.resultSnapshotJson || {}), workerOutcome: outcome } });
@@ -196,4 +313,4 @@ async function processSyncOperation(operationOrId) {
   }
 }
 
-module.exports = { OPERATION_TYPES, STEP_NAMES, classifyError, processSyncOperation, processOrganizationProfileDownstreamSync, processMemberIdentityDownstreamSync, processMemberResetPassword };
+module.exports = { OPERATION_TYPES, STEP_NAMES, classifyError, buildVerificationConclusion, processSyncOperation, processOrganizationProfileDownstreamSync, processProviderVerification, processMemberIdentityDownstreamSync, processMemberResetPassword };

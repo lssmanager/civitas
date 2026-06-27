@@ -9,6 +9,7 @@ Civitas treats Logto as canonical and uses `sync_operations` / `sync_operation_s
 | `organization_profile_downstream_sync` | `processOrganizationProfileDownstreamSync` | FluentCRM, after Logto customData is already canonical | Logto organization `customData.civitasProfile` + `organization_profiles` operational row | FluentCRM Company is linked/updated and operation is `completed` | Logto remains canonical but FluentCRM conflict/error marks operation `partial_failed` | Retryable for timeouts/downstream errors; not retryable for conflicts/config/auth |
 | `member_identity_downstream_sync` | `processMemberIdentityDownstreamSync` | FluentCRM, after Logto user identity is already canonical | Operation metadata with `logtoUserId`, previous/current email, name and phone | FluentCRM Contact updated or no matching contact found safely | FluentCRM errors after Logto success mark `partial_failed` | Retryable for timeout/downstream errors |
 | `member_reset_password` | `processMemberResetPassword` | Logto only | Operation metadata with `logtoUserId` | If explicitly enabled, Logto Management API `PATCH /api/users/{userId}/password` regenerates password | If Logto/Civitas policy does not support safe admin reset, operation becomes `unsupported`/`failed_safe`; no local reset is created | Unsupported is not retryable; transient Logto failure can be retryable |
+| `provider_verification` | `processProviderVerification` | Logto, FluentCRM and WordPress live APIs | Snapshot with organization, optional `logtoUserId`, email and `fluentcrmCompanyId` hints | Live check returns `all_ok` or an expected first-login state | Missing membership/company/contact/link, provider conflict, timeout or auth errors are surfaced as actionable diagnostics | Retryable for provider timeouts and missing downstream provisioning; auth/config/conflict states require provider review or manual action |
 | `manual_retry` | `processSyncOperation` | None | Retry marker metadata | Marker consumed | N/A | Used only as compatibility marker |
 
 ## Logto v1.40.1 capability boundaries
@@ -32,6 +33,14 @@ npm run start:worker
 ```
 
 Without Redis, the worker polls `sync_operations` directly as a safety net.
+
+## Live provider verification
+
+Owner-triggered `provider_verification` is a worker-owned live check, not a local reconciliation projection. The owner action creates a new `sync_operations` row with `operationType: provider_verification`, records `provider_verification.started` as `queued_for_live_check`, and enqueues it on the sync-operation queue. The worker then records `provider_verification.live` while it queries Logto, FluentCRM and WordPress.
+
+The result snapshot includes `level: live_provider_verification` and a `checks` object with the live facts Civitas observed: Logto organization/user/membership/roles, FluentCRM Company/Contact/company link, WordPress user/id/email match, and the FluentCRM Contact to `wp_user_id` link when both sides exist. Consolidated statuses are functional and UI-actionable: `all_ok`, `missing_logto_membership`, `missing_fluentcrm_company`, `missing_fluentcrm_contact`, `awaiting_first_wordpress_login`, `missing_contact_wp_link`, `provider_conflict_detected`, `provider_timeout`, and `provider_auth_error`.
+
+WordPress user absence is not treated as a canonical identity failure. If Logto membership and FluentCRM provisioning are otherwise correct, Civitas reports `awaiting_first_wordpress_login` so owner can distinguish a normal first-login state from a real reconciliation issue such as `missing_contact_wp_link`.
 
 ## FluentCRM member contact upsert retries
 
