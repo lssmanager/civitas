@@ -69,14 +69,7 @@ const { db } = require("./db/client");
 const { crmRoleMappings, organizationProfiles, syncOperations, wordpressRoleMappings } = require("./db/schema");
 const { getCommercialStatusForOrganization, getLatestCommercialEventsForOrganization, processCommercialEvent, verifyCommercialWebhookSignature } = require("./services/commercialEvents");
 const { getWorkerHealthSnapshot, loadOperationsSummary, loadOwnerSystemMetrics } = require("./services/operationalObservability");
-const {
-  ACTIVE_OPERATION_STATUSES,
-  FRESHNESS_SOURCES,
-  buildConsolidatedOperationalResponse,
-  buildFreshness,
-  buildInvalidation,
-  buildOperationalBlock,
-} = require("./services/operational/contract");
+const { buildConsolidatedOperationalResponse } = require("./services/operationalStateAssembler");
 const {
   createSyncOperation,
   listOrganizationEvents,
@@ -1806,30 +1799,43 @@ app.get("/owner/organizations/:organizationId/operational-state", requireAuth(AP
   try {
     const profile = await resolveOrganizationProfileForRequest(req.params.organizationId);
     const logtoOrganizationId = profile?.logtoOrganizationId || req.params.organizationId;
+    const generatedAt = new Date();
     const [logtoOrganization, pending, events, workerHealth] = await Promise.all([
-      getLogtoOrganizationById(logtoOrganizationId).catch(() => null),
-      listOrganizationPendingSync({ organizationId: logtoOrganizationId }).catch(() => []),
-      listOrganizationEvents({ organizationId: logtoOrganizationId }).catch(() => []),
-      getWorkerHealthSnapshot(),
+      getLogtoOrganizationById(logtoOrganizationId).catch((error) => {
+        console.warn("Operational state degraded: Logto organization unavailable", { logtoOrganizationId, error: getSafeErrorMessage(error) });
+        return null;
+      }),
+      listOrganizationPendingSync({ organizationId: logtoOrganizationId }).catch((error) => {
+        console.warn("Operational state degraded: pending sync unavailable", { logtoOrganizationId, error: getSafeErrorMessage(error) });
+        return [];
+      }),
+      listOrganizationEvents({ organizationId: logtoOrganizationId }).catch((error) => {
+        console.warn("Operational state degraded: events unavailable", { logtoOrganizationId, error: getSafeErrorMessage(error) });
+        return [];
+      }),
+      getWorkerHealthSnapshot().catch((error) => {
+        console.warn("Operational state degraded: worker health unavailable", { logtoOrganizationId, error: getSafeErrorMessage(error) });
+        return { readiness: "unknown", worker: { state: "not_checked" }, redis: { status: "unknown" }, queues: [] };
+      }),
     ]);
-    const activeOperationIds = pending.filter((item) => ACTIVE_OPERATION_STATUSES.has(item.status) || ACTIVE_OPERATION_STATUSES.has(item.retryState)).map((item) => item.operationId || item.id).filter(Boolean);
-    const operationIds = pending.map((item) => item.operationId || item.id).filter(Boolean);
-    const provider = pending.find((item) => item.operationType === "provider_verification") || null;
-    const company = pending.find((item) => item.entityType === "fluentcrm.company" || /fluentcrm.*company/i.test(String(item.stepName || item.operationType || ""))) || null;
-    const contact = pending.find((item) => item.entityType === "fluentcrm.contact" || /fluentcrm.*contact/i.test(String(item.stepName || item.operationType || ""))) || null;
-    const latestEvent = events[0] || null;
-    const baseInvalidation = buildInvalidation({ invalidateOnOperationIds: operationIds, invalidateOnStatuses: ["queued", "running", "completed", "failed", "partial_failed"], lastEventId: latestEvent?.id || null });
-    const canonicalOk = Boolean(logtoOrganization);
+
     const response = buildConsolidatedOperationalResponse({
-      organization: { logtoOrganizationId, name: getLogtoOrganizationName(logtoOrganization) || profile?.nameCache || null, profileId: profile?.id || null, sourceAnchors: { logtoOrganizationId } },
-      canonical: buildOperationalBlock({ status: canonicalOk ? "ok" : "missing", severity: canonicalOk ? "success" : "critical", humanMessage: canonicalOk ? "Organización canónica presente en Logto." : "No se pudo confirmar la organización canónica en Logto.", providerCode: canonicalOk ? "LOGTO_ORGANIZATION_FOUND" : "LOGTO_ORGANIZATION_MISSING", providerStatus: canonicalOk ? "found" : "missing", freshness: buildFreshness({ source: FRESHNESS_SOURCES.LIVE_PROVIDER_CHECK, staleAfterSeconds: 120 }), invalidation: baseInvalidation, details: { sourceOfTruth: "logto", topLevelFields: logtoOrganization ? ["id", "name", "description", "customData"] : [] } }),
-      fluentcrm: buildOperationalBlock({ status: company ? company.status : profile?.fluentcrmCompanyId ? "linked" : "missing_company", severity: company ? (company.retryable ? "warning" : "critical") : profile?.fluentcrmCompanyId ? "success" : "warning", humanMessage: company?.humanMessage || (profile?.fluentcrmCompanyId ? "Company FluentCRM enlazada como downstream comercial." : "Falta crear o enlazar Company en FluentCRM."), providerCode: company?.providerCode || null, providerStatus: company?.providerStatus || profile?.fluentcrmSyncStatus || null, freshness: buildFreshness({ source: company ? FRESHNESS_SOURCES.WORKER_RUNTIME : FRESHNESS_SOURCES.LOCAL_RECONCILED, checkedAt: company?.updatedAt || profile?.fluentcrmSyncedAt || new Date(), staleAfterSeconds: company ? 30 : 300 }), invalidation: baseInvalidation, details: { organizationId: logtoOrganizationId, fluentcrmCompanyId: profile?.fluentcrmCompanyId || null, pending: company || null, sourceOfTruth: "fluentcrm_wordpress" }, runtime: company ? { isActive: activeOperationIds.includes(company.operationId) } : null }),
-      wordpress: buildOperationalBlock({ status: provider?.providerStatus === "awaiting_first_wordpress_login" ? "expected_missing_user" : "not_live_verified", severity: provider?.providerStatus === "awaiting_first_wordpress_login" ? "info" : "warning", humanMessage: provider?.providerStatus === "awaiting_first_wordpress_login" ? "El usuario WordPress local falta y es esperado hasta el primer login." : "WordPress no tiene verificación live completada en este contrato inicial.", providerCode: provider?.providerCode || null, providerStatus: provider?.providerStatus || null, freshness: buildFreshness({ source: provider ? FRESHNESS_SOURCES.LIVE_PROVIDER_CHECK : FRESHNESS_SOURCES.PERSISTED_SNAPSHOT, checkedAt: provider?.updatedAt || new Date(), staleAfterSeconds: 120 }), invalidation: baseInvalidation, details: { authorizationCanonicalSource: "logto", wordpressUserIsAuthorizationCanon: false } }),
-      worker: buildOperationalBlock({ status: workerHealth.readiness || "unknown", severity: workerHealth.readiness === "ready" ? "success" : "warning", humanMessage: workerHealth.worker?.heartbeatStale ? "Worker sin heartbeat fresco." : "Worker/cola observados para runtime operacional.", providerCode: workerHealth.redis?.status || null, providerStatus: workerHealth.worker?.workerHeartbeatState || workerHealth.worker?.state || null, freshness: buildFreshness({ source: FRESHNESS_SOURCES.WORKER_RUNTIME, checkedAt: workerHealth.worker?.heartbeatAt || new Date(), staleAfterSeconds: 30 }), invalidation: baseInvalidation, details: { activeOperationIds, redis: workerHealth.redis, queues: workerHealth.queues } }),
-      liveVerification: buildOperationalBlock({ status: provider?.providerStatus || provider?.status || "not_requested", severity: provider ? (provider.status === "completed" && provider.providerStatus === "all_ok" ? "success" : "warning") : "info", humanMessage: provider?.humanMessage || "Sin verificación live completada; no presentar snapshots como live.", providerCode: provider?.providerCode || null, providerStatus: provider?.providerStatus || null, freshness: buildFreshness({ source: provider ? FRESHNESS_SOURCES.LIVE_PROVIDER_CHECK : FRESHNESS_SOURCES.LOCAL_RECONCILED, checkedAt: provider?.updatedAt || new Date(), staleAfterSeconds: 120 }), invalidation: baseInvalidation, details: { pending: provider, dominance: "live_provider_check_over_local_reconciled" } }),
-      contactProgress: buildOperationalBlock({ status: contact ? contact.status : company && ["failed", "partial_failed"].includes(company.status) ? "blocked_by_company" : "not_started", severity: contact ? "warning" : company && ["failed", "partial_failed"].includes(company.status) ? "warning" : "info", humanMessage: contact?.humanMessage || (company && ["failed", "partial_failed"].includes(company.status) ? "Contactos no iniciados por fallo de Company." : "Sin progreso de contactos iniciado en el contrato consolidado."), providerCode: contact?.providerCode || null, providerStatus: contact?.providerStatus || null, freshness: buildFreshness({ source: contact ? FRESHNESS_SOURCES.WORKER_RUNTIME : FRESHNESS_SOURCES.LOCAL_RECONCILED, checkedAt: contact?.updatedAt || new Date(), staleAfterSeconds: contact ? 30 : 300 }), invalidation: baseInvalidation, details: { pending: contact, blockedByOperationId: company && ["failed", "partial_failed"].includes(company.status) ? company.operationId : null } }),
-      latestEventIds: { audit: latestEvent?.id || null, providerVerification: provider?.operationId || null, fluentcrmCompany: company?.operationId || null, fluentcrmContacts: contact?.operationId || null },
-      compatibility: { legacyProfileEndpoint: `/owner/organizations/${encodeURIComponent(logtoOrganizationId)}/profile`, preservedFields: ["sync.pending", "sync.summary", "operationalStatus", "providerVerificationLabel"] },
+      organization: {
+        logtoOrganizationId,
+        name: getLogtoOrganizationName(logtoOrganization) || profile?.nameCache || null,
+        profileId: profile?.id || null,
+        sourceAnchors: { logtoOrganizationId },
+      },
+      logtoOrganization,
+      profile,
+      pending,
+      events,
+      workerHealth,
+      generatedAt,
+      compatibility: {
+        legacyProfileEndpoint: `/owner/organizations/${encodeURIComponent(logtoOrganizationId)}/profile`,
+        preservedFields: ["sync.pending", "sync.summary", "operationalStatus", "providerVerificationLabel"],
+      },
     });
     return res.json(response);
   } catch (error) {
