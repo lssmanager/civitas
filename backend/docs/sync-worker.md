@@ -48,3 +48,7 @@ The worker now owns both queue families used by this integration: `organization-
 For FluentCRM contact propagation, the worker records per-contact steps using `fluentcrm_contacts.contact.<n>_of_<total>.<action>`. Each step includes `index`, `total`, `logtoUserId`, `email`, `fluentcrmCompanyId`, `action`, `result`, `retryState`, `requiresHumanAction`, and a functional `humanMessage` such as `Contacto 1/15: enviando a FluentCRM` or `Contacto 3/15: payload inválido, requiere acción humana`.
 
 Final contact summaries include attempted, created, updated, failed, conflicts, retryAutomatic, retryManual, humanActionRequired, startedAt, finishedAt, and durationMs. The public status stays compatible (`synced`, `partial_error`, `conflict`) while `recoveryStatus` distinguishes `retry_pending`, `manual_retry_required`, and `human_action_required`.
+
+## Company-blocked contact sync
+
+If the `fluentcrm_company` step fails or does not return a usable Company id, the worker records the real Company failure diagnostics (`providerCode`, `providerStatus`, `humanMessage`, retryability and suggested action) and then records the contacts step as `contacts_not_started` with `reason: company_sync_failed`. This keeps Logto canonical completion separate from downstream failure and makes it explicit that contact propagation did not begin because the Company dependency was not ready.

@@ -98,3 +98,20 @@ test("operational projections use synchronous worker health snapshot without Pro
   assert.doesNotMatch(source, /getWorkerHealthSnapshot\(\)\.catch/);
   assert.match(source, /getWorkerHealthSnapshot\(\)/);
 });
+
+
+test("bootstrap downstream records company diagnostics and contacts_not_started when Company blocks contacts", () => {
+  const source = require("node:fs").readFileSync(require("node:path").join(__dirname, "../services/organizationBootstrapOrchestrator.js"), "utf8");
+  assert.match(source, /buildCompanyFailureDiagnostics/);
+  assert.match(source, /providerCode/);
+  assert.match(source, /contacts_not_started/);
+  assert.match(source, /not_started_due_to_company_failure/);
+  assert.match(source, /Contactos no iniciados/);
+});
+
+test("pending projection preserves provider code from step error diagnostics", () => {
+  const source = require("node:fs").readFileSync(require("node:path").join(__dirname, "../services/syncOperations.js"), "utf8");
+  assert.match(source, /visibleStep\?\.lastErrorJson\?\.code/);
+  assert.match(source, /No se pudo crear o enlazar la Company en FluentCRM/);
+  assert.match(source, /La solicitud a FluentCRM expiró por timeout/);
+});

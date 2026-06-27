@@ -978,8 +978,20 @@ async function getOrCreateCompanyForOrganization(profile, organization = {}, { a
     await audit({ actorUserId, organizationId: profile.logtoOrganizationId, action: match.company ? AUDIT_ACTIONS.OWNER_ORGANIZATION_FLUENTCRM_LINK : AUDIT_ACTIONS.OWNER_ORGANIZATION_FLUENTCRM_SYNC, result: AUDIT_RESULTS.SUCCESS, metadata: { ...auditMetadata, reason: match.reason || "created", fluentcrmCompanyId: id == null ? null : String(id) } });
     return { status: match.company ? "linked" : "created", company, reason: match.reason || "created" };
   } catch (error) {
+    error.crmCompanySync = error.crmCompanySync || {
+      status: "error",
+      entityType: "company",
+      targetIdentity: { companyName: merged.name || null, fluentcrmCompanyId: profile?.fluentcrmCompanyId || null, logtoOrganizationId: profile?.logtoOrganizationId || null },
+      fieldsSent: [],
+      fieldDiffs: {},
+      missingFields: getMissingCompanyPayloadFields(buildFluentCrmCompanyPayload(merged)),
+      providerStatus: error.status || "error",
+      providerCode: error.code || error.diagnostic?.code || null,
+      fluentCrmStatus: error.status || null,
+      humanMessage: error.message,
+    };
     await markSync({ id: profile.id, companyId: profile.fluentcrmCompanyId, status: FLUENTCRM_SYNC_STATUSES.ERROR, errorMessage: error.message });
-    await audit({ actorUserId, organizationId: profile.logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_FLUENTCRM_ERROR, result: AUDIT_RESULTS.ERROR, metadata: { ...auditMetadata, error } });
+    await audit({ actorUserId, organizationId: profile.logtoOrganizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_FLUENTCRM_ERROR, result: AUDIT_RESULTS.ERROR, metadata: { ...auditMetadata, ...error.crmCompanySync, error } });
     throw error;
   }
 }

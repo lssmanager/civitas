@@ -116,8 +116,13 @@ function buildActionableMessage({ classified, details, missingFields, fieldDiffs
   if (retryState === "running") return "Reintento en ejecución";
   if (retryState === "failed_again") return "Retry falló nuevamente";
   if (details.humanMessage) return details.humanMessage;
+  if (/FLUENTCRM_COMPANY_.*(CONFLICT|DUPLICATE)|duplicate.*company|ambiguous/i.test(String(providerCode || details.reason || rawError || ""))) return "No se pudo crear o enlazar la Company en FluentCRM: existe un conflicto por coincidencias duplicadas.";
+  if (/FLUENTCRM_VALIDATION_FAILED|validation/i.test(String(providerCode || details.reason || rawError || "")) || Number(providerStatus) === 422) return "FluentCRM rechazó el payload de Company con error de validación 422.";
+  if (Number(providerStatus) === 401 || /AUTH/.test(String(providerCode))) return "No se pudo autenticar contra FluentCRM.";
+  if (Number(providerStatus) === 403) return "FluentCRM rechazó la solicitud por autorización insuficiente.";
+  if (/TIMEOUT|timeout/i.test(String(providerCode || rawError || ""))) return "La solicitud a FluentCRM expiró por timeout.";
   if (providerCode === "FLUENTCRM_DUPLICATE_CONTACT") return "FluentCRM rechazó el contacto por email duplicado";
-  if (/missing_company_id|company_not_linked/i.test(String(providerCode || details.reason || rawError || ""))) return classified.label.includes("contact") ? "Falta company_id para sincronizar el contacto" : "Falta crear company en FluentCRM";
+  if (/missing_company_id|company_not_linked|FLUENTCRM_COMPANY_ID_MISSING/i.test(String(providerCode || details.reason || rawError || ""))) return classified.label.includes("contact") ? "Falta company_id para sincronizar el contacto" : "Falta crear company en FluentCRM";
   if (/missing_user_role/i.test(String(providerCode || details.reason || rawError || ""))) return "Falta user_role para sincronizar el contacto";
   if (missingFields.length) return `Falta sincronizar ${formatList(missingFields)}`;
   const diffFields = Object.keys(fieldDiffs || {});
@@ -139,7 +144,7 @@ function serializePending(item, organizationName = null) {
   const missingFields = details.missingFields || details.payloadSummary?.missingFields || [];
   const fieldDiffs = details.fieldDiffs || null;
   const providerStatus = details.providerStatus || details.status || visibleStep?.status || item.status || null;
-  const providerCode = details.providerCode || details.code || item.lastErrorJson?.providerCode || visibleStep?.lastErrorJson?.providerCode || null;
+  const providerCode = details.providerCode || details.code || item.lastErrorJson?.providerCode || item.lastErrorJson?.code || visibleStep?.lastErrorJson?.providerCode || visibleStep?.lastErrorJson?.code || null;
   const retryState = deriveRetryState(item, visibleStep);
   const actionableMessage = item.humanMessage || item.payloadSnapshotJson?.humanMessage || item.resultSnapshotJson?.humanMessage || buildActionableMessage({ classified, details, missingFields, fieldDiffs, providerCode, providerStatus, retryState, rawError });
   const queue = buildQueueProjection(item, visibleStep);

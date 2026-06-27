@@ -211,6 +211,8 @@ test("getOrCreateCompanyForOrganization persists error and emits error audit", a
   assert.deepEqual(stateEvents.map((event) => event.status), ["pending", "error"]);
   assert.equal(auditEvents[0].action, AUDIT_ACTIONS.OWNER_ORGANIZATION_FLUENTCRM_ERROR);
   assert.equal(auditEvents[0].result, AUDIT_RESULTS.ERROR);
+  assert.equal(auditEvents[0].metadata.providerCode, "FLUENTCRM_REQUEST_FAILED");
+  assert.equal(auditEvents[0].metadata.providerStatus, 500);
 });
 
 test("sanitizeForDiagnostics redacts secrets recursively", () => {
