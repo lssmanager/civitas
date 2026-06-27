@@ -74,6 +74,7 @@ const { getWorkerHealthSnapshot, loadOperationsSummary, loadOwnerSystemMetrics }
 const {
   createSyncOperation,
   listOrganizationEvents,
+  listOperationalLogs,
   listOrganizationPendingSync,
   retrySyncOperation,
   recordOperationStep,
@@ -191,7 +192,7 @@ const summarizeOperationalProjection = ({ profile = null, hasConflict = false, p
   const add = (key, state, detail = null, extra = {}) => pushOperationalComponent(components, key, state, detail || null) || Object.assign(components[components.length - 1] || {}, extra);
   const hasProjection = Boolean(profile || pending.length || hasConflict);
 
-  if (!hasProjection) return { base, summary: "estado operativo no proyectado", text: `${base} · estado operativo no proyectado`, components: [], projected: false };
+  if (!hasProjection) return { base, baseStatus: base, summary: "estado operativo no proyectado", text: `${base} · estado operativo no proyectado`, components: [], primaryIssue: null, retryState: null, requiresHumanAction: false, source: "none", derivedFromOperationIds: [], projected: false };
   if (hasConflict) add("human", "failure", "duplicate_profiles");
 
   for (const item of pending) {
@@ -222,7 +223,19 @@ const summarizeOperationalProjection = ({ profile = null, hasConflict = false, p
   ];
   const selected = priority.map((pick) => pick()).find(Boolean);
   const summary = selected ? selected.key === "human" ? "requiere acción humana" : selected.key === "retry" ? `retry ${selected.detail || "pendiente"}` : `${selected.state === "failure" ? "falla" : "pendiente"} ${selected.label}` : "ok";
-  return { base, summary, text: `${base} · ${summary}`, components, projected: true };
+  return {
+    base,
+    baseStatus: base,
+    summary,
+    text: `${base} · ${summary}`,
+    components,
+    primaryIssue: selected || null,
+    retryState: components.find((component) => component.key === "retry")?.detail || null,
+    requiresHumanAction: components.some((component) => component.key === "human"),
+    source: "organization_profile+sync_operations+sync_operation_steps+projected_crm_pending",
+    derivedFromOperationIds: [...new Set(pending.map((item) => item.operationId).filter(Boolean))],
+    projected: true,
+  };
 };
 
 const toMillis = (value) => {
@@ -1768,6 +1781,35 @@ app.get("/organizations/:organizationId/directory", requireOrganizationAccess({ 
   }
 });
 
+app.get("/owner/operational-logs", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
+  try {
+    await getOrCreateInternalUser(req.user);
+    return res.json(await listOperationalLogs({
+      limit: req.query.limit,
+      offset: req.query.offset,
+      organizationId: req.query.organizationId,
+      organizationName: req.query.organizationName,
+      entityType: req.query.entityType,
+      stepName: req.query.stepName,
+      affectedSystem: req.query.affectedSystem || req.query.system,
+      system: req.query.system,
+      status: req.query.status,
+      retryState: req.query.retryState,
+      retryable: req.query.retryable,
+      requiresHumanAction: req.query.requiresHumanAction,
+      downstream: req.query.downstream,
+      microAction: req.query.microAction,
+      queueName: req.query.queueName,
+      q: req.query.q,
+      from: req.query.from,
+      to: req.query.to,
+    }));
+  } catch (error) {
+    console.error("Failed to list operational logs", error);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to list operational logs" });
+  }
+});
+
 app.get("/owner/audit", requireAuth(API_RESOURCE), requireOwner, async (req, res) => {
   try {
     await getOrCreateInternalUser(req.user);
@@ -1776,7 +1818,7 @@ app.get("/owner/audit", requireAuth(API_RESOURCE), requireOwner, async (req, res
       return [];
     });
     const result = await listAuditLogs(
-      { limit: req.query.limit, offset: req.query.offset, organizationId: req.query.organizationId, organizationName: req.query.organizationName, entityType: req.query.entityType, stepName: req.query.stepName, affectedSystem: req.query.affectedSystem || req.query.system, system: req.query.system, status: req.query.status, retryState: req.query.retryState, retryable: req.query.retryable, requiresHumanAction: req.query.requiresHumanAction, requiresAction: req.query.requiresAction, downstream: req.query.downstream, microAction: req.query.microAction, queueName: req.query.queueName, q: req.query.q },
+      { limit: req.query.limit, offset: req.query.offset, organizationId: req.query.organizationId, organizationName: req.query.organizationName, entityType: req.query.entityType, stepName: req.query.stepName, affectedSystem: req.query.affectedSystem || req.query.system, system: req.query.system, status: req.query.status, retryState: req.query.retryState, retryable: req.query.retryable, requiresHumanAction: req.query.requiresHumanAction, requiresAction: req.query.requiresAction, downstream: req.query.downstream, microAction: req.query.microAction, queueName: req.query.queueName, q: req.query.q, from: req.query.from, to: req.query.to },
       { organizationNamesById: buildOrganizationNamesById(logtoOrganizations) }
     );
     return res.json(result);

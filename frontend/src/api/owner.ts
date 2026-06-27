@@ -186,6 +186,8 @@ export type OwnerAuditPagination = {
   microAction?: string;
   queueName?: string;
   q?: string;
+  from?: string;
+  to?: string;
 };
 
 export type OwnerCommercialStatus = {
@@ -341,6 +343,30 @@ export type CreateOwnerOrganizationInput = {
   administrativeContacts?: Array<{ kind?: string; firstName?: string; middleName?: string; firstSurname?: string; secondSurname?: string; primerNombre?: string; segundoNombre?: string; primerApellido?: string; segundoApellido?: string; name: string; email: string; phone?: string; phoneExtension?: string; position?: string; organizationRoleName: string }>;
 };
 
+const buildOwnerLogQuery = (pagination: OwnerAuditPagination = {}): string => {
+  const params = new URLSearchParams();
+  if (pagination.limit !== undefined) params.set("limit", String(pagination.limit));
+  if (pagination.offset !== undefined) params.set("offset", String(pagination.offset));
+  if (pagination.organizationId) params.set("organizationId", pagination.organizationId);
+  if (pagination.organizationName) params.set("organizationName", pagination.organizationName);
+  if (pagination.entityType) params.set("entityType", pagination.entityType);
+  if (pagination.stepName) params.set("stepName", pagination.stepName);
+  if (pagination.affectedSystem) params.set("affectedSystem", pagination.affectedSystem);
+  if (pagination.status) params.set("status", pagination.status);
+  if (pagination.retryState) params.set("retryState", pagination.retryState);
+  if (pagination.retryable) params.set("retryable", pagination.retryable);
+  if (pagination.requiresHumanAction) params.set("requiresHumanAction", pagination.requiresHumanAction);
+  if (pagination.downstream) params.set("downstream", pagination.downstream);
+  if (pagination.system) params.set("system", pagination.system);
+  if (pagination.microAction) params.set("microAction", pagination.microAction);
+  if (pagination.queueName) params.set("queueName", pagination.queueName);
+  if (pagination.q) params.set("q", pagination.q);
+  if (pagination.from) params.set("from", pagination.from);
+  if (pagination.to) params.set("to", pagination.to);
+  if (pagination.requiresAction) params.set("requiresAction", pagination.requiresAction);
+  return params.toString();
+};
+
 export const useOwnerApi = () => {
   const { fetchWithToken } = useApi();
 
@@ -384,26 +410,12 @@ export const useOwnerApi = () => {
         fetchWithToken("/owner/integrations/wordpress/role-mappings", { method: "PUT", body: JSON.stringify({ mappings }) }),
       resetWordPressRoleMappings: async (): Promise<OwnerWordPressRoleMappingsResponse> =>
         fetchWithToken("/owner/integrations/wordpress/role-mappings/reset", { method: "POST" }),
+      getOperationalLogs: async (pagination: OwnerAuditPagination = {}): Promise<OwnerAuditResponse> => {
+        const query = buildOwnerLogQuery(pagination);
+        return fetchWithToken(`/owner/operational-logs${query ? `?${query}` : ""}`);
+      },
       getAuditLogs: async (pagination: OwnerAuditPagination = {}): Promise<OwnerAuditResponse> => {
-        const params = new URLSearchParams();
-        if (pagination.limit !== undefined) params.set("limit", String(pagination.limit));
-        if (pagination.offset !== undefined) params.set("offset", String(pagination.offset));
-        if (pagination.organizationId) params.set("organizationId", pagination.organizationId);
-        if (pagination.organizationName) params.set("organizationName", pagination.organizationName);
-        if (pagination.entityType) params.set("entityType", pagination.entityType);
-        if (pagination.stepName) params.set("stepName", pagination.stepName);
-        if (pagination.affectedSystem) params.set("affectedSystem", pagination.affectedSystem);
-        if (pagination.status) params.set("status", pagination.status);
-        if (pagination.retryState) params.set("retryState", pagination.retryState);
-        if (pagination.retryable) params.set("retryable", pagination.retryable);
-        if (pagination.requiresHumanAction) params.set("requiresHumanAction", pagination.requiresHumanAction);
-        if (pagination.downstream) params.set("downstream", pagination.downstream);
-        if (pagination.system) params.set("system", pagination.system);
-        if (pagination.microAction) params.set("microAction", pagination.microAction);
-        if (pagination.queueName) params.set("queueName", pagination.queueName);
-        if (pagination.q) params.set("q", pagination.q);
-        if (pagination.requiresAction) params.set("requiresAction", pagination.requiresAction);
-        const query = params.toString();
+        const query = buildOwnerLogQuery(pagination);
         return fetchWithToken(`/owner/audit${query ? `?${query}` : ""}`);
       },
       createOrganization: async (data: CreateOwnerOrganizationInput): Promise<{ operationId?: string; status: string; statusUrl?: string; canonicalStatus?: string; downstreamStatus?: string; correlationId?: string; organizationId?: string | null; jobId?: string; sourceOfTruth: "logto"; message?: string; organization?: OwnerOrganization; adminAssignment?: { status: string; message?: string; logtoUserId?: string; roleName?: string }; jitProvisioning?: { status: string; domain?: string; defaultRoleNames?: string[] }; steps?: Record<string, unknown>; fluentcrm?: Record<string, unknown>; warning?: string }> =>

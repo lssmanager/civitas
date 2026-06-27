@@ -189,7 +189,7 @@ function AuditLogList({ rows, onRetry }: { rows: OwnerAuditLog[]; onRetry: () =>
 }
 
 export function OwnerAuditPage() {
-  const { getAuditLogs } = useOwnerApi();
+  const { getOperationalLogs } = useOwnerApi();
   const [searchParams, setSearchParams] = useSearchParams();
   const initialParams = useMemo<AuditFilterParams>(() => compactFilters({
     limit: PAGE_SIZE,
@@ -208,6 +208,8 @@ export function OwnerAuditPage() {
     microAction: searchParams.get("microAction") || undefined,
     queueName: searchParams.get("queueName") || undefined,
     q: searchParams.get("q") || undefined,
+    from: searchParams.get("from") || undefined,
+    to: searchParams.get("to") || undefined,
     requiresAction: searchParams.get("requiresAction") || undefined,
   }), []);
   const {
@@ -219,7 +221,7 @@ export function OwnerAuditPage() {
     retry,
   } = useStableResource<OwnerAuditResponse, AuditFilterParams>({
     initialParams,
-    load: getAuditLogs,
+    load: getOperationalLogs,
     getKey: getAuditParamsKey,
     getErrorMessage: getAuditErrorMessage,
   });
@@ -273,6 +275,8 @@ export function OwnerAuditPage() {
             ["status", "Estado"],
             ["retryState", "Retry"],
             ["queueName", "Cola"],
+            ["from", "Desde"],
+            ["to", "Hasta"],
             ["stepName", "Step técnico"],
             ["entityType", "Entidad técnica"],
           ].map(([key, label]) => (
