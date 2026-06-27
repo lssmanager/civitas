@@ -197,6 +197,7 @@ const summarizeOperationalProjection = ({ profile = null, hasConflict = false, p
   if (hasConflict) add("human", "failure", "duplicate_profiles");
 
   for (const item of pending) {
+    if (item.operationType === "provider_verification") continue;
     const key = item.entityType?.includes("contact") ? "users" : item.entityType?.includes("company") ? "crm" : item.entityType?.includes("branding") ? "branding" : item.retryState ? "retry" : "downstream";
     if (item.requiresHumanAction) add("human", "failure", item.humanMessage || item.suggestedAction || item.stepName);
     if (["failed", "partial_failed", "error", "conflict"].includes(item.status)) add(key, "failure", item.humanMessage || item.lastError || item.stepName);
@@ -224,6 +225,32 @@ const summarizeOperationalProjection = ({ profile = null, hasConflict = false, p
   ];
   const selected = priority.map((pick) => pick()).find(Boolean);
   const summary = selected ? selected.key === "human" ? "requiere acción humana" : selected.key === "retry" ? `retry ${selected.detail || "pendiente"}` : `${selected.state === "failure" ? "falla" : "pendiente"} ${selected.label}` : "ok";
+  const providerVerificationItem = pending.find((item) => item.operationType === "provider_verification");
+  const providerStatus = providerVerificationItem?.providerStatus || providerVerificationItem?.metadata?.providerStatus || null;
+  const providerRetryState = providerVerificationItem?.retryState || null;
+  const providerVerification = providerVerificationItem
+    ? providerVerificationItem.status === "completed"
+      ? providerStatus === "all_ok"
+        ? "all_ok"
+        : providerStatus || "live_completed"
+      : providerRetryState === "running"
+        ? "live_running"
+        : providerRetryState === "queued"
+          ? "live_queued"
+          : providerStatus || providerRetryState || "live_requires_attention"
+    : "not_live_verified";
+  const providerLabels = {
+    not_live_verified: "No verificado en vivo contra FluentCRM/WordPress; deriva de perfiles, operaciones, steps y pendientes proyectados en Civitas.",
+    live_queued: "Verificación live en cola",
+    live_running: "Verificación live ejecutándose",
+    all_ok: "Verificado en vivo: OK",
+    missing_fluentcrm_company: "Verificado en vivo: falta Company en FluentCRM",
+    missing_fluentcrm_contact: "Verificado en vivo: faltan contactos",
+    awaiting_first_wordpress_login: "Verificado en vivo: falta usuario WordPress; esperando primer login",
+    missing_contact_wp_link: "Verificado en vivo: requiere acción humana por enlace Contact/WordPress",
+    provider_auth_error: "Verificación live falló por proveedor",
+    provider_timeout: "Verificación live falló por proveedor",
+  };
   return {
     base,
     baseStatus: base,
@@ -233,11 +260,11 @@ const summarizeOperationalProjection = ({ profile = null, hasConflict = false, p
     primaryIssue: selected || null,
     retryState: components.find((component) => component.key === "retry")?.detail || null,
     requiresHumanAction: components.some((component) => component.key === "human"),
-    source: "organization_profile+sync_operations+sync_operation_steps+projected_crm_pending",
-    sourceLabel: "Estado operativo reconciliado localmente",
-    verificationLevel: "local_reconciled",
-    providerVerification: "not_live_verified",
-    providerVerificationLabel: "No verificado en vivo contra FluentCRM/WordPress; deriva de perfiles, operaciones, steps y pendientes proyectados en Civitas.",
+    source: providerVerificationItem?.status === "completed" ? "live_provider_check" : "organization_profile+sync_operations+sync_operation_steps+projected_crm_pending",
+    sourceLabel: providerVerificationItem?.status === "completed" ? "Verificación live contra proveedores" : "Estado operativo reconciliado localmente",
+    verificationLevel: providerVerificationItem?.status === "completed" ? "live_provider_check" : "local_reconciled",
+    providerVerification,
+    providerVerificationLabel: providerLabels[providerVerification] || providerVerificationItem?.humanMessage || "Verificado en vivo: requiere acción humana",
     derivedFromOperationIds: [...new Set(pending.map((item) => item.operationId).filter(Boolean))],
     projected: true,
   };

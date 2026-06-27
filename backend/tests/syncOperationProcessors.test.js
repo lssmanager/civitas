@@ -139,9 +139,9 @@ test("provider verification distinguishes missing FluentCRM Company as downstrea
   });
   assert.equal(conclusion.status, "missing_fluentcrm_company");
   assert.equal(conclusion.providerStatus, "missing_fluentcrm_company");
-  assert.equal(conclusion.nextAction, "retry");
+  assert.equal(conclusion.nextAction, "retry_company");
   assert.equal(conclusion.retryable, true);
-  assert.ok(conclusion.availableActions.includes("retry"));
+  assert.ok(conclusion.availableActions.includes("retry_company"));
 });
 
 test("provider verification distinguishes missing FluentCRM Contact from Logto membership problems", () => {
@@ -152,7 +152,7 @@ test("provider verification distinguishes missing FluentCRM Contact from Logto m
     fluentcrmContactExists: false,
   });
   assert.equal(conclusion.status, "missing_fluentcrm_contact");
-  assert.equal(conclusion.nextAction, "retry");
+  assert.equal(conclusion.nextAction, "retry_contacts");
   assert.match(conclusion.humanMessage, /Falta contacto en FluentCRM/);
 });
 
@@ -165,7 +165,7 @@ test("provider verification treats a contact outside the linked Company as downs
     fluentcrmContactBelongsToCompany: false,
   });
   assert.equal(conclusion.status, "missing_fluentcrm_contact");
-  assert.equal(conclusion.nextAction, "retry");
+  assert.equal(conclusion.nextAction, "retry_contacts");
 });
 
 test("provider verification treats missing WordPress user as first-login state", () => {
@@ -203,7 +203,7 @@ test("provider verification maps provider technical errors to actionable statuse
   const auth = buildVerificationConclusion({ providerAuthError: true, providerAuthCode: "WORDPRESS_AUTHORIZATION_FAILED", providerAuthStatus: 403 });
   assert.equal(auth.status, "provider_auth_error");
   assert.equal(auth.providerCode, "WORDPRESS_AUTHORIZATION_FAILED");
-  assert.equal(auth.nextAction, "verify_provider");
+  assert.equal(auth.nextAction, "open_settings");
 });
 
 test("provider verification is queued as a live worker operation instead of local-only projection", () => {
@@ -222,5 +222,17 @@ test("provider verification processor performs live Logto, FluentCRM and WordPre
   assert.match(source, /searchCompanies/);
   assert.match(source, /searchContacts/);
   assert.match(source, /findWordPressUserByEmail/);
+  assert.match(source, /provider_verification\.taken_by_worker/);
+  assert.match(source, /provider_verification\.logto_check_started/);
+  assert.match(source, /provider_verification\.fluentcrm_check_started/);
+  assert.match(source, /provider_verification\.wordpress_check_started/);
   assert.match(source, /source: "live_provider_verification"/);
+});
+
+test("worker registers DB polling fallback and heartbeat for queued sync operations", () => {
+  const source = require("node:fs").readFileSync(require("node:path").join(__dirname, "../worker.js"), "utf8");
+  assert.match(source, /processQueuedSyncOperationsBatch/);
+  assert.match(source, /startSyncOperationDbPoller/);
+  assert.match(source, /recordWorkerHeartbeat/);
+  assert.match(source, /SYNC_OPERATION_DB_POLL_INTERVAL_MS/);
 });

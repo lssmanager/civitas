@@ -25,14 +25,20 @@ cd backend
 npm test
 ```
 
-The worker can run with BullMQ/Redis when `REDIS_URL` or `BULLMQ_REDIS_URL` is set:
+The worker can run with BullMQ/Redis when `REDIS_URL` is set:
 
 ```bash
 cd backend
 npm run start:worker
 ```
 
-Without Redis, the worker polls `sync_operations` directly as a safety net.
+Without Redis, the worker polls `sync_operations` directly as a safety net, so owner-triggered retries and `provider_verification` operations can still move from `queued` to `running` and then to `completed`/`partial_failed`/`failed`.
+
+## Queue ownership and heartbeat
+
+Two executable queues are worker-owned: `organization.bootstrap` for canonical organization bootstrap and `civitas-sync-operations` for downstream retries, contact upserts and provider verification. `owner-operational-center` is only a UI/audit context and must not be used as an executable queue.
+
+The sync worker writes a heartbeat snapshot to PostgreSQL (`operational_metric_snapshots`, source `sync_worker_heartbeat`). Operational projections use that heartbeat plus `createdAt`/BullMQ timestamps to expose `jobAgeSeconds`, `worker_offline`, `worker_heartbeat_stale` or `stuck_in_queue` instead of leaving queued jobs with an unknown worker state.
 
 ## Live provider verification
 

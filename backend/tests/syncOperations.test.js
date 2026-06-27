@@ -54,6 +54,26 @@ test("serializePending reports queued retry and FluentCRM company creation need"
   assert.equal(item.jobId, "job-1");
 });
 
+test("serializePending calculates queued job age and marks stale worker state", () => {
+  const { serializePending } = require("../services/syncOperations");
+  const createdAt = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  const item = serializePending({
+    id: "op-stuck",
+    operationType: "provider_verification",
+    entityType: "provider.verification",
+    logtoOrganizationId: "org-1",
+    status: "queued",
+    createdAt,
+    workerHealth: { worker: { workerHeartbeatState: "worker_heartbeat_stale", heartbeatStale: true } },
+    steps: [{ stepName: "provider_verification.started", queueName: "civitas-sync-operations", jobId: "sync-operation-op-stuck", status: "queued", outputJson: { providerStatus: "queued_for_live_check" } }],
+  });
+
+  assert.equal(item.retryState, "worker_offline");
+  assert.equal(item.workerHeartbeatState, "worker_heartbeat_stale");
+  assert.ok(item.jobAgeSeconds >= 600);
+  assert.match(item.humanMessage, /worker no reporta heartbeat|atascado/);
+});
+
 test("serializePending derives actionable missing-field and duplicate-contact messages", () => {
   const { serializePending } = require("../services/syncOperations");
   const company = serializePending({ id: "op-fields", operationType: "organization_profile_downstream_sync", status: "partial_failed", steps: [{ stepName: "fluentcrm.company.patch", status: "failed", outputJson: { result: { entityType: "company", missingFields: ["state", "city", "postal_code"], providerStatus: "validation_error" } } }] });

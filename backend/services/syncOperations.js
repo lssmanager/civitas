@@ -84,14 +84,27 @@ function buildQueueProjection(item = {}, visibleStep = null) {
   const snapshot = item.jobSnapshot || {};
   const retryState = snapshot.retryState || deriveRetryState(item, visibleStep);
   const workerHealth = item.workerHealth || {};
+  const heartbeatState = workerHealth.worker?.workerHeartbeatState
+    || workerHealth.workerHeartbeatState
+    || workerHealth.state
+    || (workerHealth.worker?.heartbeatStale ? "worker_heartbeat_stale" : null)
+    || (workerHealth.redis?.urlConfigured === false ? "worker_offline" : null)
+    || item.workerHeartbeatState
+    || (retryState === "queued" ? "worker_offline" : null);
+  const queuedAge = item.createdAt ? Math.max(0, Math.floor((Date.now() - new Date(item.createdAt).getTime()) / 1000)) : null;
+  const jobAgeSeconds = snapshot.jobAgeSeconds ?? item.jobAgeSeconds ?? queuedAge;
+  const stuckThresholdSeconds = Number(process.env.SYNC_OPERATION_STUCK_QUEUE_SECONDS || 300);
+  const effectiveRetryState = retryState === "queued" && jobAgeSeconds != null && jobAgeSeconds >= stuckThresholdSeconds
+    ? (heartbeatState === "alive" ? "stuck_in_queue" : "worker_offline")
+    : retryState;
   return {
     queueName: snapshot.queueName || visibleStep?.queueName || item.queueName || QUEUE_NAME,
     jobId: snapshot.jobId || visibleStep?.jobId || item.jobId || null,
-    retryState,
+    retryState: effectiveRetryState,
     enqueuedAt: snapshot.enqueuedAt || item.enqueuedAt || null,
     lastAttemptAt: snapshot.lastAttemptAt || item.lastAttemptAt || null,
-    jobAgeSeconds: snapshot.jobAgeSeconds ?? item.jobAgeSeconds ?? null,
-    workerHeartbeatState: workerHealth.workerHeartbeatState || workerHealth.state || item.workerHeartbeatState || (retryState === "queued" ? "unknown" : null),
+    jobAgeSeconds,
+    workerHeartbeatState: heartbeatState,
   };
 }
 
@@ -112,6 +125,8 @@ function deriveRetryState(item = {}, step = null) {
 }
 
 function buildActionableMessage({ classified, details, missingFields, fieldDiffs, providerCode, providerStatus, retryState, rawError }) {
+  if (retryState === "worker_offline") return "Reintento solicitado; el worker no reporta heartbeat y el job sigue en cola";
+  if (retryState === "stuck_in_queue") return "Reintento solicitado; el job parece atascado en cola";
   if (retryState === "queued") return "Reintento solicitado; job en cola";
   if (retryState === "running") return "Reintento en ejecución";
   if (retryState === "failed_again") return "Retry falló nuevamente";
@@ -145,9 +160,9 @@ function serializePending(item, organizationName = null) {
   const fieldDiffs = details.fieldDiffs || null;
   const providerStatus = details.providerStatus || details.status || visibleStep?.status || item.status || null;
   const providerCode = details.providerCode || details.code || item.lastErrorJson?.providerCode || item.lastErrorJson?.code || visibleStep?.lastErrorJson?.providerCode || visibleStep?.lastErrorJson?.code || null;
-  const retryState = deriveRetryState(item, visibleStep);
-  const actionableMessage = item.humanMessage || item.payloadSnapshotJson?.humanMessage || item.resultSnapshotJson?.humanMessage || buildActionableMessage({ classified, details, missingFields, fieldDiffs, providerCode, providerStatus, retryState, rawError });
   const queue = buildQueueProjection(item, visibleStep);
+  const retryState = queue.retryState || deriveRetryState(item, visibleStep);
+  const actionableMessage = item.humanMessage || item.payloadSnapshotJson?.humanMessage || item.resultSnapshotJson?.humanMessage || buildActionableMessage({ classified, details, missingFields, fieldDiffs, providerCode, providerStatus, retryState, rawError });
   return {
     id: item.pendingId || item.id,
     operationId: item.operationId || item.id,
@@ -491,7 +506,7 @@ async function listOrganizationPendingSync({ organizationId }) {
 
   return rows
     .map((operation) => serializePending(operation, profile?.nameCache || null))
-    .filter((item, index, list) => item.status !== "completed" && item.status !== "succeeded" && list.findIndex((other) => other.id === item.id) === index);
+    .filter((item, index, list) => (item.operationType === "provider_verification" || (item.status !== "completed" && item.status !== "succeeded")) && list.findIndex((other) => other.id === item.id) === index);
 }
 
 async function retrySyncOperation({ operationId, organizationId }) {
