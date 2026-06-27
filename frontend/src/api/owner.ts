@@ -62,6 +62,7 @@ export type OwnerOperationsSummary = {
   functionalHealth: { status: string; severity: "success" | "warning" | "critical" | string; message: string; code: string };
   incidents: Array<{ type: string; organizationId: string | null; organizationName: string | null; message: string; retryable: boolean }>;
   organizations: Array<{ organizationId: string | null; profileId: string; name: string | null; bootstrapStatus: string; canonicalStatus: string; downstreamStatus: string; currentStep: string; lastFunctionalError: string | null; retryable: boolean; conflictType: string | null }>;
+  source?: Record<string, unknown>;
 };
 
 export type OwnerWorkerHealth = {
@@ -149,12 +150,29 @@ export type OwnerAuditOrganization = {
 
 export type OwnerAuditLog = {
   id: string;
+  rowType?: "administrative_event" | "operational_step" | "retry_event" | "projected_pending" | string;
   actorUserId: string | null;
   actor?: OwnerAuditActor;
   organizationId: string | null;
   organization?: OwnerAuditOrganization;
   action: string;
   result: "success" | "error" | "denied" | string;
+  system?: string | null;
+  microAction?: string | null;
+  stepName?: string | null;
+  entityType?: string | null;
+  targetIdentity?: string | null;
+  humanMessage?: string | null;
+  missingFields?: unknown;
+  fieldDiffs?: unknown;
+  providerCode?: string | null;
+  providerStatus?: string | number | null;
+  queueName?: string | null;
+  jobId?: string | null;
+  retryState?: string | null;
+  retryable?: boolean;
+  requiresHumanAction?: boolean;
+  availableActions?: string[];
   metadata: Record<string, unknown> | null;
   createdAt: string;
 };
@@ -166,6 +184,7 @@ export type OwnerAuditResponse = {
     offset: number;
     total: number;
   };
+  source?: Record<string, unknown>;
 };
 
 export type OwnerAuditPagination = {

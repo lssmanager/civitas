@@ -672,13 +672,16 @@ async function loadOwnerSystemMetrics() {
 }
 
 async function loadOperationsSummary() {
+  const operationalScanLimit = Math.min(Math.max(Number.parseInt(process.env.OWNER_OPERATIONAL_LOG_SCAN_LIMIT || "5000", 10), 100), 20000);
   const [profiles, operations, steps, technicalHealth] = await Promise.all([
     db.select().from(organizationProfiles),
-    syncOperations ? db.select().from(syncOperations).orderBy(desc(syncOperations.updatedAt)).limit(100).catch(() => []) : [],
-    syncOperationSteps ? db.select().from(syncOperationSteps).orderBy(desc(syncOperationSteps.updatedAt)).limit(100).catch(() => []) : [],
+    syncOperations ? db.select().from(syncOperations).orderBy(desc(syncOperations.updatedAt)).limit(operationalScanLimit).catch(() => []) : [],
+    syncOperationSteps ? db.select().from(syncOperationSteps).orderBy(desc(syncOperationSteps.updatedAt)).limit(operationalScanLimit).catch(() => []) : [],
     loadWorkerHealthSnapshot(),
   ]);
-  return buildOperationsSummary({ profiles, operations, steps, technicalHealth });
+  const summary = buildOperationsSummary({ profiles, operations, steps, technicalHealth });
+  summary.source = { primary: "sync_operations+sync_operation_steps+organization_profiles", operationalScanLimit, drilldownBasePath: "/owner/logs" };
+  return summary;
 }
 
 void refreshWorkerHealthSnapshot().catch(() => null);

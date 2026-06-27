@@ -192,7 +192,7 @@ const summarizeOperationalProjection = ({ profile = null, hasConflict = false, p
   const add = (key, state, detail = null, extra = {}) => pushOperationalComponent(components, key, state, detail || null) || Object.assign(components[components.length - 1] || {}, extra);
   const hasProjection = Boolean(profile || pending.length || hasConflict);
 
-  if (!hasProjection) return { base, baseStatus: base, summary: "estado operativo no proyectado", text: `${base} · estado operativo no proyectado`, components: [], primaryIssue: null, retryState: null, requiresHumanAction: false, source: "none", derivedFromOperationIds: [], projected: false };
+  if (!hasProjection) return { base, baseStatus: base, summary: "estado operativo no proyectado", text: `${base} · estado operativo no proyectado`, components: [], primaryIssue: null, retryState: null, requiresHumanAction: false, source: "none", sourceLabel: "Estado operativo reconciliado localmente", verificationLevel: "not_projected", providerVerification: "not_live_verified", providerVerificationLabel: "No verificado en vivo contra FluentCRM/WordPress", derivedFromOperationIds: [], projected: false };
   if (hasConflict) add("human", "failure", "duplicate_profiles");
 
   for (const item of pending) {
@@ -233,6 +233,10 @@ const summarizeOperationalProjection = ({ profile = null, hasConflict = false, p
     retryState: components.find((component) => component.key === "retry")?.detail || null,
     requiresHumanAction: components.some((component) => component.key === "human"),
     source: "organization_profile+sync_operations+sync_operation_steps+projected_crm_pending",
+    sourceLabel: "Estado operativo reconciliado localmente",
+    verificationLevel: "local_reconciled",
+    providerVerification: "not_live_verified",
+    providerVerificationLabel: "No verificado en vivo contra FluentCRM/WordPress; deriva de perfiles, operaciones, steps y pendientes proyectados en Civitas.",
     derivedFromOperationIds: [...new Set(pending.map((item) => item.operationId).filter(Boolean))],
     projected: true,
   };
@@ -1797,6 +1801,7 @@ app.get("/owner/operational-logs", requireAuth(API_RESOURCE), requireOwner, asyn
       retryState: req.query.retryState,
       retryable: req.query.retryable,
       requiresHumanAction: req.query.requiresHumanAction,
+      requiresAction: req.query.requiresAction,
       downstream: req.query.downstream,
       microAction: req.query.microAction,
       queueName: req.query.queueName,

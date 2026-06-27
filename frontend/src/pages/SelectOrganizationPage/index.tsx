@@ -27,7 +27,7 @@ function OrganizationCard({ organization }: { organization: SelectableOrganizati
   const addressLine = [business.addressLine1, business.addressLine2].filter(Boolean).join(", ");
   const locationLine = [business.city, getTerritorialState(business), business.country, business.postalCode].filter(Boolean).join(" · ");
   const identityLine = [business.nit, business.verificationDigit].filter(Boolean).join(" · ") || entryHost || organization.logtoOrganizationId;
-  const operationalStatus = organization.operationalStatus ?? { base: profile?.status === "suspended" ? "Suspendida" : "Activa", summary: "estado operativo no proyectado", text: `${profile?.status === "suspended" ? "Suspendida" : "Activa"} · estado operativo no proyectado`, components: [], projected: false };
+  const operationalStatus = organization.operationalStatus ?? { base: profile?.status === "suspended" ? "Suspendida" : "Activa", summary: "estado operativo no proyectado", text: `${profile?.status === "suspended" ? "Suspendida" : "Activa"} · estado operativo no proyectado`, components: [], projected: false, providerVerificationLabel: "No verificado en vivo contra FluentCRM/WordPress" };
   const openApp = (event: React.MouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
@@ -62,6 +62,7 @@ function OrganizationCard({ organization }: { organization: SelectableOrganizati
               <Badge className={`civitas-status-badge ${getStatusVariant(operationalStatus.summary)}`}>{operationalStatus.text}</Badge>
               {entryHost ? <span className="small text-secondary text-break">{entryHost}</span> : null}
             </div>
+            <p className="small text-secondary mb-0">{operationalStatus.providerVerificationLabel || "Estado operativo reconciliado localmente; no es verificación live del proveedor."}</p>
             <div className="d-flex flex-column gap-2 small">
               <div className="d-flex gap-2 align-items-start">
                 <span className="civitas-select-card__icon align-self-start">⌖</span>

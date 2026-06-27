@@ -21,6 +21,8 @@ const formatDate = (value: string) =>
   }).format(new Date(value));
 
 const resultVariant = (result: string) => {
+  if (["completed", "success", "succeeded"].includes(result)) return "success";
+  if (["queued", "pending", "running"].includes(result)) return "warning";
   if (result === "success") return "success";
   if (result === "denied") return "warning";
   return "danger";
@@ -36,7 +38,7 @@ const formatActor = (row: OwnerAuditLog) => {
 };
 
 const formatStage = (row: OwnerAuditLog) => {
-  const stage = row.metadata?.stage;
+  const stage = row.stepName || row.metadata?.stepName || row.metadata?.stage;
   return typeof stage === "string" ? stage : "Sin etapa";
 };
 
@@ -52,7 +54,7 @@ const getMetadataString = (row: OwnerAuditLog, key: string) => {
 };
 
 const formatLogStatement = (row: OwnerAuditLog) =>
-  getMetadataString(row, "humanMessage") || `${row.result.toUpperCase()} · ${row.action} · ${formatOrganization(row)} · ${formatDate(row.createdAt)}`;
+  row.humanMessage || getMetadataString(row, "humanMessage") || `${row.result.toUpperCase()} · ${row.microAction || row.action} · ${formatOrganization(row)} · ${formatDate(row.createdAt)}`;
 
 const formatOptionalValue = (value: unknown) => {
   if (value === null || value === undefined || value === "") return "No disponible";
@@ -68,6 +70,9 @@ function AuditLogFormattedDetail({ row }: { row: OwnerAuditLog }) {
   const metadataEntries = getMetadataEntries(row.metadata);
 
   const summaryItems = [
+    { label: "Tipo de fila", value: row.rowType },
+    { label: "Sistema", value: row.system || row.metadata?.affectedSystem },
+    { label: "Microacción", value: row.microAction || row.action },
     { label: "Acción", value: row.action },
     { label: "Resultado", value: row.result },
     { label: "Fecha", value: formatDate(row.createdAt) },
@@ -78,23 +83,23 @@ function AuditLogFormattedDetail({ row }: { row: OwnerAuditLog }) {
     { label: "Internal user id", value: row.actor?.internalUserId ?? row.actorUserId },
     { label: "Organización visible", value: formatOrganization(row) },
     { label: "Organization id", value: row.organization?.id ?? row.organizationId },
-    { label: "Step", value: row.metadata?.stepName },
-    { label: "Entidad", value: row.metadata?.entityType },
-    { label: "Target", value: row.metadata?.targetIdentity },
-    { label: "Mensaje humano", value: row.metadata?.humanMessage },
-    { label: "Cola", value: row.metadata?.queueName },
-    { label: "Job", value: row.metadata?.jobId },
-    { label: "Retry", value: row.metadata?.retryState },
+    { label: "Step", value: row.stepName || row.metadata?.stepName },
+    { label: "Entidad", value: row.entityType || row.metadata?.entityType },
+    { label: "Target", value: row.targetIdentity || row.metadata?.targetIdentity },
+    { label: "Mensaje humano", value: row.humanMessage || row.metadata?.humanMessage },
+    { label: "Cola", value: row.queueName || row.metadata?.queueName },
+    { label: "Job", value: row.jobId || row.metadata?.jobId },
+    { label: "Retry", value: row.retryState || row.metadata?.retryState },
     { label: "Worker", value: row.metadata?.workerHeartbeatState },
-    { label: "Sistema afectado", value: row.metadata?.affectedSystem },
+    { label: "Sistema afectado", value: row.system || row.metadata?.affectedSystem },
     { label: "Campos enviados", value: row.metadata?.fieldsSent },
-    { label: "Campos faltantes", value: row.metadata?.missingFields },
-    { label: "Diff campos", value: row.metadata?.fieldDiffs },
-    { label: "Provider code", value: row.metadata?.providerCode },
-    { label: "Provider status", value: row.metadata?.providerStatus },
+    { label: "Campos faltantes", value: row.missingFields || row.metadata?.missingFields },
+    { label: "Diff campos", value: row.fieldDiffs || row.metadata?.fieldDiffs },
+    { label: "Provider code", value: row.providerCode || row.metadata?.providerCode },
+    { label: "Provider status", value: row.providerStatus || row.metadata?.providerStatus },
     { label: "Acción sugerida", value: row.metadata?.suggestedAction },
-    { label: "Requiere humano", value: row.metadata?.requiresHumanAction },
-    { label: "Retryable", value: row.metadata?.retryable },
+    { label: "Requiere humano", value: row.requiresHumanAction ?? row.metadata?.requiresHumanAction },
+    { label: "Retryable", value: row.retryable ?? row.metadata?.retryable },
   ];
 
   return (
@@ -132,14 +137,17 @@ function AuditLogCard({ row, onRetry }: { row: OwnerAuditLog; onRetry: () => voi
   const ownerApi = useOwnerApi();
   const operationId = typeof row.metadata?.operationId === "string" ? row.metadata.operationId : null;
   const organizationId = row.organization?.id ?? row.organizationId;
-  const canRetry = Boolean(operationId && organizationId && (row.metadata?.retryable || row.result === "error"));
+  const canRetry = Boolean(operationId && organizationId && (row.retryable || row.metadata?.retryable || row.result === "error" || row.result === "failed"));
+  const needsHuman = Boolean(row.requiresHumanAction || row.metadata?.requiresHumanAction);
 
   return (
     <Accordion.Item eventKey={row.id} className="civitas-audit-item border rounded-4 overflow-hidden">
       <Accordion.Header>
         <div className="civitas-audit-summary w-100 pe-3">
           <div className="d-flex flex-wrap align-items-center gap-2 mb-2">
+            <Badge bg="secondary">{row.rowType || "operational_step"}</Badge>
             <Badge bg={resultVariant(row.result)}>{row.result}</Badge>
+            {row.system ? <Badge bg="light" text="dark">{row.system}</Badge> : null}
             <Badge bg="info" text="dark">{formatStage(row)}</Badge>
             <span className="text-secondary small">{formatDate(row.createdAt)}</span>
           </div>
@@ -168,7 +176,8 @@ function AuditLogCard({ row, onRetry }: { row: OwnerAuditLog; onRetry: () => voi
         <div className="d-flex flex-wrap gap-2 mb-3">
           {organizationId ? <Link className="btn btn-outline-secondary btn-sm" to={`/owner/organizations/${encodeURIComponent(organizationId)}`}>Abrir organización</Link> : null}
           {canRetry ? <Button size="sm" variant="outline-primary" onClick={() => ownerApi.retrySyncOperation(organizationId!, operationId!).then(onRetry)}>Reintentar</Button> : null}
-          {row.metadata?.requiresHumanAction ? <Button size="sm" variant="outline-warning" disabled>Resolver manualmente</Button> : null}
+          {operationId ? <Button size="sm" variant="outline-secondary" disabled>Reenviar payload: pendiente de implementación</Button> : null}
+          {needsHuman ? <Button size="sm" variant="outline-warning" disabled>Resolver manualmente: requiere revisión</Button> : null}
         </div>
         {detailMode === "formatted" ? <AuditLogFormattedDetail row={row} /> : <JsonLogBlock value={row} />}
       </Accordion.Body>
@@ -248,8 +257,8 @@ export function OwnerAuditPage() {
   return (
     <PageShell
       eyebrow="Owner"
-      title="Logs owner"
-      description="Eventos operativos enriquecidos con identidad Logto del actor y organización canónica cuando está disponible."
+      title="Centro operativo owner"
+      description="Microacciones, retries y pendientes derivados de sync_operations/sync_operation_steps. La auditoría administrativa queda separada del flujo operativo."
       actions={<Badge bg="success">owner:read</Badge>}
     >
       <PageCard
@@ -318,10 +327,10 @@ export function OwnerAuditPage() {
           </Form.Group>
         </Form>
         <p className="text-secondary small mb-3">
-          Mostrando {events.length} de {total} logs. Abre cada evento para alternar entre una vista formateada y su payload JSON completo.
+          Mostrando {events.length} de {total} filas operativas. Las microacciones aparecen como campos de primer nivel; el JSON queda solo como detalle técnico.
         </p>
         {isLoading ? (
-          <LoadingState title="Cargando logs" description="Consultando eventos owner registrados en Civitas." />
+          <LoadingState title="Cargando centro operativo" description="Consultando sync_operations, sync_operation_steps y estado de worker/cola." />
         ) : error ? (
           <ErrorState
             title="No se pudieron cargar los logs"
@@ -330,8 +339,8 @@ export function OwnerAuditPage() {
           />
         ) : events.length === 0 ? (
           <EmptyState
-            title="Sin logs"
-            description="Cuando un owner cree organizaciones o falle una creación relevante, los eventos aparecerán aquí."
+            title="Sin filas operativas"
+            description="Cuando existan microacciones, retries o pendientes de sincronización, aparecerán aquí filtrables por organización."
           />
         ) : (
           <AuditLogList rows={events} onRetry={retry} />

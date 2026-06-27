@@ -615,6 +615,13 @@ const normalizeMicroAction = (stepName = "") => {
   return value || "sync_operation";
 };
 
+const getOperationalRowType = ({ microAction = "", source = "", retryState = null, requiresHumanAction = false } = {}) => {
+  if (/retry/.test(String(microAction)) || retryState) return "retry_event";
+  if (requiresHumanAction) return "projected_pending";
+  if (source === "sync_operation_step") return "operational_step";
+  return "projected_pending";
+};
+
 function serializeStepOperationalLog({ operation, step, organizationName = null, workerHealth = {} }) {
   const output = step.outputJson || {};
   const lastError = step.lastErrorJson || {};
@@ -646,14 +653,36 @@ function serializeStepOperationalLog({ operation, step, organizationName = null,
     jobAgeSeconds: queue.jobAgeSeconds,
     workerHeartbeatState: queue.workerHeartbeatState,
   };
+  const rowType = getOperationalRowType(metadata);
   return {
     id: `step-${step.id}`,
+    rowType,
     actorUserId: null,
     actor: null,
     organizationId: operation.logtoOrganizationId || operation.entityId || null,
     organization: { id: operation.logtoOrganizationId || operation.entityId || null, name: organizationName },
     action: metadata.microAction,
     result: step.status,
+    system: metadata.system,
+    microAction: metadata.microAction,
+    stepName: metadata.stepName,
+    entityType: metadata.entityType,
+    targetIdentity: metadata.targetIdentity,
+    humanMessage: metadata.humanMessage,
+    missingFields: metadata.missingFields,
+    fieldDiffs: metadata.fieldDiffs,
+    providerCode: metadata.providerCode,
+    providerStatus: metadata.providerStatus,
+    queueName: metadata.queueName,
+    jobId: metadata.jobId,
+    retryState: metadata.retryState,
+    retryable: metadata.retryable,
+    requiresHumanAction: metadata.requiresHumanAction,
+    availableActions: [
+      ...(metadata.retryable ? ["retry"] : []),
+      ...(metadata.requiresHumanAction ? ["manual_review_required"] : []),
+      "open_organization",
+    ],
     metadata,
     createdAt: toIso(step.updatedAt || step.createdAt || operation.updatedAt),
   };
@@ -685,14 +714,36 @@ function serializeOperationOperationalLog({ operation, organizationName = null, 
     jobAgeSeconds: pending.jobAgeSeconds,
     workerHeartbeatState: pending.workerHeartbeatState,
   };
+  const rowType = getOperationalRowType(metadata);
   return {
     id: `operation-${operation.id}`,
+    rowType,
     actorUserId: null,
     actor: null,
     organizationId: pending.organizationId,
     organization: { id: pending.organizationId, name: organizationName },
     action: metadata.microAction,
     result: operation.status,
+    system: metadata.system,
+    microAction: metadata.microAction,
+    stepName: metadata.stepName,
+    entityType: metadata.entityType,
+    targetIdentity: metadata.targetIdentity,
+    humanMessage: metadata.humanMessage,
+    missingFields: metadata.missingFields,
+    fieldDiffs: metadata.fieldDiffs,
+    providerCode: metadata.providerCode,
+    providerStatus: metadata.providerStatus,
+    queueName: metadata.queueName,
+    jobId: metadata.jobId,
+    retryState: metadata.retryState,
+    retryable: metadata.retryable,
+    requiresHumanAction: metadata.requiresHumanAction,
+    availableActions: [
+      ...(metadata.retryable ? ["retry"] : []),
+      ...(metadata.requiresHumanAction ? ["manual_review_required"] : []),
+      "open_organization",
+    ],
     metadata,
     createdAt: toIso(operation.updatedAt || operation.createdAt),
   };
@@ -714,6 +765,8 @@ function operationalLogMatches(row, filters = {}) {
   if (filters.retryable === "false" && metadata.retryable) return false;
   if (filters.requiresHumanAction === "true" && !metadata.requiresHumanAction) return false;
   if (filters.requiresHumanAction === "false" && metadata.requiresHumanAction) return false;
+  if (filters.requiresAction === "true" && !(metadata.requiresHumanAction || metadata.retryable || ["failed", "partial_failed", "error", "conflict"].includes(row.result))) return false;
+  if (filters.requiresAction === "false" && (metadata.requiresHumanAction || metadata.retryable || ["failed", "partial_failed", "error", "conflict"].includes(row.result))) return false;
   if (filters.downstream === "true" && !/fluentcrm|wordpress|branding|downstream|sync/i.test(String(metadata.entityType || metadata.stepName || metadata.affectedSystem || metadata.system || row.action || ""))) return false;
   if (filters.q && !includes([metadata.humanMessage, metadata.stepName, metadata.entityType, metadata.targetIdentity, metadata.providerCode, row.action, row.organization?.name].filter(Boolean).join(" "), filters.q)) return false;
   const createdAt = new Date(row.createdAt || 0).getTime();
@@ -727,8 +780,9 @@ function operationalLogMatches(row, filters = {}) {
 async function listOperationalLogs(filters = {}) {
   const limit = Math.min(Math.max(Number.parseInt(filters.limit, 10) || 25, 1), 100);
   const offset = Math.max(Number.parseInt(filters.offset, 10) || 0, 0);
+  const scanLimit = Math.min(Math.max(Number.parseInt(filters.scanLimit, 10) || Number.parseInt(process.env.OWNER_OPERATIONAL_LOG_SCAN_LIMIT || "5000", 10), 100), 20000);
   const [operations, profiles, workerHealth] = await Promise.all([
-    db.select().from(syncOperations).orderBy(desc(syncOperations.updatedAt)).limit(200),
+    db.select().from(syncOperations).orderBy(desc(syncOperations.updatedAt)).limit(scanLimit),
     db.select().from(organizationProfiles).limit(500),
     getWorkerHealthSnapshot().catch(() => ({})),
   ]);
@@ -740,7 +794,17 @@ async function listOperationalLogs(filters = {}) {
     return [serializeOperationOperationalLog({ operation, organizationName, workerHealth }), ...stepRows];
   }).sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
   const filtered = rows.filter((row) => operationalLogMatches(row, filters));
-  return { auditLogs: filtered.slice(offset, offset + limit), pagination: { limit, offset, total: filtered.length } };
+  return {
+    auditLogs: filtered.slice(offset, offset + limit),
+    pagination: { limit, offset, total: filtered.length },
+    source: {
+      primary: "sync_operations+sync_operation_steps",
+      administrativeEvents: "separate_audit_endpoint",
+      workerState: "operationalObservability.workerHealthSnapshot",
+      scanLimit,
+      scope: "operational rows are scanned from sync operation tables before pagination; increase OWNER_OPERATIONAL_LOG_SCAN_LIMIT if the dataset exceeds the configured operational history window",
+    },
+  };
 }
 
 module.exports = {
