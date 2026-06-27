@@ -1743,6 +1743,8 @@ app.get("/owner/organizations/:organizationId/profile", requireAuth(API_RESOURCE
           lastRetry: primaryPending?.retryState || primaryPending?.status || null,
           queueName: primaryPending?.queueName || null,
           jobId: primaryPending?.jobId || null,
+          queueStatus: primaryPending?.queueStatus || primaryPending?.retryState || null,
+          executionSource: primaryPending?.executionSource || null,
           jobAgeSeconds: primaryPending?.jobAgeSeconds ?? null,
           workerHeartbeatState: primaryPending?.workerHeartbeatState || null,
         },

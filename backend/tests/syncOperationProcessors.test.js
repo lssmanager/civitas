@@ -204,6 +204,16 @@ test("provider verification maps provider technical errors to actionable statuse
   assert.equal(auth.status, "provider_auth_error");
   assert.equal(auth.providerCode, "WORDPRESS_AUTHORIZATION_FAILED");
   assert.equal(auth.nextAction, "open_settings");
+
+  const network = buildVerificationConclusion({ networkError: true, providerCode: "FLUENTCRM_REQUEST_FAILED", providerStatus: "network_error" });
+  assert.equal(network.status, "provider_network_error");
+  assert.equal(network.providerCode, "FLUENTCRM_REQUEST_FAILED");
+  assert.equal(network.nextAction, "retry");
+
+  const validation = buildVerificationConclusion({ validationError: true, providerCode: "FLUENTCRM_VALIDATION_FAILED", providerStatus: 422 });
+  assert.equal(validation.status, "provider_validation_error");
+  assert.equal(validation.providerCode, "FLUENTCRM_VALIDATION_FAILED");
+  assert.equal(validation.nextAction, "open_organization");
 });
 
 test("provider verification is queued as a live worker operation instead of local-only projection", () => {

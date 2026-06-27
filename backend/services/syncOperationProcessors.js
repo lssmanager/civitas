@@ -173,6 +173,8 @@ function buildVerificationConclusion(checks = {}) {
   const failures = [];
   if (checks.providerTimeout) return { status: "provider_timeout", providerCode: "PROVIDER_TIMEOUT", providerStatus: "timeout", humanMessage: "La verificación live expiró consultando un proveedor.", nextAction: "retry", availableActions: ["retry", "verify_provider"], retryable: true };
   if (checks.providerAuthError) return { status: "provider_auth_error", providerCode: checks.providerAuthCode || "PROVIDER_AUTH_ERROR", providerStatus: checks.providerAuthStatus || "auth_error", humanMessage: "No se pudo autenticar contra uno de los proveedores durante la verificación live.", nextAction: "open_settings", availableActions: ["open_settings", "verify_provider"], retryable: false };
+  if (checks.networkError) return { status: "provider_network_error", providerCode: checks.providerCode || "PROVIDER_NETWORK_ERROR", providerStatus: checks.providerStatus || "network_error", humanMessage: "No se pudo conectar con uno de los proveedores durante la verificación live.", nextAction: "retry", availableActions: ["retry", "verify_provider"], retryable: true };
+  if (checks.validationError) return { status: "provider_validation_error", providerCode: checks.providerCode || "PROVIDER_VALIDATION_ERROR", providerStatus: checks.providerStatus || "validation_error", humanMessage: "Un proveedor rechazó la verificación por datos inválidos o incompletos.", nextAction: "open_organization", availableActions: ["open_organization", "verify_provider"], retryable: false };
   if (checks.providerConflictDetected) failures.push("provider_conflict_detected");
   if (checks.logtoOrganizationExists === false || checks.logtoMembershipValid === false) failures.push("missing_logto_membership");
   if (checks.fluentcrmCompanyExists === false) failures.push("missing_fluentcrm_company");
@@ -222,6 +224,11 @@ async function processProviderVerification(operation) {
     checks.fluentcrmCompanyId = companies[0]?.id || companies[0]?.ID || companyId || null;
     const contacts = checks.email || checks.logtoUserId ? await searchContacts({ email: checks.email, externalId: checks.logtoUserId }) : [];
     checks.providerConflictDetected = contacts.length > 1 || companies.length > 1;
+    checks.duplicateConflict = checks.providerConflictDetected;
+    checks.authError = false;
+    checks.timeout = false;
+    checks.networkError = false;
+    checks.validationError = false;
     const contact = contacts[0] || null;
     checks.fluentcrmContactExists = Boolean(contact);
     checks.fluentcrmContactId = contact?.id || contact?.ID || null;
@@ -245,7 +252,20 @@ async function processProviderVerification(operation) {
   } catch (error) {
     const classification = classifyError(error);
     const timeout = classification.category === "timeout";
-    const result = buildVerificationConclusion({ providerTimeout: timeout, providerAuthError: ["auth", "configuration"].includes(classification.category), providerAuthCode: error.code, providerAuthStatus: error.status });
+    const result = {
+      ...buildVerificationConclusion({ providerTimeout: timeout, providerAuthError: ["auth", "configuration"].includes(classification.category), networkError: classification.category === "downstream_error", validationError: classification.category === "invalid_payload", providerAuthCode: error.code, providerAuthStatus: error.status, providerCode: error.code, providerStatus: error.status }),
+      checks: {
+        source: "live_provider_verification",
+        checkedAt: new Date().toISOString(),
+        logtoOrganizationId: organizationId,
+        authError: classification.category === "auth",
+        timeout,
+        networkError: classification.category === "downstream_error",
+        validationError: classification.category === "invalid_payload",
+        providerCode: error.code || null,
+        providerStatus: error.status || classification.category,
+      },
+    };
     await recordStep({ operation, stepName: STEP_NAMES.PROVIDER_VERIFICATION_FAILED, status: STEP_STATUSES.FAILED, retryable: result.retryable, errorMessage: result.humanMessage, metadata: { entityType: "provider.verification", targetIdentity: organizationId, category: classification.category, providerCode: result.providerCode, providerStatus: result.providerStatus, humanMessage: result.humanMessage, nextAction: result.nextAction, availableActions: result.availableActions } });
     await recordAuditLogBestEffort({ organizationId, action: AUDIT_ACTIONS.OWNER_ORGANIZATION_PROVISIONING, result: AUDIT_RESULTS.ERROR, metadata: { stage: "provider_verification.failed", category: classification.category, ...result } });
     return { status: "partial_failed", result, humanMessage: result.humanMessage, retryable: result.retryable };

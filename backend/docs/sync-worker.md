@@ -48,6 +48,8 @@ The result snapshot includes `level: live_provider_verification` and a `checks` 
 
 WordPress user absence is not treated as a canonical identity failure. If Logto membership and FluentCRM provisioning are otherwise correct, Civitas reports `awaiting_first_wordpress_login` so owner can distinguish a normal first-login state from a real reconciliation issue such as `missing_contact_wp_link`.
 
+Owner UI receives worker and queue context (`executionSource`, `queueStatus`, `workerHeartbeatState`, `jobAgeSeconds`) on pending rows, operational log rows and organization profile summaries. This allows the GUI to show whether work was consumed by BullMQ or by the DB polling fallback and to display `contacts_not_started` as a functional downstream state instead of a generic missing-contact message.
+
 ## FluentCRM member contact upsert retries
 
 `member_identity_downstream_sync` now retries the same contact upsert contract used by the interactive FluentCRM member synchronization. The payload snapshot should include the Logto user and organization context (`logtoUserId`, `logtoOrganizationId` or operation organization), the current email/name/phone fields when available, and optionally `roleNames` if roles were already resolved. If `roleNames` is omitted, the worker resolves organization roles from Logto before calling FluentCRM.
