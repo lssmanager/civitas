@@ -1,6 +1,9 @@
 const { createRemoteJWKSet, jwtVerify, errors: joseErrors } = require("jose");
+const { getTimeoutMs, withTimeout } = require("../services/timeouts");
 
 const ORGANIZATION_AUDIENCE_PREFIX = "urn:logto:organization:";
+const LOGTO_JWKS_TIMEOUT_MS = getTimeoutMs("LOGTO_JWKS_TIMEOUT_MS", 5000);
+const LOGTO_JWT_VERIFY_TIMEOUT_MS = getTimeoutMs("LOGTO_JWT_VERIFY_TIMEOUT_MS", Math.max(LOGTO_JWKS_TIMEOUT_MS + 1000, 6000));
 let jwks;
 
 const getRequiredEnv = (name) => {
@@ -13,7 +16,9 @@ const getRequiredEnv = (name) => {
 
 const getJwks = () => {
   if (!jwks) {
-    jwks = createRemoteJWKSet(new URL(getRequiredEnv("LOGTO_JWKS_URL")));
+    jwks = createRemoteJWKSet(new URL(getRequiredEnv("LOGTO_JWKS_URL")), {
+      timeoutDuration: LOGTO_JWKS_TIMEOUT_MS,
+    });
   }
   return jwks;
 };
@@ -129,12 +134,49 @@ const hasRequiredScopes = (tokenScopes, requiredScopes = []) => {
 };
 
 const verifyJwt = async (token, audience) => {
-  const { payload } = await jwtVerify(token, getJwks(), {
-    issuer: getRequiredEnv("LOGTO_ISSUER"),
-    audience,
-  });
+  return withTimeout(
+    async () => {
+      const { payload } = await jwtVerify(token, getJwks(), {
+        issuer: getRequiredEnv("LOGTO_ISSUER"),
+        audience,
+      });
 
-  return payload;
+      return payload;
+    },
+    {
+      timeoutMs: LOGTO_JWT_VERIFY_TIMEOUT_MS,
+      label: "Logto JWT verification",
+      code: "LOGTO_JWT_VERIFY_TIMEOUT",
+      name: "LogtoJwtVerifyTimeoutError",
+      status: 504,
+    }
+  );
+};
+
+const buildAuthFailure = (error, expiredMessage, invalidMessage) => {
+  if (error instanceof joseErrors.JWTExpired) {
+    return {
+      status: 401,
+      body: { error: "Unauthorized", message: expiredMessage },
+    };
+  }
+
+  if (error?.code === "LOGTO_JWT_VERIFY_TIMEOUT") {
+    return {
+      status: 504,
+      body: {
+        error: "Gateway Timeout",
+        message: "Logto tardó demasiado en validar el token de acceso. Reintenta en unos segundos o valida la disponibilidad del proveedor de identidad.",
+        code: error.code,
+        timeoutMs: error.timeoutMs || LOGTO_JWT_VERIFY_TIMEOUT_MS,
+      },
+    };
+  }
+
+  return {
+    status: error?.status || 401,
+    body: { error: "Unauthorized", message: invalidMessage },
+  };
 };
 
 const requireAuth = (resource = process.env.LOGTO_API_RESOURCE_INDICATOR) => {
@@ -161,8 +203,8 @@ const requireAuth = (resource = process.env.LOGTO_API_RESOURCE_INDICATOR) => {
 
       return next();
     } catch (error) {
-      const message = error instanceof joseErrors.JWTExpired ? "Access token expired" : "Invalid or missing access token";
-      return res.status(error.status || 401).json({ error: "Unauthorized", message });
+      const failure = buildAuthFailure(error, "Access token expired", "Invalid or missing access token");
+      return res.status(failure.status).json(failure.body);
     }
   };
 };
@@ -261,8 +303,8 @@ const requireOrganizationAccess = ({ requiredScopes = [], requiredRoleName = nul
 
       return next();
     } catch (error) {
-      const message = error instanceof joseErrors.JWTExpired ? "Organization token expired" : "Invalid organization access token";
-      return res.status(error.status || 401).json({ error: "Unauthorized", message });
+      const failure = buildAuthFailure(error, "Organization token expired", "Invalid organization access token");
+      return res.status(failure.status).json(failure.body);
     }
   };
 };
