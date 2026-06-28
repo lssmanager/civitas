@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useApi } from "./base";
+import type { ConsolidatedOperationalResponse, OperationalBlock } from "../contracts/operational";
 
 export type OwnerAuthorization = {
   logtoUserId: string;
@@ -63,6 +64,71 @@ export type OwnerOperationsSummary = {
   incidents: Array<{ type: string; organizationId: string | null; organizationName: string | null; message: string; retryable: boolean }>;
   organizations: Array<{ organizationId: string | null; profileId: string; name: string | null; bootstrapStatus: string; canonicalStatus: string; downstreamStatus: string; currentStep: string; lastFunctionalError: string | null; retryable: boolean; conflictType: string | null }>;
   source?: Record<string, unknown>;
+};
+
+
+export type OwnerWorkerQueuesHealth = OperationalBlock & {
+  classification: string;
+  readiness: string;
+  heartbeat: { at: string | null; state: string };
+  redis: Record<string, unknown> | null;
+};
+
+export type OwnerWorkerQueueBlock = OperationalBlock & {
+  name: string;
+  waiting: number;
+  active: number;
+  delayed: number;
+  failed: number;
+  oldestJobAgeSeconds: number;
+  classification: string;
+};
+
+export type OwnerWorkerQueueOperation = OperationalBlock & {
+  operationId: string;
+  organizationId: string | null;
+  organizationName: string | null;
+  operationType: string | null;
+  entityType: string | null;
+  stepName: string | null;
+  status: string;
+  retryState: string | null;
+  queueName: string | null;
+  jobId: string | null;
+  jobAgeSeconds: number | null;
+  workerHeartbeatState: string | null;
+};
+
+export type OwnerWorkerQueueBlockedOrganization = OperationalBlock & {
+  logtoOrganizationId: string | null;
+  name: string | null;
+  blocker: string;
+  references: { operationIds: string[]; queueName: string | null };
+};
+
+export type OwnerWorkerQueueTimelineEvent = {
+  id: string;
+  at: string | null;
+  type: string;
+  organizationId: string | null;
+  organizationName: string | null;
+  operationId: string | null;
+  stepName: string | null;
+  status: string;
+  providerCode: string | null;
+  providerStatus: string | number | null;
+  humanMessage: string | null;
+};
+
+export type OwnerWorkerQueuesObservabilityResponse = {
+  contractVersion: string;
+  generatedAt: string;
+  source: { backbone: string; primary: string; dominance: string };
+  workerHealth: OwnerWorkerQueuesHealth;
+  queues: OwnerWorkerQueueBlock[];
+  activeOperations: OwnerWorkerQueueOperation[];
+  blockedOrganizations: OwnerWorkerQueueBlockedOrganization[];
+  timeline: OwnerWorkerQueueTimelineEvent[];
 };
 
 export type OwnerWorkerHealth = {
@@ -410,10 +476,13 @@ export const useOwnerApi = () => {
       getOrganizationTemplate: async (): Promise<OwnerOrganizationTemplate> => fetchWithToken("/owner/organization-template"),
       getOperationsSummary: async (): Promise<OwnerOperationsSummary> => fetchWithToken("/owner/operations/summary"),
       getWorkerHealth: async (): Promise<OwnerWorkerHealth> => fetchWithToken("/owner/system/worker-health"),
+      getWorkerQueuesObservability: async (): Promise<OwnerWorkerQueuesObservabilityResponse> => fetchWithToken("/owner/system/worker-queues"),
       getIntegrationsHealth: async (): Promise<OwnerIntegrationsHealth> => fetchWithToken("/owner/system/integrations-health"),
       getSystemMetrics: async (): Promise<OwnerSystemMetricsResponse> => fetchWithToken("/owner/system/metrics"),
       getOrganizationProfile: async (organizationId: string): Promise<OwnerOrganizationProfileResponse> =>
         fetchWithToken(`/owner/organizations/${encodeURIComponent(organizationId)}/profile`),
+      getOrganizationOperationalState: async (organizationId: string): Promise<ConsolidatedOperationalResponse> =>
+        fetchWithToken(`/owner/organizations/${encodeURIComponent(organizationId)}/operational-state`),
       updateOrganizationProfile: async (organizationId: string, data: Record<string, unknown>): Promise<{ status: string; organization: OwnerOrganization; syncOperation: Record<string, unknown> }> =>
         fetchWithToken(`/owner/organizations/${encodeURIComponent(organizationId)}/profile`, { method: "PATCH", body: JSON.stringify(data) }),
       retrySyncOperation: async (organizationId: string, operationId: string): Promise<{ status: string; operation: Record<string, unknown> }> =>

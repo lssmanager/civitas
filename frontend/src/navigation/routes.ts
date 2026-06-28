@@ -24,6 +24,11 @@ export const appRoutes = {
     label: "Sistema",
     description: "Vista técnica interna de worker, Redis y colas.",
   },
+  ownerWorkerQueues: {
+    path: "/owner/system/worker-queues",
+    label: "Worker y colas",
+    description: "Observabilidad operacional global del worker, colas y bloqueos.",
+  },
   ownerLogs: {
     path: "/owner/logs",
     label: "Logs",
@@ -70,7 +75,7 @@ export const ownerNavigationTree: NavigationNode[] = [
     path: "/owner/observability-section",
     label: "Observabilidad",
     description: "Trazabilidad operativa del portal owner.",
-    children: [appRoutes.ownerLogs, appRoutes.ownerSystem],
+    children: [appRoutes.ownerLogs, appRoutes.ownerSystem, appRoutes.ownerWorkerQueues],
   },
   {
     path: "/owner/settings-section",
@@ -86,6 +91,7 @@ export const ownerNavigation: AppRoute[] = [
   appRoutes.selectOrganization,
   appRoutes.ownerLogs,
   appRoutes.ownerSystem,
+  appRoutes.ownerWorkerQueues,
   appRoutes.ownerBranding,
   appRoutes.ownerRoleMapping,
 ];
@@ -97,6 +103,7 @@ export const routeMetadata: Record<string, RouteMetadata> = {
   "/owner/organizations": { label: "Organizaciones", parentPath: appRoutes.owner.path },
   "/owner/logs": { label: appRoutes.ownerLogs.label, parentPath: appRoutes.owner.path },
   "/owner/system": { label: appRoutes.ownerSystem.label, parentPath: appRoutes.owner.path },
+  "/owner/system/worker-queues": { label: appRoutes.ownerWorkerQueues.label, parentPath: appRoutes.ownerSystem.path },
   "/owner/audit": { label: appRoutes.ownerLogs.label, parentPath: appRoutes.owner.path },
   "/owner/settings": { label: appRoutes.ownerSettings.label, parentPath: appRoutes.owner.path },
   "/owner/settings/branding": { label: appRoutes.ownerBranding.label, parentPath: appRoutes.ownerSettings.path },
