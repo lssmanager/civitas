@@ -111,8 +111,15 @@ function OperationalActionPanel({ state, onRefresh }: { state: ConsolidatedOpera
           <p className="mb-0 small text-secondary">Fuente dominante: {sourceLabel(state.summary.dominantSource)} · Generado: {formatDateTime(state.generatedAt)}</p>
         </div>
         <div className="d-flex flex-wrap gap-2 align-content-start">
-          <Button onClick={onRefresh}>{actionLabel[String(state.summary.nextAction)] ?? state.summary.nextAction}</Button>
-          {actions.map((action: OperationalAction) => <Button key={String(action)} variant="outline-secondary">{actionLabel[String(action)] ?? action}</Button>)}
+          <Button onClick={onRefresh}>Actualizar estado</Button>
+          <div className="small text-secondary fw-semibold align-self-center">
+            Acción sugerida: {actionLabel[String(state.summary.nextAction)] ?? state.summary.nextAction}
+          </div>
+          {actions.map((action: OperationalAction) => (
+            <Badge key={String(action)} bg="secondary">
+              {actionLabel[String(action)] ?? action}
+            </Badge>
+          ))}
         </div>
       </div>
     </PageCard>
