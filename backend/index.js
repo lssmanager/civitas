@@ -1815,7 +1815,7 @@ app.get("/owner/organizations/:organizationId/operational-state", requireAuth(AP
     const [logtoOrganization, pending, events] = await Promise.all([
       getLogtoOrganizationById(logtoOrganizationId).catch((error) => {
         console.warn("Operational state degraded: Logto organization unavailable", { logtoOrganizationId, error: getSafeErrorMessage(error) });
-        return null;
+        return { _unavailable: true, _error: getSafeErrorMessage(error) };
       }),
       listOrganizationPendingSync({ organizationId: logtoOrganizationId }).catch((error) => {
         console.warn("Operational state degraded: pending sync unavailable", { logtoOrganizationId, error: getSafeErrorMessage(error) });
