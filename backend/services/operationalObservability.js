@@ -733,9 +733,10 @@ const isActiveOperationalStatus = (status) => ["queued", "running", "downstream_
 const isProblemOperationalStatus = (status) => ["failed", "partial_failed", "error", "conflict", "hitl_required"].includes(String(status || ""));
 
 function classifyWorkerHealthState(workerHealth = {}) {
-  const heartbeatState = workerHealth.worker?.workerHeartbeatState || workerHealth.worker?.state;
-  if (heartbeatState === "worker_offline" || (!workerHealth.worker?.heartbeatAt && workerHealth.worker?.heartbeatStale)) return "worker_offline";
-  if (heartbeatState === "worker_heartbeat_stale" || workerHealth.worker?.heartbeatStale) return "worker_heartbeat_stale";
+  const worker = workerHealth.worker || {};
+  const heartbeatState = worker.workerHeartbeatState || worker.state;
+  if (heartbeatState === "worker_offline" || !worker.heartbeatAt) return "worker_offline";
+  if (heartbeatState === "worker_heartbeat_stale" || worker.heartbeatStale) return "worker_heartbeat_stale";
   return "alive";
 }
 
