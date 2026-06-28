@@ -813,7 +813,7 @@ function buildBlockedOrganizations({ profiles = [], activeOperations = [], worke
   return profiles.map((profile) => {
     const op = activeByOrg.get(profile.logtoOrganizationId);
     const missingCompany = !profile.fluentcrmCompanyId || ["not_linked", "pending", "conflict", "error"].includes(profile.fluentcrmSyncStatus);
-    const contactsNotStarted = op?.stepName && /contact/i.test(op.stepName) && ["queued", "waiting", "delayed"].includes(op.retryState);
+    const contactsNotStarted = op?.stepName && /contact/i.test(op.stepName) && ["queued", "waiting", "delayed"].includes(op.status || op.retryState);
     const workerBlock = workerState !== "alive" && op;
     const queueBlock = globalQueueBlocker && op;
     const blocker = workerBlock ? workerState : queueBlock ? globalQueueBlocker.classification : missingCompany ? "missing_company" : contactsNotStarted ? "contacts_not_started" : null;
