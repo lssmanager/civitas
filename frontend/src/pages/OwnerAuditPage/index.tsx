@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Accordion, Badge, Button, Form, Pagination, ToggleButton, ToggleButtonGroup } from "react-bootstrap";
 import { Link, useSearchParams } from "react-router-dom";
 import { useOwnerApi, type OwnerAuditLog, type OwnerAuditPagination, type OwnerAuditResponse } from "../../api/owner";
+import { getLogPlane, getVerificationLevel } from "../../operational/backbone";
 import { useStableResource } from "../../shared/hooks/useStableResource";
 import { EmptyState, ErrorState, JsonLogBlock, LoadingState, PageCard, PageShell } from "../../shared/ui";
 
@@ -70,6 +71,9 @@ function AuditLogFormattedDetail({ row }: { row: OwnerAuditLog }) {
   const metadataEntries = getMetadataEntries(row.metadata);
 
   const summaryItems = [
+    { label: "Plano operacional", value: getLogPlane(row) },
+    { label: "Verification level", value: getVerificationLevel(row) },
+    { label: "Source", value: row.executionSource || row.metadata?.source || row.metadata?.freshnessSource },
     { label: "Tipo de fila", value: row.rowType },
     { label: "Sistema", value: row.system || row.metadata?.affectedSystem },
     { label: "Microacción", value: row.microAction || row.action },
@@ -152,6 +156,8 @@ function AuditLogCard({ row, onRetry }: { row: OwnerAuditLog; onRetry: () => voi
         <div className="civitas-audit-summary w-100 pe-3">
           <div className="d-flex flex-wrap align-items-center gap-2 mb-2">
             <Badge bg="secondary">{row.rowType || "operational_step"}</Badge>
+            <Badge bg={getLogPlane(row) === "live" ? "primary" : getLogPlane(row) === "worker" ? "dark" : getLogPlane(row) === "local" ? "info" : "secondary"} text={getLogPlane(row) === "local" ? "dark" : undefined}>plane: {getLogPlane(row)}</Badge>
+            <Badge bg="light" text="dark">verification: {getVerificationLevel(row)}</Badge>
             <Badge bg={resultVariant(row.result)}>{row.result}</Badge>
             {row.system ? <Badge bg="light" text="dark">{row.system}</Badge> : null}
             <Badge bg="info" text="dark">{formatStage(row)}</Badge>
@@ -269,12 +275,12 @@ export function OwnerAuditPage() {
     <PageShell
       eyebrow="Owner"
       title="Centro operativo owner"
-      description="Microacciones, retries y pendientes derivados de sync_operations/sync_operation_steps. La auditoría administrativa queda separada del flujo operativo."
+      description="Timeline histórico/operativo etiquetado por plano: live provider checks, worker runtime, local reconciled y audit histórico."
       actions={<Badge bg="success">owner:read</Badge>}
     >
       <PageCard
         title="Centro operativo"
-        subtitle="Filtra por organización, sistema, microacción, estado, retry, cola o texto para encontrar trabajo real y actuar."
+        subtitle="Filtra por organización, sistema, microacción, estado, retry, cola o texto; cada fila expone source y verificationLevel para no mezclar planos semánticos."
         actions={
           totalPages > 1 ? (
             <Pagination size="sm" className="mb-0 civitas-audit-pagination">
@@ -338,7 +344,7 @@ export function OwnerAuditPage() {
           </Form.Group>
         </Form>
         <p className="text-secondary small mb-3">
-          Mostrando {events.length} de {total} filas operativas. Las microacciones aparecen como campos de primer nivel; el JSON queda solo como detalle técnico.
+          Mostrando {events.length} de {total} filas operativas. Badges de plane/source/verificationLevel separan live, worker runtime, local reconciled y audit histórico; el JSON queda solo como detalle técnico.
         </p>
         {isLoading ? (
           <LoadingState title="Cargando centro operativo" description="Consultando sync_operations, sync_operation_steps y estado de worker/cola." />

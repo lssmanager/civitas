@@ -1,6 +1,7 @@
 import { Badge, ListGroup } from "react-bootstrap";
 import { Link, useOutletContext } from "react-router-dom";
 import { useOwnerApi } from "../../api/owner";
+import { actionLabel, formatDateTime, severityVariant, sourceLabel, statusVariant } from "../../operational/backbone";
 import {
   devOwnerMe,
   type OwnerAuthorizationContext,
@@ -18,31 +19,21 @@ import {
 
 type OwnerDashboardProps = { ownerMe: OwnerAuthorizationContext };
 
-const healthVariant = (severity?: string) =>
-  severity === "success"
-    ? "success"
-    : severity === "critical"
-      ? "danger"
-      : "warning";
-
 function OwnerDashboard({ ownerMe }: OwnerDashboardProps) {
   const { owner } = ownerMe;
   const ownerApi = useOwnerApi();
   const summary = useStableResource({
-    load: ownerApi.getOperationsSummary,
-    getKey: () => "owner-operations-summary",
+    load: ownerApi.getWorkerQueuesObservability,
+    getKey: () => "owner-operational-backbone",
     initialParams: undefined,
   });
 
   const metrics = summary.data
     ? [
-        { label: "Pendientes", value: summary.data.counts.queued, hint: "ver pendientes", tone: "warning" as const, to: "/owner/logs?status=pending" },
-        { label: "En ejecución", value: summary.data.counts.running, hint: "ver trabajos activos", tone: "primary" as const, to: "/owner/logs?status=running" },
-        { label: "Fallos parciales", value: summary.data.counts.partialFailed, hint: "ver fallos parciales", tone: "warning" as const, to: "/owner/logs?status=partial_failed" },
-        { label: "Fallidas", value: summary.data.counts.failed, hint: "ver fallidas", tone: "danger" as const, to: "/owner/logs?status=failed" },
-        { label: "Reintentables", value: summary.data.counts.retryable, hint: "ver retries", tone: "success" as const, to: "/owner/logs?retryable=true" },
-        { label: "Downstream pendiente", value: summary.data.counts.organizationsWithPendingDownstreamSync, hint: "ver downstream", tone: "primary" as const, to: "/owner/logs?downstream=true" },
-        { label: "Acciones humanas", value: summary.data.counts.requiresHumanAction ?? 0, hint: "ver intervención", tone: "danger" as const, to: "/owner/logs?requiresHumanAction=true" },
+        { label: "Operaciones activas", value: summary.data.activeOperations.length, hint: "worker runtime", tone: "primary" as const, to: "/owner/system/worker-queues" },
+        { label: "Colas con backlog", value: summary.data.queues.filter((queue) => queue.waiting > 0 || queue.failed > 0 || queue.classification !== "alive").length, hint: "ver colas", tone: "warning" as const, to: "/owner/system/worker-queues" },
+        { label: "Organizaciones bloqueadas", value: summary.data.blockedOrganizations.length, hint: "blocker principal", tone: "danger" as const, to: "/owner/logs?requiresAction=true" },
+        { label: "Eventos recientes", value: summary.data.timeline.length, hint: "timeline operacional", tone: "success" as const, to: "/owner/logs" },
       ]
     : [];
 
@@ -65,7 +56,7 @@ function OwnerDashboard({ ownerMe }: OwnerDashboardProps) {
           {summary.isLoading ? (
             <LoadingState
               title="Cargando sincronización operativa"
-              description="Consultando estado persistido en Civitas y traducción funcional de salud técnica."
+              description="Consultando agregado worker-queues y contrato operacional consolidado."
             />
           ) : null}
           {summary.error ? (
@@ -83,19 +74,19 @@ function OwnerDashboard({ ownerMe }: OwnerDashboardProps) {
                 <div className="civitas-dashboard-hero d-flex flex-column flex-xl-row justify-content-between gap-4">
                   <div className="civitas-dashboard-hero__copy d-flex flex-column gap-2">
                     <p className="civitas-dashboard-hero__eyebrow mb-0">
-                      Salud funcional del owner
+                      Backbone operacional owner
                     </p>
-                    <h2 className="h3 mb-0">{summary.data.functionalHealth.status}</h2>
+                    <h2 className="h3 mb-0">{summary.data.workerHealth.readiness}</h2>
                     <p className="mb-0 text-secondary">
-                      {summary.data.functionalHealth.message}
+                      {summary.data.workerHealth.humanMessage}
                     </p>
                   </div>
                   <div className="civitas-dashboard-hero__status d-flex flex-column align-items-xl-end gap-2">
-                    <Badge bg={healthVariant(summary.data.functionalHealth.severity)}>
-                      {summary.data.functionalHealth.code}
+                    <Badge bg={severityVariant(summary.data.workerHealth.severity)}>
+                      {summary.data.workerHealth.classification}
                     </Badge>
                     <Link className="btn btn-outline-primary btn-sm" to="/owner/logs">
-                      Ver incidentes y trazabilidad
+                      Ver timeline operativo
                     </Link>
                   </div>
                 </div>
@@ -120,29 +111,24 @@ function OwnerDashboard({ ownerMe }: OwnerDashboardProps) {
                   </Link>
                 }
               >
-                {summary.data.incidents.length === 0 ? (
+                {summary.data.timeline.length === 0 ? (
                   <p className="text-secondary mb-0">
-                    No hay incidentes funcionales recientes.
+                    No hay eventos operacionales recientes.
                   </p>
                 ) : (
                   <ListGroup variant="flush" className="civitas-dashboard-list">
-                    {summary.data.incidents.map((incident, index) => (
-                      <ListGroup.Item
-                        className="px-0"
-                        key={`${incident.type}-${incident.organizationId ?? index}`}
-                      >
+                    {summary.data.timeline.slice(0, 6).map((event) => (
+                      <ListGroup.Item className="px-0" key={event.id}>
                         <div className="d-flex justify-content-between gap-3">
-                          <strong>
-                            {incident.organizationName ?? "Organización sin nombre"}
-                          </strong>
-                          {incident.retryable ? (
-                            <Badge bg="info" text="dark">
-                              reintentable
-                            </Badge>
-                          ) : null}
+                          <strong>{event.organizationName ?? event.organizationId ?? "Global"}</strong>
+                          <Badge bg={statusVariant(event.status)}>{event.type}</Badge>
                         </div>
-                        <p className="text-secondary small mb-2">{incident.message}</p>
-                        <Link className="btn btn-outline-primary btn-sm" to={`/owner/logs?organizationId=${encodeURIComponent(incident.organizationId ?? "")}`}>Ver logs filtrados</Link>
+                        <p className="text-secondary small mb-2">{event.humanMessage || event.providerCode || "Evento operacional"}</p>
+                        <div className="d-flex flex-wrap gap-2 align-items-center">
+                          <Badge bg="light" text="dark">source: {summary.data?.source.primary}</Badge>
+                          <span className="small text-secondary">{formatDateTime(event.at)}</span>
+                          {event.organizationId ? <Link className="btn btn-outline-primary btn-sm" to={`/owner/logs?organizationId=${encodeURIComponent(event.organizationId)}`}>Ver logs filtrados</Link> : null}
+                        </div>
                       </ListGroup.Item>
                     ))}
                   </ListGroup>
@@ -152,8 +138,8 @@ function OwnerDashboard({ ownerMe }: OwnerDashboardProps) {
 
             <div className="col-12 col-xl-7">
               <PageCard
-                title="Organizaciones con pendientes"
-                subtitle="Estado canónico, downstream, paso actual y retryability por organización."
+                title="Organizaciones con blocker principal"
+                subtitle="Derivado del agregado worker-queues: blocker, freshness, provider status y nextAction estándar."
                 actions={
                   <Link
                     to="/owner/organizations"
@@ -164,51 +150,16 @@ function OwnerDashboard({ ownerMe }: OwnerDashboardProps) {
                 }
               >
                 <DataTable
-                  rows={summary.data.organizations}
-                  getRowKey={(row) => row.profileId}
+                  rows={summary.data.blockedOrganizations}
+                  getRowKey={(row) => row.logtoOrganizationId ?? row.blocker}
                   emptyTitle="Sin pendientes"
                   emptyDescription="Todas las organizaciones conocidas están completas o sin errores funcionales."
                   columns={[
-                    {
-                      key: "name",
-                      header: "Organización",
-                      render: (row) => row.organizationId ? <Link to={`/owner/logs?organizationId=${encodeURIComponent(row.organizationId)}`}>{row.name ?? row.organizationId}</Link> : row.name ?? "—",
-                    },
-                    {
-                      key: "canonical",
-                      header: "Canónico",
-                      render: (row) => <Badge bg="primary">{row.canonicalStatus}</Badge>,
-                    },
-                    {
-                      key: "downstream",
-                      header: "Downstream",
-                      render: (row) => (
-                        <Badge
-                          bg={
-                            row.downstreamStatus === "linked" ||
-                            row.downstreamStatus === "synced"
-                              ? "success"
-                              : "warning"
-                          }
-                        >
-                          {row.downstreamStatus}
-                        </Badge>
-                      ),
-                    },
-                    {
-                      key: "step",
-                      header: "Paso",
-                      render: (row) => row.currentStep,
-                    },
-                    {
-                      key: "retry",
-                      header: "Acción",
-                      render: (row) => row.organizationId ? (
-                        <Link className="btn btn-outline-primary btn-sm" to={`/owner/logs?organizationId=${encodeURIComponent(row.organizationId)}${row.retryable ? "&retryable=true" : ""}`}>
-                          {row.retryable ? "Reintentar en logs" : "Ver logs"}
-                        </Link>
-                      ) : "—",
-                    },
+                    { key: "name", header: "Organización", render: (row) => row.logtoOrganizationId ? <Link to={`/owner/organizations/${encodeURIComponent(row.logtoOrganizationId)}`}>{row.name ?? row.logtoOrganizationId}</Link> : row.name ?? "—" },
+                    { key: "blocker", header: "Blocker", render: (row) => <Badge bg={severityVariant(row.severity)}>{row.blocker}</Badge> },
+                    { key: "provider", header: "Proveedor", render: (row) => <div>{row.providerCode || "sin código"}<br /><span className="small text-secondary">{String(row.providerStatus ?? "sin status")}</span></div> },
+                    { key: "freshness", header: "Freshness", render: (row) => <div className="d-flex flex-column gap-1"><Badge bg={row.freshness?.isStale ? "warning" : "success"} text={row.freshness?.isStale ? "dark" : undefined}>{row.freshness?.isStale ? "stale" : "fresh"}</Badge><span className="small text-secondary">{sourceLabel(row.freshness?.source)}</span></div> },
+                    { key: "action", header: "Next action", render: (row) => row.logtoOrganizationId ? <Link className="btn btn-outline-primary btn-sm" to={`/owner/logs?organizationId=${encodeURIComponent(row.logtoOrganizationId)}`}>{actionLabel[String(row.nextAction)] ?? row.nextAction}</Link> : actionLabel[String(row.nextAction)] ?? row.nextAction },
                   ]}
                 />
               </PageCard>
