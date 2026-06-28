@@ -19,7 +19,8 @@
   ],
   "properties": {
     "contractVersion": {
-      "type": "string"
+      "type": "string",
+      "description": "Operational contract version. Issue #181 locks this as semantic contract metadata, not display copy; compatible additions may keep consumers working, breaking changes require a new major/versioned surface."
     },
     "generatedAt": {
       "type": "string",
@@ -136,6 +137,54 @@
     "compatibility": {
       "type": "object",
       "additionalProperties": true
+    },
+    "contractMetadata": {
+      "type": "object",
+      "required": [
+        "actionCatalogVersion",
+        "compatibility",
+        "extensionPolicy"
+      ],
+      "properties": {
+        "actionCatalogVersion": {
+          "type": "string"
+        },
+        "compatibility": {
+          "type": "object",
+          "required": [
+            "strategy",
+            "compatibleWith",
+            "breakingChangesRequireNewEndpointOrMajorVersion"
+          ],
+          "properties": {
+            "strategy": {
+              "type": "string"
+            },
+            "compatibleWith": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "breakingChangesRequireNewEndpointOrMajorVersion": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": true
+        },
+        "extensionPolicy": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true,
+      "description": "Machine-readable versioning/extensibility metadata. Consumers must tolerate additive fields and unknown future blocks/actions."
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/block"
+      },
+      "description": "Optional additive capability blocks (payments, lms, crm, community, notifications, seats, reporting, externalTools). Absence means not implemented or not applicable."
     }
   },
   "$defs": {
@@ -186,7 +235,7 @@
     },
     "action": {
       "type": "string",
-      "description": "Known phase-1 actions: retry, verify_provider, open_organization, wait_first_wordpress_login, manual_retry_required, human_action_required, none. Consumers must tolerate additive future actions."
+      "description": "Standard action catalog v1: retry, verify_provider, open_organization, wait_first_wordpress_login, manual_retry_required, human_action_required, none. The string model is intentionally open: consumers must tolerate additive future actions and render unknown actions as diagnostics or ignore them safely."
     },
     "freshness": {
       "type": "object",
