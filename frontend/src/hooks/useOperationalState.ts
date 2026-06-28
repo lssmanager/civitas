@@ -39,6 +39,8 @@ export function useOperationalState(organizationId: string, load: Loader) {
       } catch (caught) {
         if (!alive) return;
         setError(caught instanceof Error ? caught.message : "No se pudo cargar el estado operacional consolidado.");
+        const interval = getOperationalPollingIntervalMs(data);
+        if (interval) timer = setTimeout(() => void run(false), interval);
       } finally {
         if (alive) setIsLoading(false);
       }
