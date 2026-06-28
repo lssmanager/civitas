@@ -68,7 +68,7 @@ const {
 const { db } = require("./db/client");
 const { crmRoleMappings, organizationProfiles, syncOperations, wordpressRoleMappings } = require("./db/schema");
 const { getCommercialStatusForOrganization, getLatestCommercialEventsForOrganization, processCommercialEvent, verifyCommercialWebhookSignature } = require("./services/commercialEvents");
-const { getWorkerHealthSnapshot, loadOperationsSummary, loadOwnerSystemMetrics } = require("./services/operationalObservability");
+const { getWorkerHealthSnapshot, loadOperationsSummary, loadOwnerSystemMetrics, loadWorkerQueuesObservability } = require("./services/operationalObservability");
 const { buildConsolidatedOperationalResponse } = require("./services/operationalStateAssembler");
 const {
   createSyncOperation,
@@ -924,6 +924,15 @@ async function checkOwnerIntegrationHealth() {
   const hasWarning = requiredChecks.some((check) => ["unknown", "not_configured"].includes(check.status));
   return { checkedAt, status: hasError ? "degraded" : hasWarning ? "attention" : "ok", checks };
 }
+
+app.get("/owner/system/worker-queues", requireAuth(API_RESOURCE), requireOwner, async (_req, res) => {
+  try {
+    return res.json(await loadWorkerQueuesObservability());
+  } catch (error) {
+    console.error("Failed to load worker queues observability", error);
+    return res.status(500).json({ error: "Worker queues observability unavailable", message: "No se pudo cargar la observabilidad agregada de worker y colas." });
+  }
+});
 
 app.get("/owner/system/worker-health", requireAuth(API_RESOURCE), requireOwner, async (_req, res) => {
   try {
