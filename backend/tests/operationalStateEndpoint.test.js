@@ -10,6 +10,8 @@ test("owner operational-state endpoint is wired through the dedicated assembler 
   assert.match(source, /buildConsolidatedOperationalResponse\(\{/);
   assert.doesNotMatch(source, /getWorkerHealthSnapshot\(\)\.catch/);
   assert.match(source, /const workerHealth = getWorkerHealthSnapshot\(\);/);
+  assert.match(source, /if \(error\?\.status === 404\) return null;/);
+  assert.match(source, /__operationalFetchState: "unavailable"/);
   assert.match(source, /loadWorkerQueuesObservability/);
   assert.match(source, /app\.get\("\/owner\/system\/worker-queues", requireAuth\(API_RESOURCE\), requireOwner/);
   assert.match(source, /app\.get\("\/owner\/organizations\/:organizationId\/profile"/);

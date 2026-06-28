@@ -1814,8 +1814,9 @@ app.get("/owner/organizations/:organizationId/operational-state", requireAuth(AP
     const workerHealth = getWorkerHealthSnapshot();
     const [logtoOrganization, pending, events] = await Promise.all([
       getLogtoOrganizationById(logtoOrganizationId).catch((error) => {
+        if (error?.status === 404) return null;
         console.warn("Operational state degraded: Logto organization unavailable", { logtoOrganizationId, error: getSafeErrorMessage(error) });
-        return null;
+        return { __operationalFetchState: "unavailable", source: "logto", status: error?.status || null, code: error?.code || null, message: getSafeErrorMessage(error) };
       }),
       listOrganizationPendingSync({ organizationId: logtoOrganizationId }).catch((error) => {
         console.warn("Operational state degraded: pending sync unavailable", { logtoOrganizationId, error: getSafeErrorMessage(error) });

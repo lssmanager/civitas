@@ -108,3 +108,62 @@ test("consolidated response exposes phase-2 blocks and worker dominance for acti
   assert.equal(response.polling.intervalSeconds, 3);
   assert.equal(response.latestEventIds.audit, "audit-1");
 });
+
+test("canonical block distinguishes unavailable Logto fetch from missing organization", () => {
+  const unavailable = buildConsolidatedOperationalResponse({
+    organization: { logtoOrganizationId: "org_1", name: "Org One", sourceAnchors: { logtoOrganizationId: "org_1" } },
+    logtoOrganization: { __operationalFetchState: "unavailable", source: "logto", status: 503, message: "timeout" },
+    profile: baseProfile,
+    generatedAt: "2026-06-27T00:01:30.000Z",
+  });
+  assert.equal(unavailable.canonical.status, "unavailable");
+  assert.equal(unavailable.canonical.severity, "warning");
+  assert.equal(unavailable.canonical.providerCode, "LOGTO_ORGANIZATION_UNAVAILABLE");
+
+  const missing = buildConsolidatedOperationalResponse({
+    organization: { logtoOrganizationId: "org_1", name: "Org One", sourceAnchors: { logtoOrganizationId: "org_1" } },
+    logtoOrganization: null,
+    profile: baseProfile,
+    generatedAt: "2026-06-27T00:01:30.000Z",
+  });
+  assert.equal(missing.canonical.status, "missing");
+  assert.equal(missing.canonical.severity, "critical");
+  assert.equal(missing.canonical.providerCode, "LOGTO_ORGANIZATION_MISSING");
+});
+
+test("latestEventIds are populated only from event ids", () => {
+  const response = buildConsolidatedOperationalResponse({
+    organization: { logtoOrganizationId: "org_1", name: "Org One", sourceAnchors: { logtoOrganizationId: "org_1" } },
+    logtoOrganization: { id: "org_1", name: "Org One" },
+    profile: baseProfile,
+    pending: [
+      { operationId: "operation-company", entityType: "fluentcrm.company", status: "queued", retryState: "queued" },
+      { operationId: "operation-contact", entityType: "fluentcrm.contact", status: "queued", retryState: "queued" },
+    ],
+    events: [
+      { id: "audit-1", rowType: "administrative_event", createdAt: "2026-06-27T00:01:00.000Z" },
+      { id: "op-provider-event", stage: "provider_verification.finished", result: "completed", retryOperationId: "operation-provider", createdAt: "2026-06-27T00:02:00.000Z" },
+      { id: "op-company-event", entityType: "fluentcrm.company", operationType: "organization_profile_downstream_sync", createdAt: "2026-06-27T00:03:00.000Z" },
+      { id: "op-contact-event", entityType: "fluentcrm.contact", metadata: { contacts: [{ email: "c@example.test" }] }, createdAt: "2026-06-27T00:04:00.000Z" },
+    ],
+  });
+  assert.deepEqual(response.latestEventIds, {
+    audit: "audit-1",
+    providerVerification: "op-provider-event",
+    fluentcrmCompany: "op-company-event",
+    fluentcrmContacts: "op-contact-event",
+  });
+});
+
+test("contact progress fallback is decided per item", () => {
+  const items = buildContactProgressFromPendingAndEvents({
+    profile: baseProfile,
+    pending: [
+      { operationId: "op-with-metadata", entityType: "fluentcrm.contact", metadata: { contacts: [{ email: "first@example.test" }] }, createdAt: "2026-06-27T00:02:00.000Z" },
+      { operationId: "op-without-metadata", entityType: "fluentcrm.contact", email: "second@example.test", humanMessage: "Fallback row", createdAt: "2026-06-27T00:03:00.000Z" },
+    ],
+  });
+  assert.equal(items.length, 2);
+  assert.equal(items[0].email, "first@example.test");
+  assert.equal(items[1].email, "second@example.test");
+});

@@ -85,19 +85,20 @@ function findProviderVerification({ pending = [], events = [] } = {}) {
 }
 
 function buildCanonicalOperationalBlock({ logtoOrganization, profile, pending = [], events = [], checkedAt = new Date() } = {}) {
-  const ok = Boolean(logtoOrganization);
+  const unavailable = logtoOrganization?.__operationalFetchState === "unavailable";
+  const ok = Boolean(logtoOrganization) && !unavailable;
   return buildBaseOperationalBlock({
-    status: ok ? "ok" : "missing",
-    severity: ok ? "success" : "critical",
+    status: ok ? "ok" : unavailable ? "unavailable" : "missing",
+    severity: ok ? "success" : unavailable ? "warning" : "critical",
     source: FRESHNESS_SOURCES.LIVE_PROVIDER_CHECK,
     checkedAt,
     staleAfterSeconds: 120,
     pending,
     events,
-    humanMessage: ok ? "Organización canónica presente en Logto." : "No se pudo confirmar la organización canónica en Logto.",
-    providerCode: ok ? "LOGTO_ORGANIZATION_FOUND" : "LOGTO_ORGANIZATION_MISSING",
-    providerStatus: ok ? "found" : "missing",
-    details: { sourceOfTruth: "logto", logtoOrganizationId: profile?.logtoOrganizationId || logtoOrganization?.id || null, topLevelFields: ok ? ["id", "name", "description", "customData"] : [] },
+    humanMessage: ok ? "Organización canónica presente en Logto." : unavailable ? "Logto no estuvo disponible para confirmar la organización canónica." : "La organización canónica no existe en Logto.",
+    providerCode: ok ? "LOGTO_ORGANIZATION_FOUND" : unavailable ? "LOGTO_ORGANIZATION_UNAVAILABLE" : "LOGTO_ORGANIZATION_MISSING",
+    providerStatus: ok ? "found" : unavailable ? "unavailable" : "missing",
+    details: { sourceOfTruth: "logto", logtoOrganizationId: profile?.logtoOrganizationId || logtoOrganization?.id || null, topLevelFields: ok ? ["id", "name", "description", "customData"] : [], fetchState: unavailable ? logtoOrganization : null },
   });
 }
 
@@ -243,6 +244,21 @@ function buildContactProgressOperationalBlock({ profile, pending = [], events = 
   });
 }
 
+
+function findLatestEventId(events = [], matcher = () => true) {
+  const event = safeArray(events).find((item) => item?.id && matcher(item));
+  return event?.id || null;
+}
+
+function buildLatestEventIds({ events = [], liveVerification } = {}) {
+  return {
+    audit: findLatestEventId(events, (event) => String(event.id).startsWith("audit-") || event.rowType === "administrative_event") || findLatestEventId(events),
+    providerVerification: liveVerification?.details?.event?.id || findLatestEventId(events, isProviderVerificationRecord),
+    fluentcrmCompany: findLatestEventId(events, (event) => event.entityType === "fluentcrm.company" || /fluentcrm.*company|organization_profile_downstream/i.test(String(event.stepName || event.operationType || event.stage || event.type || ""))),
+    fluentcrmContacts: findLatestEventId(events, (event) => extractContactItems(event.metadata).length > 0 || event.entityType === "fluentcrm.contact" || /fluentcrm.*contact|member_identity/i.test(String(event.stepName || event.operationType || event.stage || event.type || ""))),
+  };
+}
+
 function buildOperationalSummary(blocks = {}) { return buildSummary(blocks); }
 
 function buildPollingPolicy({ worker, pending = [] } = {}) {
@@ -259,8 +275,10 @@ function buildConsolidatedOperationalResponse({ organization, logtoOrganization,
   const worker = buildWorkerOperationalBlock({ workerHealth, pending, events });
   const liveVerification = buildLiveVerificationOperationalBlock({ profile, pending, events });
   const contactProgress = buildContactProgressOperationalBlock({ profile, pending, events });
-  const response = buildContractResponse({ organization, canonical, fluentcrm, wordpress, worker, liveVerification, contactProgress, latestEventIds: { audit: events[0]?.id || null, providerVerification: liveVerification.details?.pending?.operationId || liveVerification.details?.event?.retryOperationId || null, fluentcrmCompany: fluentcrm.details?.pending?.operationId || null, fluentcrmContacts: contactProgress.details?.pending?.operationId || null }, generatedAt, compatibility });
-  return { ...response, summary: buildOperationalSummary({ canonical, fluentcrm, wordpress, worker, liveVerification, contactProgress }) };
+  const response = buildContractResponse({ organization, canonical, fluentcrm, wordpress, worker, liveVerification, contactProgress, latestEventIds: buildLatestEventIds({ events, liveVerification }), generatedAt, compatibility });
+  const localPolling = buildPollingPolicy({ worker, pending });
+  const polling = response.polling.shouldPoll && !localPolling.shouldPoll ? response.polling : { ...response.polling, ...localPolling, shouldPoll: response.polling.shouldPoll || localPolling.shouldPoll };
+  return { ...response, polling, summary: buildOperationalSummary({ canonical, fluentcrm, wordpress, worker, liveVerification, contactProgress }) };
 }
 
 module.exports = {
@@ -276,5 +294,6 @@ module.exports = {
   buildContactProgressFromPendingAndEvents,
   buildOperationalSummary,
   buildPollingPolicy,
+  buildLatestEventIds,
   buildConsolidatedOperationalResponse,
 };

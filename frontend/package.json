@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "node --test src/pages/*.contract.test.mjs"
+    "test": "node --test \"src/pages/*.contract.test.mjs\""
   },
   "dependencies": {
     "@logto/react": "^4.0.3",
