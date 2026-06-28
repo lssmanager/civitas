@@ -21,6 +21,8 @@ export function useWorkerQueuesObservability(load: Loader) {
   useEffect(() => { loadRef.current = load; }, [load]);
   const retry = useCallback(() => setRefreshNonce((current) => current + 1), []);
 
+  const lastIntervalRef = useRef<number | null>(null);
+
   useEffect(() => {
     let alive = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -33,10 +35,12 @@ export function useWorkerQueuesObservability(load: Loader) {
         hasDataRef.current = true;
         setData(response);
         const interval = getWorkerQueuesRefreshIntervalMs(response);
+        lastIntervalRef.current = interval;
         if (interval) timer = setTimeout(() => void run(false), interval);
       } catch (caught) {
         if (!alive) return;
         setError(caught instanceof Error ? caught.message : "No se pudo cargar Observabilidad > Worker y colas.");
+        if (lastIntervalRef.current) timer = setTimeout(() => void run(false), lastIntervalRef.current);
       } finally {
         if (alive) setIsLoading(false);
       }
