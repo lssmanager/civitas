@@ -55,6 +55,48 @@ No new capability may introduce its own operational language, an ad hoc error mo
 
 Every capability must integrate using the same operational grammar already defined for the platform.
 
+### Initial connector capabilities catalog
+
+The initial capabilities catalog for Civitas should be treated as a stable platform registry that can grow over time without breaking the backbone:
+
+```yaml
+connectors:
+  identity:
+    description: Logto and future IdP/auth providers
+
+  lms:
+    description: Moodle, Canvas, other LMS providers
+
+  crm:
+    description: FluentCRM, HubSpot, other CRM providers
+
+  community:
+    description: BuddyBoss and future community platforms
+
+  payments:
+    description: Stripe, MercadoPago, Bancolombia, PayPal
+
+  email:
+    description: Resend, SendGrid, SES, Postmark
+
+  support:
+    description: Zendesk, Freshdesk, HelpScout
+
+  scheduling:
+    description: Calendly, Google Calendar, Microsoft 365
+
+  notifications:
+    description: email, push, SMS and in-app delivery adapters
+
+  storage:
+    description: S3-compatible, Cloudflare R2 and local object storage
+
+  analytics:
+    description: PostHog, GA4 and internal event pipeline
+```
+
+This catalog is not a commitment to implement every provider immediately. It is the reference map for how new capabilities should enter Civitas: by contract, adapter and shared operational semantics rather than by isolated feature-specific integrations.
+
 ### Separation between capability and provider
 
 A capability represents a stable product need.
