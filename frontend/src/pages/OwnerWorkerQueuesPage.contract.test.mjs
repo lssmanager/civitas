@@ -26,7 +26,7 @@ test("required operational sections render from aggregate shape", () => {
     assert.match(page, new RegExp(label));
   }
   for (const field of ["workerHealth", "queues", "activeOperations", "blockedOrganizations", "timeline"]) {
-    assert.match(page, new RegExp(`data\\.${field}|${field}`));
+    assert.match(page, new RegExp(`data\\.${field}\\b`));
   }
 });
 
