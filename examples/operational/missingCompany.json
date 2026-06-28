@@ -1,0 +1,225 @@
+{
+  "contractVersion": "2026-06-issue-175-phase-1",
+  "generatedAt": "2026-06-27T23:15:29.693Z",
+  "organization": {
+    "logtoOrganizationId": "org_demo",
+    "name": "Colegio Demo",
+    "profileId": "prof_1",
+    "sourceAnchors": {
+      "logtoOrganizationId": "org_demo"
+    }
+  },
+  "summary": {
+    "status": "missing_company",
+    "severity": "warning",
+    "humanMessage": "Falta crear Company en FluentCRM.",
+    "dominantSource": "local_reconciled",
+    "nextAction": "verify_provider",
+    "availableActions": [
+      "verify_provider",
+      "none"
+    ]
+  },
+  "canonical": {
+    "status": "ok",
+    "severity": "success",
+    "humanMessage": "Logto confirmado.",
+    "providerCode": null,
+    "providerStatus": "ok",
+    "nextAction": "none",
+    "availableActions": [
+      "none"
+    ],
+    "freshness": {
+      "source": "live_provider_check",
+      "checkedAt": "2026-06-27T00:00:00.000Z",
+      "staleAfterSeconds": 120,
+      "isStale": true,
+      "shouldAutoRefresh": true,
+      "refreshReason": "live_provider_check_stale"
+    },
+    "invalidation": {
+      "invalidateOnOperationIds": [],
+      "invalidateOnStatuses": [
+        "queued",
+        "running",
+        "completed",
+        "failed",
+        "partial_failed"
+      ],
+      "invalidatedAt": null,
+      "lastEventId": "evt_1"
+    },
+    "details": {}
+  },
+  "fluentcrm": {
+    "status": "missing_company",
+    "severity": "warning",
+    "humanMessage": "Falta crear Company en FluentCRM.",
+    "providerCode": "FLUENTCRM_COMPANY_MISSING",
+    "providerStatus": "missing_company",
+    "nextAction": "verify_provider",
+    "availableActions": [
+      "verify_provider"
+    ],
+    "freshness": {
+      "source": "local_reconciled",
+      "checkedAt": "2026-06-27T00:00:00.000Z",
+      "staleAfterSeconds": 300,
+      "isStale": true,
+      "shouldAutoRefresh": false,
+      "refreshReason": "local_reconciled_stale"
+    },
+    "invalidation": {
+      "invalidateOnOperationIds": [],
+      "invalidateOnStatuses": [
+        "queued",
+        "running",
+        "completed",
+        "failed",
+        "partial_failed"
+      ],
+      "invalidatedAt": null,
+      "lastEventId": "evt_1"
+    },
+    "details": {}
+  },
+  "wordpress": {
+    "status": "linked",
+    "severity": "success",
+    "humanMessage": "Usuario WordPress enlazado.",
+    "providerCode": null,
+    "providerStatus": "linked",
+    "nextAction": "verify_provider",
+    "availableActions": [
+      "verify_provider"
+    ],
+    "freshness": {
+      "source": "live_provider_check",
+      "checkedAt": "2026-06-27T00:00:00.000Z",
+      "staleAfterSeconds": 120,
+      "isStale": true,
+      "shouldAutoRefresh": true,
+      "refreshReason": "live_provider_check_stale"
+    },
+    "invalidation": {
+      "invalidateOnOperationIds": [],
+      "invalidateOnStatuses": [
+        "queued",
+        "running",
+        "completed",
+        "failed",
+        "partial_failed"
+      ],
+      "invalidatedAt": null,
+      "lastEventId": "evt_1"
+    },
+    "details": {}
+  },
+  "worker": {
+    "status": "ready",
+    "severity": "success",
+    "humanMessage": "Worker listo.",
+    "providerCode": null,
+    "providerStatus": "ready",
+    "nextAction": "verify_provider",
+    "availableActions": [
+      "verify_provider"
+    ],
+    "freshness": {
+      "source": "worker_runtime",
+      "checkedAt": "2026-06-27T00:00:00.000Z",
+      "staleAfterSeconds": 30,
+      "isStale": true,
+      "shouldAutoRefresh": true,
+      "refreshReason": "worker_runtime_stale"
+    },
+    "invalidation": {
+      "invalidateOnOperationIds": [],
+      "invalidateOnStatuses": [
+        "queued",
+        "running",
+        "completed",
+        "failed",
+        "partial_failed"
+      ],
+      "invalidatedAt": null,
+      "lastEventId": "evt_1"
+    },
+    "details": {}
+  },
+  "liveVerification": {
+    "status": "missing_fluentcrm_company",
+    "severity": "warning",
+    "humanMessage": "Live check confirmó ausencia de Company.",
+    "providerCode": "FLUENTCRM_COMPANY_MISSING",
+    "providerStatus": "missing_fluentcrm_company",
+    "nextAction": "verify_provider",
+    "availableActions": [
+      "verify_provider"
+    ],
+    "freshness": {
+      "source": "live_provider_check",
+      "checkedAt": "2026-06-27T00:00:00.000Z",
+      "staleAfterSeconds": 120,
+      "isStale": true,
+      "shouldAutoRefresh": true,
+      "refreshReason": "live_provider_check_stale"
+    },
+    "invalidation": {
+      "invalidateOnOperationIds": [],
+      "invalidateOnStatuses": [
+        "queued",
+        "running",
+        "completed",
+        "failed",
+        "partial_failed"
+      ],
+      "invalidatedAt": null,
+      "lastEventId": "evt_1"
+    },
+    "details": {}
+  },
+  "contactProgress": {
+    "status": "blocked_by_company",
+    "severity": "warning",
+    "humanMessage": "Contactos bloqueados hasta crear Company.",
+    "providerCode": null,
+    "providerStatus": "blocked_by_company",
+    "nextAction": "verify_provider",
+    "availableActions": [
+      "verify_provider"
+    ],
+    "freshness": {
+      "source": "local_reconciled",
+      "checkedAt": "2026-06-27T00:00:00.000Z",
+      "staleAfterSeconds": 300,
+      "isStale": true,
+      "shouldAutoRefresh": false,
+      "refreshReason": "local_reconciled_stale"
+    },
+    "invalidation": {
+      "invalidateOnOperationIds": [],
+      "invalidateOnStatuses": [
+        "queued",
+        "running",
+        "completed",
+        "failed",
+        "partial_failed"
+      ],
+      "invalidatedAt": null,
+      "lastEventId": "evt_1"
+    },
+    "details": {}
+  },
+  "polling": {
+    "shouldPoll": true,
+    "intervalSeconds": 30,
+    "reason": "stale_live_or_worker_block",
+    "activeOperationIds": []
+  },
+  "latestEventIds": {
+    "audit": "evt_2"
+  },
+  "compatibility": {}
+}

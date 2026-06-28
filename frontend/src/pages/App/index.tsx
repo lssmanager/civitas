@@ -21,6 +21,7 @@ import { OwnerOrganizationConsolePage } from "../OwnerOrganizationConsolePage";
 import { OwnerOrganizationSettingsPage } from "../OwnerOrganizationSettingsPage";
 import { OwnerSettingsPage } from "../OwnerSettingsPage";
 import { OwnerSystemPage } from "../OwnerSystemPage";
+import { OwnerWorkerQueuesPage } from "../OwnerWorkerQueuesPage";
 import { SelectOrganizationPage } from "../SelectOrganizationPage";
 
 function LogtoPrivateLayout() {
@@ -99,6 +100,7 @@ function App() {
             <Route path="organizations/:organizationId/settings" element={<CapabilityRouteGuard capability={routeCapabilities["/owner/organizations/:organizationId/settings"]}><OwnerOrganizationSettingsPage /></CapabilityRouteGuard>} />
             <Route path="logs" element={<CapabilityRouteGuard capability={routeCapabilities["/owner/logs"]}><OwnerAuditPage /></CapabilityRouteGuard>} />
             <Route path="system" element={<CapabilityRouteGuard capability={routeCapabilities["/owner/system"]}><OwnerSystemPage /></CapabilityRouteGuard>} />
+            <Route path="system/worker-queues" element={<CapabilityRouteGuard capability={routeCapabilities["/owner/system/worker-queues"]}><OwnerWorkerQueuesPage /></CapabilityRouteGuard>} />
             <Route path="audit" element={<Navigate to="/owner/logs" replace />} />
             <Route path="settings" element={<CapabilityRouteGuard capability={routeCapabilities["/owner/settings/branding"]}><Navigate to="/owner/settings/branding" replace /></CapabilityRouteGuard>} />
             <Route path="settings/branding" element={<CapabilityRouteGuard capability={routeCapabilities["/owner/settings/branding"]}><OwnerBrandingSettingsPage /></CapabilityRouteGuard>} />
