@@ -808,7 +808,12 @@ function serializeActiveOperation(operation, step, profile, workerState, now = n
 }
 
 function buildBlockedOrganizations({ profiles = [], activeOperations = [], workerState = "alive", queueClassifications = [] } = {}) {
-  const activeByOrg = new Map(activeOperations.map((op) => [op.organizationId, op]));
+  const activeByOrg = new Map();
+  for (const op of activeOperations) {
+    if (op.organizationId && !activeByOrg.has(op.organizationId)) {
+      activeByOrg.set(op.organizationId, op);
+    }
+  }
   const globalQueueBlocker = queueClassifications.find((queue) => ["stuck_in_queue", "backlog_growing", "failed_jobs_present"].includes(queue.classification));
   return profiles.map((profile) => {
     const op = activeByOrg.get(profile.logtoOrganizationId);
