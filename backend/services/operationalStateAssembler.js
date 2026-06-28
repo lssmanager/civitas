@@ -202,8 +202,17 @@ function buildContactProgressFromPendingAndEvents({ pending = [], events = [], p
   const rows = [];
   for (const item of safeArray(pending)) {
     if (item.entityType === "fluentcrm.contact" || /contact|member_identity/i.test(String(item.stepName || item.operationType || ""))) {
-      rows.push(...extractContactItems(item.metadata, { createdAt: item.createdAt, fluentcrmCompanyId: profile?.fluentcrmCompanyId, action: item.stepName || item.operationType }));
-      if (!rows.length) rows.push(normalizeContactProgressItem(item, { createdAt: item.createdAt, fluentcrmCompanyId: profile?.fluentcrmCompanyId, action: item.stepName || item.operationType }));
+      const extracted = extractContactItems(item.metadata, {
+        createdAt: item.createdAt,
+        fluentcrmCompanyId: profile?.fluentcrmCompanyId,
+        action: item.stepName || item.operationType,
+      });
+      if (extracted.length) rows.push(...extracted);
+      else rows.push(normalizeContactProgressItem(item, {
+        createdAt: item.createdAt,
+        fluentcrmCompanyId: profile?.fluentcrmCompanyId,
+        action: item.stepName || item.operationType,
+      }));
     }
   }
   for (const event of safeArray(events)) rows.push(...extractContactItems(event.metadata, { createdAt: event.createdAt, fluentcrmCompanyId: profile?.fluentcrmCompanyId }));
