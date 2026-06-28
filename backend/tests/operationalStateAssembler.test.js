@@ -43,6 +43,28 @@ test("live verification distinguishes live provider checks from snapshot fallbac
   assert.equal(live.severity, "success");
 });
 
+test("live verification uses completed provider verification events when no pending check exists", () => {
+  const live = buildLiveVerificationOperationalBlock({
+    profile: baseProfile,
+    pending: [],
+    events: [{
+      id: "op-op-live-event",
+      at: "2026-06-27T00:04:00.000Z",
+      stage: "provider_verification.finished",
+      result: "completed",
+      retryOperationId: "op-live-event",
+      providerCode: "ALL_OK",
+      humanMessage: "Verificación live completada",
+    }],
+  });
+
+  assert.equal(live.freshness.source, "live_provider_check");
+  assert.equal(live.status, "all_ok");
+  assert.equal(live.severity, "success");
+  assert.equal(live.details.pending, null);
+  assert.equal(live.details.event.id, "op-op-live-event");
+});
+
 test("polling policy uses 3 seconds for active worker runtime and stops when stable", () => {
   assert.deepEqual(buildPollingPolicy({ worker: { details: { queueState: "running", activeOperationIds: ["op-1"] } } }), {
     shouldPoll: true,

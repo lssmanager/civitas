@@ -35,9 +35,10 @@ function buildOperationalBlock({ status = "unknown", severity = "info", humanMes
 function severityRank(severity) { return { critical: 4, warning: 3, info: 2, success: 1 }[severity] || 0; }
 function buildSummary(blocks = {}) {
   const values = Object.values(blocks).filter(Boolean);
-  const worst = values.sort((a, b) => severityRank(b.severity) - severityRank(a.severity))[0] || null;
-  const active = values.some((b) => b.freshness?.source === FRESHNESS_SOURCES.WORKER_RUNTIME && ["queued", "running", "degraded", "stalled"].includes(b.status));
-  return { status: worst?.severity === "critical" ? "requires_action" : active ? "in_progress" : worst?.status || "unknown", severity: worst?.severity || "info", humanMessage: worst?.humanMessage || "Estado operacional consolidado disponible.", dominantSource: worst?.freshness?.source || null, nextAction: worst?.nextAction || ACTIONS.NONE, availableActions: [...new Set(values.flatMap((b) => b.availableActions || []))] };
+  const worst = [...values].sort((a, b) => severityRank(b.severity) - severityRank(a.severity))[0] || null;
+  const active = values.some((b) => b.freshness?.source === FRESHNESS_SOURCES.WORKER_RUNTIME && (b.runtime?.isActive || ["queued", "running", "degraded", "stalled"].includes(b.status)));
+  const dominant = chooseDominantBlock(values);
+  return { status: worst?.severity === "critical" ? "requires_action" : active ? "in_progress" : worst?.status || "unknown", severity: worst?.severity || "info", humanMessage: worst?.humanMessage || "Estado operacional consolidado disponible.", dominantSource: dominant?.freshness?.source || null, nextAction: worst?.nextAction || ACTIONS.NONE, availableActions: [...new Set(values.flatMap((b) => b.availableActions || []))] };
 }
 function buildPolling({ blocks = {}, activeOperationIds = [] } = {}) {
   const shouldPoll = activeOperationIds.length > 0 || Object.values(blocks).some((b) => b?.freshness?.shouldAutoRefresh);

@@ -1800,7 +1800,10 @@ app.get("/owner/organizations/:organizationId/operational-state", requireAuth(AP
     const profile = await resolveOrganizationProfileForRequest(req.params.organizationId);
     const logtoOrganizationId = profile?.logtoOrganizationId || req.params.organizationId;
     const generatedAt = new Date();
-    const [logtoOrganization, pending, events, workerHealth] = await Promise.all([
+    // getWorkerHealthSnapshot() is intentionally synchronous: it returns the last
+    // cached snapshot and triggers an async refresh internally when stale.
+    const workerHealth = getWorkerHealthSnapshot();
+    const [logtoOrganization, pending, events] = await Promise.all([
       getLogtoOrganizationById(logtoOrganizationId).catch((error) => {
         console.warn("Operational state degraded: Logto organization unavailable", { logtoOrganizationId, error: getSafeErrorMessage(error) });
         return null;
@@ -1812,10 +1815,6 @@ app.get("/owner/organizations/:organizationId/operational-state", requireAuth(AP
       listOrganizationEvents({ organizationId: logtoOrganizationId }).catch((error) => {
         console.warn("Operational state degraded: events unavailable", { logtoOrganizationId, error: getSafeErrorMessage(error) });
         return [];
-      }),
-      getWorkerHealthSnapshot().catch((error) => {
-        console.warn("Operational state degraded: worker health unavailable", { logtoOrganizationId, error: getSafeErrorMessage(error) });
-        return { readiness: "unknown", worker: { state: "not_checked" }, redis: { status: "unknown" }, queues: [] };
       }),
     ]);
 

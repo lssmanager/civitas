@@ -47,6 +47,43 @@ function findPending(pending, matcher) {
   return safeArray(pending).find(matcher) || null;
 }
 
+function isProviderVerificationRecord(item = {}) {
+  return item.operationType === "provider_verification"
+    || /provider_verification/.test(String(item.stepName || item.stage || item.type || ""));
+}
+
+function providerStatusFromEvent(event = {}) {
+  if (event.providerStatus) return event.providerStatus;
+  if (event.metadata?.providerStatus) return event.metadata.providerStatus;
+  if (event.providerCode === "ALL_OK" || event.metadata?.providerCode === "ALL_OK") return "all_ok";
+  return event.result || null;
+}
+
+function normalizeProviderVerificationEvent(event = {}) {
+  if (!isProviderVerificationRecord(event)) return null;
+  const providerStatus = providerStatusFromEvent(event);
+  return {
+    operationId: event.retryOperationId || event.operationId || String(event.id || "").replace(/^op-/, "") || null,
+    eventId: event.id || null,
+    operationType: "provider_verification",
+    status: event.result || event.status || providerStatus || "completed",
+    providerStatus,
+    providerCode: event.providerCode || event.metadata?.providerCode || null,
+    humanMessage: event.humanMessage || event.message || event.metadata?.humanMessage || null,
+    updatedAt: event.updatedAt || event.at || event.createdAt || null,
+    sourceEvent: event,
+  };
+}
+
+function findProviderVerification({ pending = [], events = [] } = {}) {
+  const pendingProvider = findPending(pending, isProviderVerificationRecord);
+  if (pendingProvider && (ACTIVE_OPERATION_STATUSES.has(pendingProvider.status) || isActiveQueueState(pendingProvider.retryState))) return pendingProvider;
+  const eventProvider = safeArray(events).map(normalizeProviderVerificationEvent).filter(Boolean).sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0))[0] || null;
+  if (!pendingProvider) return eventProvider;
+  if (!eventProvider) return pendingProvider;
+  return new Date(eventProvider.updatedAt || 0) > new Date(pendingProvider.updatedAt || 0) ? eventProvider : pendingProvider;
+}
+
 function buildCanonicalOperationalBlock({ logtoOrganization, profile, pending = [], events = [], checkedAt = new Date() } = {}) {
   const ok = Boolean(logtoOrganization);
   return buildBaseOperationalBlock({
@@ -84,7 +121,7 @@ function buildFluentCrmOperationalBlock({ profile, pending = [], events = [] } =
 }
 
 function buildWordpressOperationalBlock({ profile, pending = [], events = [] } = {}) {
-  const provider = findPending(pending, (item) => item.operationType === "provider_verification");
+  const provider = findProviderVerification({ pending, events });
   const awaiting = provider?.providerStatus === "awaiting_first_wordpress_login";
   return buildBaseOperationalBlock({
     status: awaiting ? "expected_missing_user" : provider ? "verification_observed" : "not_live_verified",
@@ -92,7 +129,7 @@ function buildWordpressOperationalBlock({ profile, pending = [], events = [] } =
     source: provider ? FRESHNESS_SOURCES.LIVE_PROVIDER_CHECK : FRESHNESS_SOURCES.PERSISTED_SNAPSHOT,
     checkedAt: provider?.updatedAt || profile?.updatedAt || new Date(),
     staleAfterSeconds: 120,
-    pending: provider ? [provider] : [],
+    pending: provider && !provider.eventId ? [provider] : [],
     events,
     humanMessage: awaiting ? "El usuario WordPress local falta y es esperado hasta el primer login." : "WordPress no se usa como canon de autorización; requiere verificación live para estado downstream.",
     providerCode: provider?.providerCode || null,
@@ -121,7 +158,7 @@ function buildWorkerOperationalBlock({ workerHealth = {}, pending = [], events =
 }
 
 function buildLiveVerificationOperationalBlock({ profile, pending = [], events = [] } = {}) {
-  const provider = findPending(pending, (item) => item.operationType === "provider_verification" || /provider_verification/.test(String(item.stepName || "")));
+  const provider = findProviderVerification({ pending, events });
   const source = provider ? FRESHNESS_SOURCES.LIVE_PROVIDER_CHECK : profile ? FRESHNESS_SOURCES.PERSISTED_SNAPSHOT : FRESHNESS_SOURCES.LOCAL_RECONCILED;
   return buildBaseOperationalBlock({
     status: provider?.providerStatus || provider?.status || "not_checked",
@@ -129,12 +166,12 @@ function buildLiveVerificationOperationalBlock({ profile, pending = [], events =
     source,
     checkedAt: provider?.updatedAt || profile?.updatedAt || new Date(),
     staleAfterSeconds: provider ? 120 : 0,
-    pending: provider ? [provider] : [],
+    pending: provider && !provider.eventId ? [provider] : [],
     events,
     humanMessage: provider?.humanMessage || "No existe verificación live reciente; solo hay snapshot operativo local si está disponible.",
     providerCode: provider?.providerCode || null,
     providerStatus: provider?.providerStatus || null,
-    details: { verificationSource: source, pending: provider, dominance: "live_provider_check_over_local_reconciled_over_persisted_snapshot" },
+    details: { verificationSource: source, pending: provider && !provider.eventId ? provider : null, event: provider?.eventId ? provider.sourceEvent : null, dominance: "live_provider_check_over_local_reconciled_over_persisted_snapshot" },
   });
 }
 
@@ -213,7 +250,7 @@ function buildConsolidatedOperationalResponse({ organization, logtoOrganization,
   const worker = buildWorkerOperationalBlock({ workerHealth, pending, events });
   const liveVerification = buildLiveVerificationOperationalBlock({ profile, pending, events });
   const contactProgress = buildContactProgressOperationalBlock({ profile, pending, events });
-  const response = buildContractResponse({ organization, canonical, fluentcrm, wordpress, worker, liveVerification, contactProgress, latestEventIds: { audit: events[0]?.id || null, providerVerification: liveVerification.details?.pending?.operationId || null, fluentcrmCompany: fluentcrm.details?.pending?.operationId || null, fluentcrmContacts: contactProgress.details?.pending?.operationId || null }, generatedAt, compatibility });
+  const response = buildContractResponse({ organization, canonical, fluentcrm, wordpress, worker, liveVerification, contactProgress, latestEventIds: { audit: events[0]?.id || null, providerVerification: liveVerification.details?.pending?.operationId || liveVerification.details?.event?.retryOperationId || null, fluentcrmCompany: fluentcrm.details?.pending?.operationId || null, fluentcrmContacts: contactProgress.details?.pending?.operationId || null }, generatedAt, compatibility });
   return { ...response, summary: buildOperationalSummary({ canonical, fluentcrm, wordpress, worker, liveVerification, contactProgress }), polling: buildPollingPolicy({ worker, pending }) };
 }
 
