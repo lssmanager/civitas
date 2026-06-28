@@ -38,3 +38,25 @@ test('summary dominantSource prefers live provider check over local reconciled w
   assert.equal(summary.severity, 'warning');
   assert.equal(summary.dominantSource, FRESHNESS_SOURCES.LIVE_PROVIDER_CHECK);
 });
+
+test('phase 7 action catalog is canonical, documented and additive-safe', () => {
+  const { OPERATIONAL_ACTIONS, OPERATIONAL_ACTION_DEFINITIONS, OPERATIONAL_ACTION_CATALOG_VERSION } = require('../services/operational/contract');
+  assert.equal(OPERATIONAL_ACTION_CATALOG_VERSION, '2026-06-issue-181-action-catalog-v1');
+  assert.deepEqual(OPERATIONAL_ACTIONS, ['retry', 'verify_provider', 'open_organization', 'wait_first_wordpress_login', 'manual_retry_required', 'human_action_required', 'none']);
+  for (const action of OPERATIONAL_ACTIONS) {
+    assert.equal(OPERATIONAL_ACTION_DEFINITIONS[action].action, action);
+    assert.ok(OPERATIONAL_ACTION_DEFINITIONS[action].semantics);
+    assert.ok(OPERATIONAL_ACTION_DEFINITIONS[action].backend);
+    assert.ok(OPERATIONAL_ACTION_DEFINITIONS[action].frontend);
+  }
+});
+
+test('phase 7 response exposes contract metadata and keeps unknown actions additive', () => {
+  const { CONTRACT_VERSION, OPERATIONAL_ACTION_CATALOG_VERSION } = require('../services/operational/contract');
+  const block = buildOperationalBlock({ status: 'ok', severity: 'success', availableActions: ['future_tool_action'], nextAction: 'future_tool_action', freshness: buildFreshness(), invalidation: buildInvalidation() });
+  const response = buildConsolidatedOperationalResponse({ organization: { logtoOrganizationId: 'org', name: 'Org', sourceAnchors: { logtoOrganizationId: 'org' } }, canonical: block, fluentcrm: block, wordpress: block, worker: block, liveVerification: block, contactProgress: block });
+  assert.equal(response.contractVersion, CONTRACT_VERSION);
+  assert.equal(response.contractMetadata.actionCatalogVersion, OPERATIONAL_ACTION_CATALOG_VERSION);
+  assert.equal(response.contractMetadata.compatibility.breakingChangesRequireNewEndpointOrMajorVersion, true);
+  assert.equal(response.summary.availableActions.includes('future_tool_action'), true);
+});

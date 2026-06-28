@@ -1,4 +1,6 @@
-const ACTIONS = Object.freeze({ RETRY: "retry", VERIFY_PROVIDER: "verify_provider", OPEN_ORGANIZATION: "open_organization", WAIT_FIRST_WORDPRESS_LOGIN: "wait_first_wordpress_login", MANUAL_RETRY_REQUIRED: "manual_retry_required", HUMAN_ACTION_REQUIRED: "human_action_required", NONE: "none" });
+const { ACTIONS, OPERATIONAL_ACTIONS, OPERATIONAL_ACTION_CATALOG_VERSION, OPERATIONAL_ACTION_DEFINITIONS, normalizeOperationalActionList } = require("./actionCatalog");
+const CONTRACT_VERSION = "2026-06-issue-181-phase-7";
+const CONTRACT_COMPATIBILITY = Object.freeze({ strategy: "additive_minor_evolution", compatibleWith: ["2026-06-issue-175-phase-1"], breakingChangesRequireNewEndpointOrMajorVersion: true });
 const FRESHNESS_SOURCES = Object.freeze({ LIVE_PROVIDER_CHECK: "live_provider_check", WORKER_RUNTIME: "worker_runtime", LOCAL_RECONCILED: "local_reconciled", PERSISTED_SNAPSHOT: "persisted_snapshot" });
 const ACTIVE_OPERATION_STATUSES = new Set(["queued", "running", "downstream_running", "canonical_completed", "processing", "active", "waiting", "delayed"]);
 const TERMINAL_FAILURE_STATUSES = new Set(["failed", "partial_failed", "error", "conflict"]);
@@ -26,7 +28,7 @@ function normalizeActions({ status, retryable = false, requiresHumanAction = fal
   if (providerStatus === "awaiting_first_wordpress_login") actions.add(ACTIONS.WAIT_FIRST_WORDPRESS_LOGIN);
   if (status !== "ok" && status !== "healthy") actions.add(ACTIONS.VERIFY_PROVIDER);
   if (!actions.size) actions.add(ACTIONS.NONE);
-  return [...actions];
+  return normalizeOperationalActionList([...actions]);
 }
 function buildOperationalBlock({ status = "unknown", severity = "info", humanMessage = null, providerCode = null, providerStatus = null, nextAction = null, availableActions, freshness, invalidation, details = {}, runtime = null } = {}) {
   const actions = availableActions || normalizeActions({ status, providerStatus, retryable: details.retryable, requiresHumanAction: details.requiresHumanAction, organizationId: details.organizationId });
@@ -46,6 +48,6 @@ function buildPolling({ blocks = {}, activeOperationIds = [] } = {}) {
 }
 function buildConsolidatedOperationalResponse({ organization, canonical, fluentcrm, wordpress, worker, liveVerification, contactProgress, latestEventIds = {}, generatedAt = new Date(), compatibility = {} } = {}) {
   const blocks = { canonical, fluentcrm, wordpress, worker, liveVerification, contactProgress };
-  return { contractVersion: "2026-06-issue-175-phase-1", generatedAt: toIso(generatedAt), organization, summary: buildSummary(blocks), canonical, fluentcrm, wordpress, worker, liveVerification, contactProgress, polling: buildPolling({ blocks, activeOperationIds: worker?.details?.activeOperationIds || [] }), latestEventIds, compatibility };
+  return { contractVersion: CONTRACT_VERSION, contractMetadata: { actionCatalogVersion: OPERATIONAL_ACTION_CATALOG_VERSION, compatibility: CONTRACT_COMPATIBILITY, extensionPolicy: "new top-level blocks and details fields are additive; unknown actions and blocks must be ignored by consumers that cannot render them" }, generatedAt: toIso(generatedAt), organization, summary: buildSummary(blocks), canonical, fluentcrm, wordpress, worker, liveVerification, contactProgress, polling: buildPolling({ blocks, activeOperationIds: worker?.details?.activeOperationIds || [] }), latestEventIds, compatibility };
 }
-module.exports = { ACTIONS, ACTIVE_OPERATION_STATUSES, FRESHNESS_SOURCES, buildConsolidatedOperationalResponse, buildFreshness, buildInvalidation, buildOperationalBlock, buildPolling, buildSummary, chooseDominantBlock, normalizeActions };
+module.exports = { ACTIONS, OPERATIONAL_ACTIONS, OPERATIONAL_ACTION_CATALOG_VERSION, OPERATIONAL_ACTION_DEFINITIONS, CONTRACT_VERSION, CONTRACT_COMPATIBILITY, ACTIVE_OPERATION_STATUSES, FRESHNESS_SOURCES, buildConsolidatedOperationalResponse, buildFreshness, buildInvalidation, buildOperationalBlock, buildPolling, buildSummary, chooseDominantBlock, normalizeActions };

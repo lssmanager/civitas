@@ -177,3 +177,7 @@ and not by isolated integrations coupled to each other.
 ## Compatibility and next migration
 
 Legacy fields remain in `/profile`, `/pending-sync`, `/events`, and owner list projections. The new endpoint is the future source for consolidated state. Subsequent phases should migrate owner cards, provider verification panels and polling logic to this endpoint while preserving existing retry and audit APIs until they are folded into explicit operations tooling.
+
+## Phase 7 hardening
+
+Issue #181 is captured in `docs/architecture/operational-contract-phase-7.md`. That document is now the operational source for the standard action catalog, contract versioning semantics, additive extension conventions, RBAC growth guidance, capability/adapter/connector-registry alignment, payments integration rule and the soft-deprecation matrix for legacy endpoints.
