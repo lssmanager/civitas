@@ -260,7 +260,7 @@ function buildConsolidatedOperationalResponse({ organization, logtoOrganization,
   const liveVerification = buildLiveVerificationOperationalBlock({ profile, pending, events });
   const contactProgress = buildContactProgressOperationalBlock({ profile, pending, events });
   const response = buildContractResponse({ organization, canonical, fluentcrm, wordpress, worker, liveVerification, contactProgress, latestEventIds: { audit: events[0]?.id || null, providerVerification: liveVerification.details?.pending?.operationId || liveVerification.details?.event?.retryOperationId || null, fluentcrmCompany: fluentcrm.details?.pending?.operationId || null, fluentcrmContacts: contactProgress.details?.pending?.operationId || null }, generatedAt, compatibility });
-  return { ...response, summary: buildOperationalSummary({ canonical, fluentcrm, wordpress, worker, liveVerification, contactProgress }), polling: buildPollingPolicy({ worker, pending }) };
+  return { ...response, summary: buildOperationalSummary({ canonical, fluentcrm, wordpress, worker, liveVerification, contactProgress }) };
 }
 
 module.exports = {
