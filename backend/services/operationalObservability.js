@@ -843,7 +843,10 @@ function buildWorkerQueuesObservabilityAggregate({ workerHealth = {}, operations
 }
 
 async function loadWorkerQueuesObservability() {
-  const operationalScanLimit = Math.min(Math.max(Number.parseInt(process.env.OWNER_OPERATIONAL_LOG_SCAN_LIMIT || "5000", 10), 100), 20000);
+  const parsedScanLimit = Number.parseInt(process.env.OWNER_OPERATIONAL_LOG_SCAN_LIMIT || "5000", 10);
+  const operationalScanLimit = Number.isFinite(parsedScanLimit)
+    ? Math.min(Math.max(parsedScanLimit, 100), 20000)
+    : 5000;
   const [profiles, operations, steps, auditLogRows, workerHealth] = await Promise.all([
     db.select().from(organizationProfiles).catch(() => []),
     syncOperations ? db.select().from(syncOperations).orderBy(desc(syncOperations.updatedAt)).limit(operationalScanLimit).catch(() => []) : [],
