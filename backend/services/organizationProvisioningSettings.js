@@ -6,7 +6,20 @@ const APP_SUBDOMAIN_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const DOMAIN_PATTERN = /^(?=.{1,253}$)(?!-)(?:[a-z0-9-]{1,63}\.)+[a-z]{2,63}$/;
 const emptyToNull = (value) => (typeof value === "string" && value.trim() ? value.trim() : null);
 const normalizeSlug = (value) => emptyToNull(value)?.toLowerCase() || null;
-const normalizeDomain = (value) => emptyToNull(value)?.toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "") || null;
+const removeProtocolPrefix = (value) => {
+  if (value.startsWith("https://")) return value.slice("https://".length);
+  if (value.startsWith("http://")) return value.slice("http://".length);
+  return value;
+};
+const stripPathSuffix = (value) => {
+  const slashIndex = value.indexOf("/");
+  return slashIndex === -1 ? value : value.slice(0, slashIndex);
+};
+const normalizeDomain = (value) => {
+  const normalized = emptyToNull(value)?.toLowerCase();
+  if (!normalized) return null;
+  return stripPathSuffix(removeProtocolPrefix(normalized));
+};
 const normalizeAppSubdomain = (value) => emptyToNull(value)?.toLowerCase() || null;
 const normalizeAppBaseDomain = (value) => emptyToNull(value)?.toLowerCase() || null;
 const buildEntryUrl = (appSubdomain, appBaseDomain) => `https://${appSubdomain}.${appBaseDomain}`;
